@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Compy UI</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: transparent !important;
+            overflow: hidden; /* Hide scrollbars */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            width: 100vw;
+        }
+        
+        #video-container {
+            width: 250px;
+            height: 250px;
+            border-radius: 50%;
+            overflow: hidden;
+            -webkit-app-region: drag; /* Let users click and drag the character */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: white; /* Give it a solid background to isolate the GIF inside the circle */
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            transition: all 0.3s ease;
+        }
+
+        #state-image {
+            width: 100%;
+            height: 100%;
+            object-fit: cover; /* Cover ensures the GIF fills the circle without borders */
+            border-radius: 50%; /* Force circle cut out */
+            pointer-events: none; /* Make character unclickable for drag to work behind it */
+        }
+
+        /* Hover interaction */
+        #video-container:hover {
+            cursor: move;
+            transform: scale(1.02);
+        }
+
+        /* ------------------------- */
+        /* LIVE-2D CSS ANIMATION ECS */
+        /* ------------------------- */
+        @keyframes float-idle {
+            0% { transform: translateY(0px) scale(1); }
+            50% { transform: translateY(-6px) scale(1.01); }
+            100% { transform: translateY(0px) scale(1); }
+        }
+        @keyframes pulse-listening {
+            0% { transform: scale(1) translateY(0); }
+            50% { transform: scale(1.08) translateY(-2px); }
+            100% { transform: scale(1) translateY(0); }
+        }
+        @keyframes rock-thinking {
+            0% { transform: rotate(0deg) translateY(0); }
+            25% { transform: rotate(4deg) translateY(-3px); }
+            75% { transform: rotate(-4deg) translateY(3px); }
+            100% { transform: rotate(0deg) translateY(0); }
+        }
+        @keyframes bounce-talking {
+            0%, 100% { transform: translateY(0) scaleX(1); }
+            40% { transform: translateY(-10px) scaleX(1.02); }
+            60% { transform: translateY(-12px) scaleX(0.98); }
+        }
+        @keyframes shake-error {
+            0%, 100% { transform: translateX(0) rotate(0deg); filter: grayscale(0%); }
+            25% { transform: translateX(-6px) rotate(-3deg); filter: grayscale(50%); }
+            75% { transform: translateX(6px) rotate(3deg); filter: grayscale(50%); }
+        }
+
+        .anim-idle { animation: float-idle 4s ease-in-out infinite; }
+        .anim-listening { animation: pulse-listening 1.2s ease-in-out infinite; }
+        .anim-thinking { animation: rock-thinking 2.5s ease-in-out infinite; }
+        .anim-talking { animation: bounce-talking 0.6s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+        .anim-error { animation: shake-error 0.15s ease-in-out infinite; }
+    </style>
+</head>
+<body>
+    <div id="video-container">
+        <!-- Live-2D Native GIF Element -->
+        <img id="state-image" class="anim-idle" src="assets/animations/idle.gif" />
+    </div>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+        const imageElement = document.getElementById('state-image');
+
+        // Mapping states to user-supplied transparent GIFs
+        const stateImages = {
+            "idle": "assets/animations/idle.gif",
+            "listening": "assets/animations/listening.gif",
+            "thinking": "assets/animations/thinking.gif",
+            "talking": "assets/animations/talking.gif",
+            "error": "assets/animations/error.gif"
+        };
+        
+        // Mapping states to Live-2D CSS keyframes
+        const stateAnimations = {
+            "idle": "anim-idle",
+            "listening": "anim-listening",
+            "thinking": "anim-thinking",
+            "talking": "anim-talking",
+            "error": "anim-error"
+        };
+
+
+        ipcRenderer.on('state-changed', (event, state) => {
+            console.log("Updating UI state to: ", state);
+            if (stateImages[state]) {
+                imageElement.src = stateImages[state];
+                imageElement.className = stateAnimations[state];
+            }
+        });
+    </script>
+</body>
+</html>
