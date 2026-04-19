@@ -146,44 +146,37 @@ listener.transcription_ready.connect(on_transcription)
 # -------------------------------------------------------------
 # Wiring AI
 # -------------------------------------------------------------
-def on_ai_response(text: str):
-    import re
-    # Extract emotion tag if present
-    match = re.match(r"^\[(.*?)\]\s*(.*)", text.strip())
+def on_ai_started(tag: str):
+    emotion = "talking"
     
-    clean_text = text
-    emotion = "talking" # default to standard talking animation
-    
-    if match:
-        tag = match.group(1).lower()
-        clean_text = match.group(2)
+    if tag in ["sad", "error"]:
+        tag = "angry"
+    elif tag in ["happy1", "happy2", "happy mode", "smiling", "laughing"]:
+        tag = "happy"
+    elif tag in ["loading", "processing"]:
+        tag = "thinking"
+    elif tag in ["praise", "good"]:
+        tag = "praise"
+    elif tag in ["excited", "wow"]:
+        tag = "excited"
+    elif tag in ["lazy", "sleepy"]:
+        tag = "idle"
         
-        # Map aliases and variations to our core supported gifs
-        if tag in ["sad", "error"]:
-            tag = "angry"
-        elif tag in ["happy1", "happy2", "happy mode", "smiling", "laughing"]:
-            tag = "happy"
-        elif tag in ["loading", "processing"]:
-            tag = "thinking"
-        elif tag in ["praise", "good"]:
-            tag = "praise"
-        elif tag in ["excited", "wow"]:
-            tag = "excited"
-        elif tag in ["lazy", "sleepy"]:
-            tag = "idle"
-            
-        valid_emotions = [
-            "idle", "happy", "angry", "error", "thinking", "listening", 
-            "talking", "startup", "praise", "excited", "booting", 
-            "chilling", "waiting", "typing"
-        ]
-        if tag in valid_emotions:
-            emotion = tag
+    valid_emotions = [
+        "idle", "happy", "angry", "error", "thinking", "listening", 
+        "talking", "startup", "praise", "excited", "booting", 
+        "chilling", "waiting", "typing"
+    ]
+    if tag in valid_emotions:
+        emotion = tag
 
     state_mgr.transition(emotion)
-    speaker.say(clean_text)
+    
+def on_ai_chunk(text: str):
+    speaker.say(text, interrupt=False)
 
-ai.response_ready.connect(on_ai_response)
+ai.response_started.connect(on_ai_started)
+ai.response_chunk.connect(on_ai_chunk)
 ai.error_occurred.connect(lambda e: (
     print(json.dumps({"type": "log", "message": f"[AI Error] {e}"}), flush=True),
     state_mgr.force("error"),

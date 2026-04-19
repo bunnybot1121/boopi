@@ -27,6 +27,7 @@ MAX_HISTORY = 10
 class AIThread(QThread):
     response_ready = pyqtSignal(str)
     response_chunk = pyqtSignal(str)
+    response_started = pyqtSignal(str)
     error_occurred = pyqtSignal(str)
 
     def __init__(self):
@@ -113,7 +114,7 @@ class AIThread(QThread):
                 response = client.chat.completions.create(
                     model="openai/gpt-4o-mini",
                     messages=messages,
-                    stream=False,
+                    stream=True,
                     max_tokens=150,
                     extra_headers={
                         "HTTP-Referer": "http://localhost",
@@ -122,11 +123,52 @@ class AIThread(QThread):
                 )
                 
                 full_response = ""
-                if response.choices and response.choices[0].message and response.choices[0].message.content:
-                    full_response = response.choices[0].message.content
+                emotion_tag = "talking"
+                parsing_emotion = True
+                emotion_buffer = ""
+                current_sentence = ""
+
+                for chunk in response:
+                    if self._interrupted: break
+                    
+                    delta = chunk.choices[0].delta.content if hasattr(chunk.choices[0], 'delta') else None
+                    if delta:
+                        full_response += delta
+                        
+                        if parsing_emotion:
+                            emotion_buffer += delta
+                            if "]" in emotion_buffer:
+                                match = re.match(r"^\[(.*?)\]", emotion_buffer.strip())
+                                if match:
+                                    emotion_tag = match.group(1).lower()
+                                    if not self._interrupted: self.response_started.emit(emotion_tag)
+                                    idx = emotion_buffer.find("]") + 1
+                                    current_sentence += emotion_buffer[idx:].lstrip()
+                                else:
+                                    if not self._interrupted: self.response_started.emit("talking")
+                                    current_sentence += emotion_buffer
+                                parsing_emotion = False
+                            elif len(emotion_buffer) > 20: # Fallback if no tag found soon
+                                if not self._interrupted: self.response_started.emit("talking")
+                                current_sentence += emotion_buffer
+                                parsing_emotion = False
+                            continue
+                            
+                        current_sentence += delta
+                        if re.search(r'[.!?\n]\s*$', current_sentence) or delta.endswith('\n'):
+                            text_to_emit = current_sentence.strip()
+                            if text_to_emit and not self._interrupted:
+                                self.response_chunk.emit(text_to_emit)
+                            current_sentence = ""
+                            
+                if current_sentence.strip() and not self._interrupted:
+                    self.response_chunk.emit(current_sentence.strip())
 
                 if not full_response:
                     full_response = "I couldn't think of anything to say."
+                    if not self._interrupted:
+                        self.response_started.emit("talking")
+                        self.response_chunk.emit(full_response)
 
                 safe_resp = full_response.strip().encode('ascii', 'ignore').decode('ascii')
                 print(f"From Python: [AI] '{safe_resp}'", flush=True)

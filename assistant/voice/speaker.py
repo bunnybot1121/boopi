@@ -60,96 +60,107 @@ class SpeakerThread(QThread):
 
     def __init__(self):
         super().__init__()
-        self._queue = queue.Queue()
-        self._interrupted = False
-        self.start() # Start immediately and stay alive
+        self._text_queue = queue.Queue()
+        self._audio_queue = queue.Queue()
+        self._epoch = 0
+        self._chunk_counter = 0
+        self._exit_flag = False
+        self.start()
 
-    def say(self, text: str):
+    def say(self, text: str, interrupt=True):
         if not text or not text.strip():
-            self.speech_finished.emit()
             return
         
-        # Interrupt any ongoing speech
-        self.interrupt()
-        
-        # Add the new speech request
-        self._queue.put({"text": text})
+        if interrupt:
+            self.interrupt()
+            
+        self._text_queue.put((text, self._epoch))
 
     def interrupt(self):
-        self._interrupted = True
+        self._epoch += 1
         Win32Audio.stop()
-        # Clear out any pending requests
-        while not self._queue.empty():
+        while not self._text_queue.empty():
             try:
-                self._queue.get_nowait()
+                self._text_queue.get_nowait()
+            except queue.Empty:
+                break
+        while not self._audio_queue.empty():
+            try:
+                path, _ = self._audio_queue.get_nowait()
+                if path and os.path.exists(path):
+                    try: os.remove(path)
+                    except: pass
             except queue.Empty:
                 break
 
     def quit(self):
-        # Stop everything and inject poison pill to kill the thread
         self.interrupt()
-        self._queue.put(None)
+        self._exit_flag = True
+        self._text_queue.put(None)
+        self._audio_queue.put(None)
 
     def run(self):
-        while True:
-            try:
-                item = self._queue.get()
-                if item is None: # Exit signal
+        def tts_generator_loop():
+            voice = "en-US-AnaNeural"
+            flags = subprocess.CREATE_NO_WINDOW
+            while True:
+                item = self._text_queue.get()
+                if item is None:
                     break
                 
-                text_to_say = item["text"]
-                self._interrupted = False
-
-                if self._interrupted:
+                text, epoch = item
+                if epoch != self._epoch or self._exit_flag:
                     continue
+                
+                self._chunk_counter += 1
+                out_path = f"temp_speech_{self._chunk_counter}.mp3"
+                try:
+                    subprocess.run(
+                        ["edge-tts", "--text", text, "--voice", voice, "--write-media", out_path],
+                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        creationflags=flags, check=True
+                    )
+                    if epoch == self._epoch and not self._exit_flag:
+                        self._audio_queue.put((out_path, epoch))
+                    else:
+                        if os.path.exists(out_path):
+                            try: os.remove(out_path)
+                            except: pass
+                except Exception as e:
+                    _log(f"TTS Gen Error: {e}")
 
+        gen_thread = threading.Thread(target=tts_generator_loop, daemon=True)
+        gen_thread.start()
+
+        while True:
+            try:
+                item = self._audio_queue.get()
+                if item is None:
+                    break
+                
+                path, epoch = item
+                if epoch != self._epoch or self._exit_flag:
+                    if os.path.exists(path):
+                        try: os.remove(path)
+                        except: pass
+                    continue
+                
                 self.speech_started.emit()
                 
-                temp_file = "temp_speech.mp3"
-                voice = "en-US-AnaNeural"
+                Win32Audio.play(path)
                 
-                _log(f"Step 1: Starting edge-tts subprocess for: {text_to_say[:50]}")
-                print(f"From Python: [TTS] Generating audio...", flush=True)
-                
-                flags = subprocess.CREATE_NO_WINDOW
-
-                subprocess.run(
-                    ["edge-tts", "--text", text_to_say, "--voice", voice, "--write-media", temp_file],
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    creationflags=flags,
-                    check=True
-                )
-                _log("Step 2: edge-tts subprocess completed")
-
-                if self._interrupted:
-                    continue
-
-                _log("Step 3: Sleeping 0.1s for disk flush")
-                time.sleep(0.1)
-
-                _log("Step 4: Calling Win32Audio.play()")
-                Win32Audio.play(temp_file)
-                _log("Step 5: Win32Audio.play() returned, entering poll loop")
-                
-                while Win32Audio.is_playing() and not self._interrupted:
+                while Win32Audio.is_playing() and epoch == self._epoch and not self._exit_flag:
                     time.sleep(0.1)
-
-                _log("Step 6: Playback loop finished, cleaning up")
+                
                 Win32Audio.stop()
-
-                if os.path.exists(temp_file):
-                    try:
-                        os.remove(temp_file)
-                    except:
-                        pass
-
-                if not self._interrupted:
+                
+                if os.path.exists(path):
+                    try: os.remove(path)
+                    except: pass
+                    
+                if epoch == self._epoch and not self._exit_flag and self._text_queue.empty() and self._audio_queue.empty():
                     self.speech_finished.emit()
-                _log("Step 8: Audio task completed successfully")
 
             except Exception as e:
-                _log(f"ERROR in run(): {e}")
                 self.error_occurred.emit(str(e))
 
