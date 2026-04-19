@@ -7,7 +7,7 @@ SAMPLE_RATE = 16000
 FRAME_MS = 30
 FRAME_SAMPLES = int(SAMPLE_RATE * FRAME_MS / 1000)
 VAD_AGGRESSIVENESS = 2
-SILENCE_FRAMES = 45
+SILENCE_FRAMES = 20
 MIN_SPEECH_FRAMES = 10
 PRE_ROLL_FRAMES = 10
 
@@ -45,7 +45,7 @@ class ListenerThread(QThread):
                 if ambient_frames:
                     avg_ambient = sum(ambient_frames) / len(ambient_frames)
                     # Relaxed multiplier so normal conversational volume triggers the mic
-                    self._energy_threshold = max(200, avg_ambient * 1.3)
+                    self._energy_threshold = max(150, avg_ambient * 1.15)
                 print(f"From Python: [Listener] Calibration done. Noise: {avg_ambient:.0f}, Threshold: {self._energy_threshold:.0f}", flush=True)
 
                 ring_buffer = collections.deque(maxlen=PRE_ROLL_FRAMES)
@@ -74,7 +74,7 @@ class ListenerThread(QThread):
                             ring_buffer.append((frame, is_speech))
                             num_voiced = sum(1 for _, s in ring_buffer if s)
                             # Relaxed sensitivity so it triggers much faster and doesn't require sustained loud audio
-                            if num_voiced >= 0.5 * ring_buffer.maxlen:
+                            if num_voiced >= 0.3 * ring_buffer.maxlen:
                                 triggered = True
                                 voiced_frames.extend([f for f, _ in ring_buffer])
                                 ring_buffer.clear()

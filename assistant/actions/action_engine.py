@@ -1,6 +1,17 @@
-import re, subprocess, webbrowser, platform
+import re, subprocess, webbrowser, platform, os
 from datetime import datetime
 from memory import user_memory
+
+def _run_detached(cmd_list, use_shell=False):
+    kwargs = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "shell": use_shell
+    }
+    if platform.system() == "Windows":
+        kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+    subprocess.Popen(cmd_list, **kwargs)
 
 def _open_browser(match=None):
     webbrowser.open("https://www.google.com")
@@ -13,32 +24,32 @@ def _google_search(match):
 
 def _open_vscode(match=None):
     try:
-        subprocess.Popen(["code", "."], shell=(platform.system() == "Windows"))
+        _run_detached(["code", "."], use_shell=(platform.system() == "Windows"))
     except FileNotFoundError:
         return "VS Code not found in PATH."
     return "Opening VS Code."
 
 def _open_notepad(match=None):
     if platform.system() == "Windows":
-        subprocess.Popen(["notepad.exe"])
+        _run_detached(["notepad.exe"])
     elif platform.system() == "Darwin":
-        subprocess.Popen(["open", "-a", "TextEdit"])
+        _run_detached(["open", "-a", "TextEdit"])
     else:
-        subprocess.Popen(["gedit"])
+        _run_detached(["gedit"])
     return "Opening notes."
 
 def _open_spotify(match=None):
     if platform.system() == "Windows":
-        subprocess.Popen(["start", "spotify:"], shell=True)
+        _run_detached(["start", "spotify:"], use_shell=True)
     elif platform.system() == "Darwin":
-        subprocess.Popen(["open", "-a", "Spotify"])
+        _run_detached(["open", "-a", "Spotify"])
     return "Opening Spotify."
 
 def _open_calculator(match=None):
     if platform.system() == "Windows":
-        subprocess.Popen(["calc.exe"])
+        _run_detached(["calc.exe"])
     elif platform.system() == "Darwin":
-        subprocess.Popen(["open", "-a", "Calculator"])
+        _run_detached(["open", "-a", "Calculator"])
     return "Opening calculator."
 
 def _get_time(match=None):

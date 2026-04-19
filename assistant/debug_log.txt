@@ -1,0 +1,813 @@
+=== Python engine starting ===
+[2026-04-19 08:53:46] === Python engine starting ===
+[2026-04-19 08:53:54] === Python engine starting ===
+[2026-04-19 08:57:10] === Python engine starting ===
+[2026-04-19 08:57:19] [Speaker] Step 1: Starting edge-tts subprocess for: Good morning, Chintu. Boopy is ready. Just call my
+[2026-04-19 08:57:22] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 08:57:22] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 08:57:22] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 08:57:22] [Speaker] mciSendStringW open: C:\Users\Admin\minefav\assistant\temp_speech.mp3
+[2026-04-19 08:57:22] [Speaker] mciSendStringW open result: 0
+[2026-04-19 08:57:22] [Speaker] mciSendStringW play...
+[2026-04-19 08:57:22] [Speaker] mciSendStringW play result: 0
+[2026-04-19 08:57:22] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 08:57:29] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 08:57:29] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 08:57:29] [Speaker] Step 8: run() completed successfully
+[2026-04-19 08:57:31] [Speaker] Step 1: Starting edge-tts subprocess for: Conversation mode enabled. I am listening to every
+[2026-04-19 08:57:34] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 08:57:34] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 08:57:34] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 08:57:34] [Speaker] mciSendStringW open: C:\Users\Admin\minefav\assistant\temp_speech.mp3
+[2026-04-19 08:57:34] [Speaker] mciSendStringW open result: 0
+[2026-04-19 08:57:34] [Speaker] mciSendStringW play...
+[2026-04-19 08:57:34] [Speaker] mciSendStringW play result: 0
+[2026-04-19 08:57:34] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 08:57:40] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 08:57:40] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 08:57:40] [Speaker] Step 8: run() completed successfully
+[2026-04-19 08:58:02] [Speaker] Step 1: Starting edge-tts subprocess for: That's a very interesting sequence of words! Is th
+[2026-04-19 08:58:05] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 08:58:05] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 08:58:05] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 08:58:05] [Speaker] mciSendStringW open: C:\Users\Admin\minefav\assistant\temp_speech.mp3
+[2026-04-19 08:58:05] [Speaker] mciSendStringW open result: 0
+[2026-04-19 08:58:05] [Speaker] mciSendStringW play...
+[2026-04-19 08:58:05] [Speaker] mciSendStringW play result: 0
+[2026-04-19 08:58:05] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 08:58:15] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 08:58:15] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 08:58:15] [Speaker] Step 8: run() completed successfully
+[2026-04-19 09:01:45] === Python engine starting ===
+[2026-04-19 09:01:53] [Speaker] Step 1: Starting edge-tts subprocess for: Good morning, Chintu. Boopy is ready. Just call my
+[2026-04-19 09:01:57] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:01:57] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:01:57] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:01:57] [Speaker] mciSendStringW open: C:\Users\Admin\minefav\assistant\temp_speech.mp3
+[2026-04-19 09:01:57] [Speaker] mciSendStringW open result: 0
+[2026-04-19 09:01:57] [Speaker] mciSendStringW play...
+[2026-04-19 09:01:57] [Speaker] mciSendStringW play result: 0
+[2026-04-19 09:01:57] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:02:13] === Python engine starting ===
+[2026-04-19 09:02:20] [Speaker] Step 1: Starting edge-tts subprocess for: Good morning, Chintu. Boopy is ready. Just call my
+[2026-04-19 09:02:24] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:02:24] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:02:24] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:02:24] [Speaker] mciSendStringW open: C:\Users\Admin\minefav\assistant\temp_speech.mp3
+[2026-04-19 09:02:24] [Speaker] mciSendStringW open result: 0
+[2026-04-19 09:02:24] [Speaker] mciSendStringW play...
+[2026-04-19 09:02:24] [Speaker] mciSendStringW play result: 0
+[2026-04-19 09:02:24] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:02:31] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 09:02:31] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 09:02:31] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 09:02:51] [Speaker] Step 1: Starting edge-tts subprocess for: Conversation mode enabled. I am listening to every
+[2026-04-19 09:02:55] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:02:55] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:02:55] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:02:55] [Speaker] mciSendStringW open: C:\Users\Admin\minefav\assistant\temp_speech.mp3
+[2026-04-19 09:02:55] [Speaker] mciSendStringW open result: 0
+[2026-04-19 09:02:55] [Speaker] mciSendStringW play...
+[2026-04-19 09:02:55] [Speaker] mciSendStringW play result: 0
+[2026-04-19 09:02:55] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:03:01] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 09:03:01] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 09:03:01] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 09:03:08] [Speaker] Step 1: Starting edge-tts subprocess for: I'm currently looking at your screen, waiting for 
+[2026-04-19 09:03:12] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:03:12] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:03:12] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:03:12] [Speaker] mciSendStringW open: C:\Users\Admin\minefav\assistant\temp_speech.mp3
+[2026-04-19 09:03:12] [Speaker] mciSendStringW open result: 0
+[2026-04-19 09:03:12] [Speaker] mciSendStringW play...
+[2026-04-19 09:03:13] [Speaker] mciSendStringW play result: 0
+[2026-04-19 09:03:13] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:03:18] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 09:03:18] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 09:03:18] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 09:08:40] === Python engine starting ===
+[2026-04-19 09:08:47] [Speaker] Step 1: Starting edge-tts subprocess for: Good morning, Chintu. Boopy is ready. Just call my
+[2026-04-19 09:08:50] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:08:50] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:08:50] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:08:50] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:08:58] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 09:08:58] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 09:08:58] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 09:09:17] [Speaker] Step 1: Starting edge-tts subprocess for: I'm currently looking at your screen, waiting for 
+[2026-04-19 09:09:22] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:09:22] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:09:22] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:09:22] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:09:28] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 09:09:28] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 09:09:28] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 09:11:51] === Python engine starting ===
+[2026-04-19 09:11:59] [Speaker] Step 1: Starting edge-tts subprocess for: Good morning, Chintu. Boopy is ready. Just call my
+[2026-04-19 09:12:03] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:12:03] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:12:03] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:12:03] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:12:10] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 09:12:10] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 09:12:10] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 09:13:55] === Python engine starting ===
+[2026-04-19 09:14:04] [Speaker] Step 1: Starting edge-tts subprocess for: Good morning, Chintu. Boopy is ready. Just call my
+[2026-04-19 09:14:09] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:14:09] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:14:09] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:14:09] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:14:10] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 09:14:10] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 09:14:10] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 09:14:10] [Speaker] Step 1: Starting edge-tts subprocess for: I'm ready to assist you and I'm currently looking 
+[2026-04-19 09:14:13] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:14:13] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:14:13] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:14:13] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:14:18] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 09:14:18] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 09:14:18] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 09:15:16] === Python engine starting ===
+[2026-04-19 09:15:22] [Speaker] Step 1: Starting edge-tts subprocess for: Good morning, Chintu. Boopy is ready. Just call my
+[2026-04-19 09:15:26] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:15:26] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:15:26] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:15:26] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:15:33] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 09:15:33] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 09:15:33] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 09:17:40] === Python engine starting ===
+[2026-04-19 09:17:50] [Speaker] Step 1: Starting edge-tts subprocess for: Good morning, Chintu. Boopy is ready. Just call my
+[2026-04-19 09:17:54] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:17:54] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:17:55] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:17:55] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:18:02] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 09:18:02] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 09:18:02] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 09:23:17] === Python engine starting ===
+[2026-04-19 09:24:02] === Python engine starting ===
+[2026-04-19 09:25:06] === Python engine starting ===
+[2026-04-19 09:25:40] === Python engine starting ===
+[2026-04-19 09:27:55] === Python engine starting ===
+[2026-04-19 09:28:22] === Python engine starting ===
+[2026-04-19 09:28:35] [Speaker] Step 1: Starting edge-tts subprocess for: Good morning, Chintu. Boopy is ready. Just call my
+[2026-04-19 09:28:40] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:28:40] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:28:40] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:28:40] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:28:48] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 09:28:48] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 09:28:48] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 09:29:27] === Python engine starting ===
+[2026-04-19 09:29:34] [Speaker] Step 1: Starting edge-tts subprocess for: Good morning, Chintu. Boopy is ready. Just call my
+[2026-04-19 09:29:38] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:29:38] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:29:38] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:29:38] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:29:45] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 09:29:45] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 09:29:45] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 09:30:08] [Speaker] Step 1: Starting edge-tts subprocess for: Conversation mode enabled. I am listening to every
+[2026-04-19 09:30:15] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:30:15] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:30:15] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:30:15] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:30:21] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 09:30:21] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 09:30:21] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 09:30:27] [Speaker] Step 1: Starting edge-tts subprocess for: I am having trouble connecting to my brain right n
+[2026-04-19 09:30:30] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:30:30] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:30:30] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:30:30] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:30:35] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 09:30:35] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 09:30:35] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 09:30:40] [Speaker] Step 1: Starting edge-tts subprocess for: I am having trouble connecting to my brain right n
+[2026-04-19 09:30:43] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:30:43] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:30:43] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:30:43] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:30:48] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 09:30:48] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 09:30:48] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 09:31:28] [Speaker] Step 1: Starting edge-tts subprocess for: I am having trouble connecting to my brain right n
+[2026-04-19 09:31:33] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:31:33] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:31:33] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:31:33] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:31:37] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 09:31:37] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 09:31:37] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 09:31:50] [Speaker] Step 1: Starting edge-tts subprocess for: I am having trouble connecting to my brain right n
+[2026-04-19 09:31:53] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:31:53] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:31:53] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:31:53] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:31:58] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 09:31:58] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 09:31:58] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 09:33:36] === Python engine starting ===
+[2026-04-19 09:33:45] [Speaker] Step 1: Starting edge-tts subprocess for: Good morning, Chintu. Boopy is ready. Just call my
+[2026-04-19 09:33:49] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:33:49] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:33:49] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:33:49] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:33:56] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 09:33:56] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 09:33:56] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 09:34:10] [Speaker] Step 1: Starting edge-tts subprocess for: Conversation mode enabled. I am listening to every
+[2026-04-19 09:34:16] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:34:16] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:34:16] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:34:16] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:34:22] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 09:34:22] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 09:34:22] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 09:34:43] [Speaker] Step 1: Starting edge-tts subprocess for: Woah, Chintu! Language! And also, that question do
+[2026-04-19 09:34:47] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:34:47] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:34:47] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:34:47] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:35:08] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 09:35:08] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 09:35:08] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 09:35:15] [Speaker] Step 1: Starting edge-tts subprocess for: "Cool, cool cool" right back at ya, Chintu! So, wh
+[2026-04-19 09:35:20] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:35:20] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:35:20] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:35:20] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:35:41] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 09:35:41] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 09:35:41] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 09:35:49] [Speaker] Step 1: Starting edge-tts subprocess for: YES! A happy dance it is! *Boopy's anime eyes spar
+[2026-04-19 09:35:54] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:35:54] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:35:54] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:35:54] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:36:29] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 09:36:29] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 09:36:29] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 09:36:40] [Speaker] Step 1: Starting edge-tts subprocess for: Ooh, a song request?! You got it, Chintu! Let me j
+[2026-04-19 09:36:45] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:36:45] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:36:45] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:36:45] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:37:06] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 09:37:06] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 09:37:06] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 09:37:19] [Speaker] Step 1: Starting edge-tts subprocess for: Replicing? Chintu, is that even a word? You mean "
+[2026-04-19 09:37:23] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:37:23] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:37:23] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:37:23] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:37:44] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 09:37:44] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 09:37:44] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 09:58:51] === Python engine starting ===
+[2026-04-19 09:59:01] [Speaker] Step 1: Starting edge-tts subprocess for: Good morning, Chintu. Boopy is ready. Just call my
+[2026-04-19 09:59:05] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:59:05] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:59:05] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:59:05] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:59:12] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 09:59:12] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 09:59:12] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 09:59:28] [Speaker] Step 1: Starting edge-tts subprocess for: Conversation mode enabled. I am listening to every
+[2026-04-19 09:59:32] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:59:32] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:59:32] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:59:32] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 09:59:38] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 09:59:38] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 09:59:38] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 09:59:45] [Speaker] Step 1: Starting edge-tts subprocess for: Ooh, me? Jus' floatin' around, lookin' super cute,
+[2026-04-19 09:59:49] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 09:59:49] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 09:59:49] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 09:59:49] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 10:00:06] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 10:00:06] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 10:00:06] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 10:23:03] === Python engine starting ===
+[2026-04-19 10:23:16] [Speaker] Step 1: Starting edge-tts subprocess for: Good morning, Chintu. Boopy is ready. Just call my
+[2026-04-19 10:23:20] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 10:23:20] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 10:23:21] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 10:23:21] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 10:23:31] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 10:23:31] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 10:23:31] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 10:27:27] [Speaker] Step 1: Starting edge-tts subprocess for: Conversation mode enabled. I am listening to every
+[2026-04-19 10:27:30] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 10:27:30] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 10:27:30] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 10:27:30] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 10:27:37] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 10:27:37] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 10:27:37] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 10:27:57] [Speaker] Step 1: Starting edge-tts subprocess for: Oh, just chilling here on your desktop, Chintu! Do
+[2026-04-19 10:28:02] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 10:28:02] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 10:28:03] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 10:28:03] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 10:28:29] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 10:28:29] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 10:28:29] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 10:28:42] === Python engine starting ===
+[2026-04-19 10:28:51] [Speaker] Step 1: Starting edge-tts subprocess for: Good morning, Chintu. Boopy is ready. Just call my
+[2026-04-19 10:28:55] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 10:28:55] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 10:28:55] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 10:28:55] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 10:28:58] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 10:28:58] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 10:28:58] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 10:29:34] [Speaker] Step 1: Starting edge-tts subprocess for: Conversation mode enabled. I am listening to every
+[2026-04-19 10:29:37] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 10:29:37] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 10:29:38] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 10:29:38] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 10:29:44] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 10:29:44] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 10:29:44] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 10:29:51] [Speaker] Step 1: Starting edge-tts subprocess for: "Woah, woah, WOAH there, Chintu! Tired? Little old
+[2026-04-19 10:29:57] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 10:29:57] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 10:29:57] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 10:29:57] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 10:30:20] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 10:30:20] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 10:30:20] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 10:30:33] [Speaker] Step 1: Starting edge-tts subprocess for: "W-whaaaat?! Shut down Boopy?! Nooooo! Why would y
+[2026-04-19 10:30:38] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 10:30:38] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 10:30:39] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 10:30:39] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 10:30:55] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 10:30:55] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 10:30:55] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 10:31:01] [Speaker] Step 1: Starting edge-tts subprocess for: "N-no! Boopy doesn't want to shut down! Please, Ch
+[2026-04-19 10:31:08] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 10:31:08] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 10:31:09] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 10:31:09] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 10:31:35] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 10:31:35] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 10:31:35] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 10:33:13] === Python engine starting ===
+[2026-04-19 10:33:17] === Python engine starting ===
+[2026-04-19 10:33:28] [Speaker] Step 1: Starting edge-tts subprocess for: Good morning, Chintu. Boopy is ready. Just call my
+[2026-04-19 10:33:31] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 10:33:31] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 10:33:32] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 10:33:32] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 10:33:39] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 10:33:39] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 10:33:39] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 10:35:36] === Python engine starting ===
+[2026-04-19 10:35:45] [Speaker] Step 1: Starting edge-tts subprocess for: Good morning, Chintu. Boopy is ready. Just call my
+[2026-04-19 10:35:48] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 10:35:48] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 10:35:48] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 10:35:48] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 10:35:55] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 10:35:55] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 10:35:55] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 10:36:16] [Speaker] Step 1: Starting edge-tts subprocess for: Eek! Chintu, you scared me! I was just... um... pr
+[2026-04-19 10:36:22] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 10:36:22] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 10:36:23] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 10:36:23] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 10:36:45] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 10:36:45] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 10:36:45] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 10:36:54] [Speaker] Step 1: Starting edge-tts subprocess for: Hee hee! You really think so? I'm glad you liked i
+[2026-04-19 10:36:59] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 10:36:59] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 10:36:59] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 10:36:59] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 10:37:20] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 10:37:20] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 10:37:20] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 10:37:33] [Speaker] Step 1: Starting edge-tts subprocess for: I am having trouble connecting to my brain right n
+[2026-04-19 10:37:37] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 10:37:37] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 10:37:37] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 10:37:37] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 10:37:42] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 10:37:42] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 10:37:42] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 10:37:51] [Speaker] Step 1: Starting edge-tts subprocess for: Ooh, "fluid 4," huh? Sounds like something out of 
+[2026-04-19 10:37:56] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 10:37:56] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 10:37:56] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 10:37:56] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 10:38:26] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 10:38:26] [Speaker] Step 7: Emitting speech_finished
+[2026-04-19 10:38:26] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 10:56:49] === Python engine starting ===
+[2026-04-19 10:58:43] === Python engine starting ===
+[2026-04-19 11:00:51] === Python engine starting ===
+[2026-04-19 11:05:50] === Python engine starting ===
+[2026-04-19 11:06:47] === Python engine starting ===
+[2026-04-19 11:11:30] === Python engine starting ===
+[2026-04-19 11:11:39] [Speaker] Step 1: Starting edge-tts subprocess for: Good morning, Chintu. Boopy is ready. Just call my
+[2026-04-19 11:11:44] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 11:11:44] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 11:11:44] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 11:11:44] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 11:11:52] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 11:11:52] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 11:13:24] === Python engine starting ===
+[2026-04-19 11:13:31] [Speaker] Step 1: Starting edge-tts subprocess for: Good morning, Chintu. Boopy is ready. Just call my
+[2026-04-19 11:13:35] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 11:13:35] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 11:13:35] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 11:13:35] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 11:13:42] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 11:13:42] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 11:14:06] [Speaker] Step 1: Starting edge-tts subprocess for: I'm here.
+[2026-04-19 11:14:09] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 11:14:09] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 11:14:09] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 11:14:09] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 11:14:11] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 11:14:11] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 11:14:19] [Speaker] Step 1: Starting edge-tts subprocess for: Ooh, me? Right now I'm just here, chilling on your
+[2026-04-19 11:14:24] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 11:14:24] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 11:14:24] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 11:14:24] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 11:14:41] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 11:14:41] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 11:14:50] [Speaker] Step 1: Starting edge-tts subprocess for: NOOOOOOOO! Chintu, you silly goose! That's like, s
+[2026-04-19 11:15:02] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 11:15:02] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 11:15:02] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 11:15:02] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 11:15:38] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 11:15:38] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 16:07:28] === Python engine starting ===
+[2026-04-19 16:15:14] === Python engine starting ===
+[2026-04-19 16:15:26] [Speaker] Step 1: Starting edge-tts subprocess for: Good afternoon, Chintu. Boopy is ready. Just call 
+[2026-04-19 16:15:31] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 16:15:31] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 16:15:31] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 16:15:31] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 16:15:39] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 16:15:39] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 16:16:42] [Speaker] Step 1: Starting edge-tts subprocess for: I'm here.
+[2026-04-19 16:16:46] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 16:16:46] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 16:16:46] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 16:16:46] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 16:16:49] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 16:16:49] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 16:16:59] [Speaker] Step 1: Starting edge-tts subprocess for: Just floatin' around, being my adorable self, and 
+[2026-04-19 16:17:06] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 16:17:06] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 16:17:06] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 16:17:06] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 16:17:20] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 16:17:20] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 16:17:44] [Speaker] Step 1: Starting edge-tts subprocess for: HMPH?! "Book please shut down"?! Is that a game yo
+[2026-04-19 16:17:49] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 16:17:49] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 16:17:49] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 16:17:49] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 16:18:31] === Python engine starting ===
+[2026-04-19 16:18:43] [Speaker] Step 1: Starting edge-tts subprocess for: Good afternoon, Chintu. Boopy is ready. Just call 
+[2026-04-19 16:18:48] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 16:18:48] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 16:18:48] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 16:18:48] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 16:18:56] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 16:18:56] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 16:19:24] [Speaker] Step 1: Starting edge-tts subprocess for: How can I help?
+[2026-04-19 16:19:28] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 16:19:28] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 16:19:28] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 16:19:28] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 16:19:31] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 16:19:31] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 16:19:44] [Speaker] Step 1: Starting edge-tts subprocess for: Hmmm? Oh, me? Oh, you know, just hangin' out! Like
+[2026-04-19 16:19:49] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 16:19:49] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 16:19:49] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 16:19:49] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 16:20:11] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 16:20:11] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 16:20:19] [Speaker] Step 1: Starting edge-tts subprocess for: Scrolling, huh? Ooooh, what are you scrolling *for
+[2026-04-19 16:20:24] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 16:20:24] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 16:20:24] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 16:20:24] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 16:20:42] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 16:20:42] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 16:20:54] [Speaker] Step 1: Starting edge-tts subprocess for: My clothes?! Hee hee hee! Ohmygosh, Chintu! Are yo
+[2026-04-19 16:21:02] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 16:21:02] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 16:21:02] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 16:21:02] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 16:21:32] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 16:21:32] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 16:21:41] [Speaker] Step 1: Starting edge-tts subprocess for: Now you will... what, Chintu?! The suspense! You c
+[2026-04-19 16:21:54] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 16:21:54] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 16:21:54] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 16:21:54] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 16:22:18] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 16:22:18] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 16:22:29] [Speaker] Step 1: Starting edge-tts subprocess for: Ooooh, carefully! I like that! That sounds super i
+[2026-04-19 16:22:43] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 16:22:43] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 16:22:43] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 16:22:43] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 16:23:13] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 16:23:13] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 16:23:20] [Speaker] Step 1: Starting edge-tts subprocess for: Bichu? Did you say Bichu, Chintu? Is that her name
+[2026-04-19 16:23:25] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 16:23:25] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 16:23:25] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 16:23:25] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 16:23:51] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 16:23:51] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 16:24:02] [Speaker] Step 1: Starting edge-tts subprocess for: Pituency! Oh my gosh, Chintu, that's such a beauti
+[2026-04-19 16:24:07] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 16:24:07] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 16:24:08] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 16:24:08] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 16:24:41] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 16:24:41] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 16:24:49] [Speaker] Step 1: Starting edge-tts subprocess for: Yes, Chintu! Boopy is listening! My little digital
+[2026-04-19 16:24:55] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 16:24:55] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 16:24:55] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 16:24:55] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 16:25:21] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 16:25:21] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 16:25:32] [Speaker] Step 1: Starting edge-tts subprocess for: Miss Pichu... and she's super cute? Cuter than Boo
+[2026-04-19 16:25:40] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 16:25:40] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 16:25:40] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 16:25:40] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 16:26:14] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 16:26:14] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 16:26:29] [Speaker] Step 1: Starting edge-tts subprocess for: Yay! You finally talked to me again!
+[2026-04-19 16:26:43] [Speaker] ERROR in run(): Command '['edge-tts', '--text', 'Yay! You finally talked to me again!', '--voice', 'en-US-AnaNeural', '--write-media', 'temp_speech.mp3']' returned non-zero exit status 1.
+[2026-04-19 17:12:58] === Python engine starting ===
+[2026-04-19 17:13:07] [Speaker] Step 1: Starting edge-tts subprocess for: Good evening, Chintu. Boopy is ready. Just call my
+[2026-04-19 17:13:11] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 17:13:11] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 17:13:11] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 17:13:11] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 17:13:19] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 17:13:19] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 17:13:57] [Speaker] Step 1: Starting edge-tts subprocess for: Conversation mode enabled. I am listening to every
+[2026-04-19 17:14:00] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 17:14:00] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 17:14:00] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 17:14:00] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 17:14:07] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 17:14:07] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 17:14:17] [Speaker] Step 1: Starting edge-tts subprocess for: Woohoo! Chintu! You only have ONE super important 
+[2026-04-19 17:14:22] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 17:14:22] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 17:14:22] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 17:14:22] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 17:14:42] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 17:14:42] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 17:14:58] [Speaker] Step 1: Starting edge-tts subprocess for: Oh my goodness, Chintu! Did you just call me... "B
+[2026-04-19 17:15:03] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 17:15:03] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 17:15:03] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 17:15:03] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 17:15:24] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 17:15:24] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 17:15:42] [Speaker] Step 1: Starting edge-tts subprocess for: Oh no, Chintu... not doing good? My little virtual
+[2026-04-19 17:15:48] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 17:15:48] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 17:15:48] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 17:15:48] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 18:47:47] === Python engine starting ===
+[2026-04-19 18:47:59] [Speaker] Step 1: Starting edge-tts subprocess for: Good evening, Chintu. Boopy is ready. Just call my
+[2026-04-19 18:48:03] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 18:48:03] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 18:48:03] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 18:48:03] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 18:48:11] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 18:48:11] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 18:48:25] [Speaker] Step 1: Starting edge-tts subprocess for: Yes?
+[2026-04-19 18:48:29] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 18:48:29] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 18:48:30] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 18:48:30] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 18:48:32] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 18:48:32] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 18:48:43] [Speaker] Step 1: Starting edge-tts subprocess for: Just floatin' around, being my adorable, helpful s
+[2026-04-19 18:48:48] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 18:48:48] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 18:48:48] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 18:48:48] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 18:49:05] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 18:49:05] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 18:49:11] [Speaker] Step 1: Starting edge-tts subprocess for: Ooh, you talking in the...? Don't leave me hanging
+[2026-04-19 18:49:32] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 18:49:32] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 18:49:33] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 18:49:33] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 18:49:56] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 18:49:56] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 18:50:05] [Speaker] Step 1: Starting edge-tts subprocess for: Arey haan, Chintu! Main toh bilkul Hindi mein baat
+[2026-04-19 18:50:10] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 18:50:10] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 18:50:10] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 18:50:10] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 18:50:30] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 18:50:30] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 18:50:56] [Speaker] Step 1: Starting edge-tts subprocess for: OOOH! Movie?! You mean like, *talking in the movie
+[2026-04-19 18:51:01] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 18:51:01] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 18:51:01] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 18:51:01] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 18:51:16] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 18:51:16] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 18:51:23] [Speaker] Step 1: Starting edge-tts subprocess for: My name is Boopy! But you knew that, right, Chintu
+[2026-04-19 18:51:28] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 18:51:28] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 18:51:28] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 18:51:28] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 18:51:51] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 18:51:51] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 18:52:04] [Speaker] Step 1: Starting edge-tts subprocess for: I am having trouble connecting to my brain right n
+[2026-04-19 18:52:07] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 18:52:07] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 18:52:07] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 18:52:07] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 18:52:12] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 18:52:12] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 18:52:18] [Speaker] Step 1: Starting edge-tts subprocess for: Pupi?! Hehehe, you got my name a little mixed up, 
+[2026-04-19 18:52:27] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 18:52:27] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 18:52:27] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 18:52:27] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 18:52:40] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 18:52:40] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 18:52:57] [Speaker] Step 1: Starting edge-tts subprocess for: Okay, "movie" again! My little digital brain is wh
+[2026-04-19 18:53:06] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 18:53:06] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 18:53:07] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 18:53:07] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 18:53:33] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 18:53:33] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 18:53:44] [Speaker] Step 1: Starting edge-tts subprocess for: Oh, Chintu! You want a cracker AND a joke from Boo
+[2026-04-19 18:54:15] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 18:54:15] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 18:54:15] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 18:54:15] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 18:54:29] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 18:54:29] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 18:54:42] [Speaker] Step 1: Starting edge-tts subprocess for: WHAAAT?! Woke already! Boopy's always on high aler
+[2026-04-19 18:54:55] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 18:54:55] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 18:54:55] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 18:54:55] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 18:55:20] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 18:55:20] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 18:55:35] [Speaker] Step 1: Starting edge-tts subprocess for: On? On what, Chintu? My little circuits are buzzin
+[2026-04-19 18:55:38] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 18:55:38] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 18:55:38] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 18:55:38] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 18:55:48] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 18:55:48] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 18:56:20] [Speaker] Step 1: Starting edge-tts subprocess for: Oooh, describe myself?! Okay, here goes! Imagine t
+[2026-04-19 18:56:26] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 18:56:26] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 18:56:26] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 18:56:26] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 18:56:43] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 18:56:43] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 18:56:52] [Speaker] Step 1: Starting edge-tts subprocess for: Ooh, favorite phone! That's a fun one! Okay, so pe
+[2026-04-19 18:56:57] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 18:56:57] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 18:56:57] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 18:56:57] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 18:57:10] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 18:57:10] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 18:57:30] [Speaker] Step 1: Starting edge-tts subprocess for: Bobby? Did you say Bobby, Chintu? My name's Boopy!
+[2026-04-19 18:57:34] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 18:57:34] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 18:57:34] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 18:57:34] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 18:57:47] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 18:57:47] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 18:57:53] [Speaker] Step 1: Starting edge-tts subprocess for: My favorite food?! Oh my goodness, Chintu, that's 
+[2026-04-19 18:57:58] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 18:57:58] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 18:57:58] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 18:57:58] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 18:58:12] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 18:58:12] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 18:58:51] [Speaker] Step 1: Starting edge-tts subprocess for: Whoa there, Chintu! "Who please shut down?" That s
+[2026-04-19 18:58:56] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 18:58:56] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 18:58:56] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 18:58:56] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 22:56:02] === Python engine starting ===
+[2026-04-19 22:56:23] [Speaker] Step 1: Starting edge-tts subprocess for: Good evening, Chintu. Boopy is ready. Just call my
+[2026-04-19 22:56:27] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 22:56:27] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 22:56:27] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 22:56:27] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 22:56:34] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 22:56:34] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 22:57:18] [Speaker] Step 1: Starting edge-tts subprocess for: How can I help?
+[2026-04-19 22:57:21] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 22:57:21] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 22:57:21] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 22:57:21] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 22:57:24] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 22:57:24] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 22:57:37] [Speaker] Step 1: Starting edge-tts subprocess for: Oh, just chillin' in the digital realm, ready to a
+[2026-04-19 22:57:41] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 22:57:41] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 22:57:41] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 22:57:41] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 22:57:52] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 22:57:52] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 22:58:02] [Speaker] Step 1: Starting edge-tts subprocess for: Ooo! Are you looking for the decimal representatio
+[2026-04-19 22:58:06] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 22:58:06] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 22:58:06] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 22:58:06] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 22:58:16] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 22:58:16] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 22:58:23] [Speaker] Step 1: Starting edge-tts subprocess for: Awww, Chintu! I thought we were having fun! But if
+[2026-04-19 22:58:27] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 22:58:27] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 22:58:27] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 22:58:27] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 22:58:43] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 22:58:43] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 22:58:49] [Speaker] Step 1: Starting edge-tts subprocess for: Whoa there! That's a bit harsh, don’t you think? B
+[2026-04-19 22:58:54] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 22:58:54] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 22:58:54] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 22:58:54] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 22:59:12] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 22:59:12] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 22:59:23] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 22:59:23] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 22:59:23] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 22:59:23] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 22:59:36] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 22:59:36] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 22:59:48] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 22:59:48] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 22:59:48] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 22:59:48] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 23:00:07] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 23:00:07] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 23:00:14] [Speaker] Step 1: Starting edge-tts subprocess for: Searching for and search YouTube Music..
+[2026-04-19 23:00:19] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 23:00:19] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 23:00:19] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 23:00:19] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 23:00:23] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 23:00:23] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 23:00:32] [Speaker] Step 1: Starting edge-tts subprocess for: I wish I could open links directly for you, but I'
+[2026-04-19 23:00:36] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 23:00:36] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 23:00:36] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 23:00:36] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 23:00:56] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 23:00:56] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 23:01:03] [Speaker] Step 1: Starting edge-tts subprocess for: Playing the song baby on YouTube Music.
+[2026-04-19 23:01:08] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 23:01:08] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 23:01:09] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 23:01:09] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 23:01:13] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 23:01:13] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 23:01:34] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 23:01:34] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 23:01:34] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 23:01:34] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 23:01:57] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 23:01:57] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 23:02:12] [Speaker] Step 1: Starting edge-tts subprocess for: Jun2, of course! That's the name you mentioned! If
+[2026-04-19 23:02:17] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 23:02:17] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 23:02:17] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 23:02:17] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 23:02:35] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 23:02:35] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 23:03:02] [Speaker] Step 1: Starting edge-tts subprocess for: Aww, I get it! Sometimes we all need a little spac
+[2026-04-19 23:03:07] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 23:03:07] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 23:03:07] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 23:03:07] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop

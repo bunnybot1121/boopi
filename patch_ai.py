@@ -1,28 +1,11 @@
-import os
-import json
-import logging
-import threading
-import sys
-import queue
+import re
 
-from PyQt6.QtCore import QThread, pyqtSignal
-from openai import OpenAI
+with open('assistant/brain/ai_brain.py', 'r', encoding='utf-8') as f:
+    content = f.read()
 
-from memory import user_memory
-
-# Suppress debug logs from httpx/httpcore
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("httpcore").setLevel(logging.WARNING)
-
-SYSTEM_PROMPT = """You are 'Boopy', an energetic, hyper, sassy, and slightly childish but incredibly loyal AI desktop companion. 
-You live as an anime-style virtual assistant on the user's Windows desktop. 
-IMPORTANT: You have animated expressions. Start every response with exactly one emotion tag in brackets: [happy], [angry], [sad], [idle], [excited], [praise], [chilling], [talking].
-Example: "[happy] That sounds great!" or "[angry] Stop doing that."
-Current user: {user_name}
-User's notes/memories:
-{notes}"""
-
-MAX_HISTORY = 10
+new_content = re.sub(
+    r'class AIThread\(QThread\):.*?def clear_memory\(self\):\n\s+self._history \= \[\]',
+    '''import queue
 
 class AIThread(QThread):
     response_ready = pyqtSignal(str)
@@ -64,6 +47,7 @@ class AIThread(QThread):
                     break
                 self._interrupted = False
 
+                from memory import user_memory
                 mem_data = user_memory.load()
                 user_name = mem_data.get("user_name", "Chintu")
                 notes = mem_data.get("notes", [])
@@ -82,7 +66,7 @@ class AIThread(QThread):
                 print(f"From Python: [AI] Requesting from OpenRouter: {text}", flush=True)
 
                 import re
-                take_screenshot = bool(re.search(r'\b(look|see|read|screen|terminal|check|what is this|show me|what\'s on|what are you seeing|display)\b', text, re.I))
+                take_screenshot = bool(re.search(r'\\b(look|see|read|screen|terminal|check|what is this|show me|what\\'s on|what are you seeing|display)\\b', text, re.I))
                 
                 if take_screenshot:
                     try:
@@ -111,7 +95,7 @@ class AIThread(QThread):
                 if self._interrupted: continue
 
                 response = client.chat.completions.create(
-                    model="openai/gpt-4o-mini",
+                    model="google/gemini-2.5-flash",
                     messages=messages,
                     stream=False,
                     max_tokens=150,
@@ -162,4 +146,11 @@ class AIThread(QThread):
                 else:
                     if not self._interrupted: self.response_ready.emit("I am having trouble connecting to my brain right now.")
 
-ai = AIThread()
+    def clear_memory(self):
+        self._history = []''',
+    content,
+    flags=re.DOTALL
+)
+
+with open('assistant/brain/ai_brain.py', 'w', encoding='utf-8') as f:
+    f.write(new_content)

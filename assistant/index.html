@@ -17,24 +17,21 @@
         }
         
         #video-container {
-            width: 250px;
-            height: 250px;
+            width: 95vmin;
+            height: 95vmin;
             border-radius: 50%;
             overflow: hidden;
             -webkit-app-region: drag; /* Let users click and drag the character */
             display: flex;
             justify-content: center;
             align-items: center;
-            background-color: white; /* Give it a solid background to isolate the GIF inside the circle */
-            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
             transition: all 0.3s ease;
         }
 
         #state-image {
             width: 100%;
             height: 100%;
-            object-fit: cover; /* Cover ensures the GIF fills the circle without borders */
-            border-radius: 50%; /* Force circle cut out */
+            object-fit: contain;
             pointer-events: none; /* Make character unclickable for drag to work behind it */
         }
 
@@ -84,20 +81,34 @@
 <body>
     <div id="video-container">
         <!-- Live-2D Native GIF Element -->
-        <img id="state-image" class="anim-idle" src="assets/animations/idle.gif" />
+        <img id="state-image" src="assets/animations/idle.gif" />
     </div>
 
     <script>
         const { ipcRenderer } = require('electron');
         const imageElement = document.getElementById('state-image');
 
+        // Allow user to resize by scrolling mouse wheel over the character
+        document.addEventListener('wheel', (e) => {
+            const step = e.deltaY > 0 ? -25 : 25; // Scroll down = shrink, Scroll up = grow
+            ipcRenderer.send('resize-window', step);
+        });
+
         // Mapping states to user-supplied transparent GIFs
         const stateImages = {
-            "idle": "assets/animations/idle.gif",
-            "listening": "assets/animations/listening.gif",
-            "thinking": "assets/animations/thinking.gif",
-            "talking": "assets/animations/talking.gif",
-            "error": "assets/animations/error.gif"
+            "idle": "assets/animations/Consola Zzz GIF - Consola Zzz Dormida - Discover & Share GIFs/lazy_sleepy.gif",
+            "listening": "assets/animations/Himouto Umaru Chan GIF - Himouto Umaru Chan Anime - Discover & Share GIFs/waiting for the command.gif",
+            "thinking": "assets/animations/Himouto Umaru Chan GIF - Himouto Umaru Chan Rodar - Discover & Share GIFs/loading.gif",
+            "talking": "assets/animations/100 GIF - 100 - Discover & Share GIFs/typing.gif",
+            "error": "assets/animations/Umaru Chan GIF - Umaru chan - Discover & Share GIFs/angry.gif",
+            "angry": "assets/animations/Umaru Chan GIF - Umaru chan - Discover & Share GIFs/angry.gif",
+            "happy": "assets/animations/Anime Umaru Chan GIF - Anime Umaru Chan Cute - Discover & Share GIFs/feels_happy.gif",
+            "startup": "assets/animations/Himouto Umaru Chan GIF - Himouto Umaru Chan Anime - Discover & Share GIFs/when i start her.gif",
+            "praise": "assets/animations/Himouto Umaruchan Umaru GIF - Himouto Umaruchan Umaru Pat - Discover & Share GIFs/when i praise her.gif",
+            "excited": "assets/animations/Himouto Umaru Chan Anime GIF - Himouto Umaru Chan Anime Umaru Doma - Discover & Share GIFs/excited.gif",
+            "booting": "assets/animations/Umaru Chan Anime GIF - Umaru Chan Anime Cute - Discover & Share GIFs/booting.gif",
+            "chilling": "assets/animations/Phone Chilling GIF - Phone Chilling Kawaii - Discover & Share GIFs/chilling.gif",
+            "waiting": "assets/animations/Ok Ent GIF - Ok Ent - Discover & Share GIFs/waiting.gif"
         };
         
         // Mapping states to Live-2D CSS keyframes
@@ -114,7 +125,7 @@
             console.log("Updating UI state to: ", state);
             if (stateImages[state]) {
                 imageElement.src = stateImages[state];
-                imageElement.className = stateAnimations[state];
+                // Removed CSS animations overlapping with GIF
             }
         });
     </script>

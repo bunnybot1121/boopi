@@ -11,10 +11,12 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 250,
     height: 250,
+    minWidth: 100,
+    minHeight: 100,
     transparent: true,
     frame: false,
     alwaysOnTop: true,
-    resizable: false,
+    resizable: true,
     hasShadow: false,
     skipTaskbar: true,
     webPreferences: {
@@ -36,7 +38,11 @@ function spawnEngine() {
   // Spawn Python engine
   pyEngine = spawn('python', ['main.py'], {
     cwd: __dirname,
-    stdio: ['pipe', 'pipe', 'inherit']
+    stdio: ['pipe', 'pipe', 'pipe']
+  });
+
+  pyEngine.stderr.on('data', (data) => {
+    console.error("Python STDERR:", data.toString());
   });
 
   pyEngine.stdout.on('data', (data) => {
@@ -49,6 +55,12 @@ function spawnEngine() {
           currentState = msg.value;
           if (mainWindow) {
             mainWindow.webContents.send('state-changed', msg.value);
+          }
+        } else if (msg.type === "command") {
+          if (msg.value === "start_running") {
+            startRunningAnimation();
+          } else if (msg.value === "stop_running") {
+            stopRunningAnimation();
           }
         }
       } catch (e) {
@@ -113,6 +125,23 @@ if (!gotTheLock) {
     // Global shortcuts
     globalShortcut.register('CommandOrControl+I', () => sendCommand('quit'));
 
+    // Handle smooth wheel resizing for frameless windows
+    ipcMain.on('resize-window', (event, step) => {
+      if (!mainWindow) return;
+      const bounds = mainWindow.getBounds();
+      let newWidth = bounds.width + step;
+      let newHeight = bounds.height + step;
+      if (newWidth < 100) newWidth = 100;
+      if (newHeight < 100) newHeight = 100;
+      
+      mainWindow.setBounds({
+        x: Math.round(bounds.x - (step / 2)),
+        y: Math.round(bounds.y - (step / 2)),
+        width: Math.round(newWidth),
+        height: Math.round(newHeight)
+      });
+    });
+
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
@@ -123,9 +152,64 @@ if (!gotTheLock) {
   });
 
   app.on('will-quit', () => {
+    stopRunningAnimation();
     globalShortcut.unregisterAll();
     if (pyEngine) {
       pyEngine.kill();
     }
   });
+}
+
+// -------------------------------------------------------------
+// Pacing Animation Logic
+// -------------------------------------------------------------
+let runInterval = null;
+let runDirX = -1;
+let currentRunX = 0;
+let currentRunY = 0;
+let originBounds = null;
+
+function startRunningAnimation() {
+  if (runInterval) return;
+  if (!mainWindow) return;
+  
+  const { screen } = require('electron');
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width, height } = primaryDisplay.workAreaSize;
+  const bounds = mainWindow.getBounds();
+  
+  // Save original bounds to restore later
+  originBounds = { ...bounds };
+  
+  // Snap to bottom
+  currentRunY = height - bounds.height;
+  currentRunX = bounds.x;
+  runDirX = -1; // Face/Move left
+  
+  runInterval = setInterval(() => {
+    currentRunX += 4 * runDirX;
+    
+    if (currentRunX <= 0) {
+      currentRunX = 0;
+      runDirX = 1;
+    } else if (currentRunX + bounds.width >= width) {
+      currentRunX = width - bounds.width;
+      runDirX = -1;
+    }
+    
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.setPosition(Math.round(currentRunX), Math.round(currentRunY));
+    }
+  }, 16);
+}
+
+function stopRunningAnimation() {
+  if (runInterval) {
+    clearInterval(runInterval);
+    runInterval = null;
+  }
+  if (mainWindow && !mainWindow.isDestroyed() && originBounds) {
+    // Restore original position
+    mainWindow.setBounds(originBounds);
+  }
 }

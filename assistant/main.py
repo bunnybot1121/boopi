@@ -1,7 +1,29 @@
 import sys
+import os
 import re
 import json
 import threading
+import faulthandler
+
+from dotenv import load_dotenv
+load_dotenv()
+
+faulthandler.enable()
+faulthandler.enable()
+
+from logger import crash_log
+
+crash_log("=== Python engine starting ===")
+
+# Thread-safe print: prevents concurrent stdout pipe writes from crashing Python 3.14
+_print_lock = threading.Lock()
+_original_print = print
+def _safe_print(*args, **kwargs):
+    with _print_lock:
+        _original_print(*args, **kwargs)
+import builtins
+builtins.print = _safe_print
+
 from PyQt6.QtCore import QCoreApplication, QTimer, Qt
 
 from state_manager import state_mgr
@@ -22,6 +44,20 @@ ai = AIThread()
 speaker = SpeakerThread()
 
 conversation_mode = False
+
+# -------------------------------------------------------------
+# Inactivity Timer
+# -------------------------------------------------------------
+inactivity_timer = QTimer()
+inactivity_timer.setInterval(60000) # 60 seconds
+inactivity_timer.setSingleShot(True)
+
+def make_angry():
+    state_mgr.force("angry")
+    print(json.dumps({"type": "command", "value": "start_running"}), flush=True)
+
+inactivity_timer.timeout.connect(make_angry)
+inactivity_timer.start()
 
 # IPC state observer
 def on_global_state_changed(state: str):
@@ -51,6 +87,14 @@ def on_transcription(text: str):
     global conversation_mode
     safe_text = text.encode('ascii', 'ignore').decode('ascii')
     print(f"From Python: [Heard] '{safe_text}'", flush=True)
+
+    inactivity_timer.start()
+
+    if state_mgr.current == "angry":
+        state_mgr.force("happy")
+        print(json.dumps({"type": "command", "value": "stop_running"}), flush=True)
+        speaker.say("Yay! You finally talked to me again!")
+        return
 
     if not text:
         state_mgr.transition("idle")
@@ -103,8 +147,41 @@ listener.transcription_ready.connect(on_transcription)
 # Wiring AI
 # -------------------------------------------------------------
 def on_ai_response(text: str):
-    state_mgr.transition("talking")
-    speaker.say(text)
+    import re
+    # Extract emotion tag if present
+    match = re.match(r"^\[(.*?)\]\s*(.*)", text.strip())
+    
+    clean_text = text
+    emotion = "talking" # default to standard talking animation
+    
+    if match:
+        tag = match.group(1).lower()
+        clean_text = match.group(2)
+        
+        # Map aliases and variations to our core supported gifs
+        if tag in ["sad", "error"]:
+            tag = "angry"
+        elif tag in ["happy1", "happy2", "happy mode", "smiling", "laughing"]:
+            tag = "happy"
+        elif tag in ["loading", "processing"]:
+            tag = "thinking"
+        elif tag in ["praise", "good"]:
+            tag = "praise"
+        elif tag in ["excited", "wow"]:
+            tag = "excited"
+        elif tag in ["lazy", "sleepy"]:
+            tag = "idle"
+            
+        valid_emotions = [
+            "idle", "happy", "angry", "error", "thinking", "listening", 
+            "talking", "startup", "praise", "excited", "booting", 
+            "chilling", "waiting", "typing"
+        ]
+        if tag in valid_emotions:
+            emotion = tag
+
+    state_mgr.transition(emotion)
+    speaker.say(clean_text)
 
 ai.response_ready.connect(on_ai_response)
 ai.error_occurred.connect(lambda e: (
@@ -179,6 +256,11 @@ def stdin_listener():
                 bridge.do_toggle_conversation.emit()
             elif cmd == "quit":
                 bridge.do_quit.emit()
+            elif cmd == "test_ask":
+                text = req.get("text", "")
+                if listener.isRunning():
+                    listener.pause()
+                ai.ask(text)
         except Exception:
             pass
 
@@ -193,7 +275,7 @@ def startup_sequence():
     user_name = user_memory.get("user_name", "there")
     hour = datetime.now().hour
     greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 17 else "Good evening"
-    state_mgr.force("talking")
+    state_mgr.force("startup")
     speaker.say(f"{greeting}, {user_name}. Boopy is ready. Just call my name!")
     speaker.speech_finished.connect(
         lambda: state_mgr.force("idle"),
@@ -205,7 +287,7 @@ QTimer.singleShot(800, startup_sequence)
 def shutdown():
     listener.stop()
     listener.wait(2000)
-    speaker.interrupt()
+    speaker.quit()
     speaker.wait(2000)
     ai.quit()
     ai.wait(2000)
