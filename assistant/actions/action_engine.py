@@ -54,9 +54,98 @@ def _get_time(match=None):
 def _get_date(match=None):
     return f"Today is {datetime.now().strftime('%A, %B %d')}."
 
+def _find_and_focus_tab(keyword):
+    try:
+        import pygetwindow as gw
+        import pyautogui
+        import time
+        
+        # Check active tabs first
+        for w in gw.getAllWindows():
+            if keyword.lower() in w.title.lower() and ('Google Chrome' in w.title or 'Edge' in w.title):
+                if w.isMinimized:
+                    w.restore()
+                w.activate()
+                time.sleep(0.5)
+                return True
+                
+        browsers = [w for w in gw.getAllWindows() if 'Google Chrome' in w.title or 'Edge' in w.title]
+        if not browsers:
+            return False
+            
+        win = browsers[0]
+        if win.isMinimized:
+            win.restore()
+        win.activate()
+        time.sleep(0.5)
+        
+        initial_title = win.title
+        for i in range(20):
+            current = win.title
+            if keyword.lower() in current.lower():
+                return True
+            pyautogui.hotkey('ctrl', 'tab')
+            time.sleep(0.2)
+            if win.title == initial_title and i > 0:
+                break
+        return False
+    except Exception as e:
+        print("Tab finding error:", e)
+        return False
+
 def _open_whatsapp(match=None):
+    if _find_and_focus_tab("WhatsApp"):
+        return "Focused your open WhatsApp tab."
     webbrowser.open("https://web.whatsapp.com/")
     return "Opening WhatsApp Web."
+
+def _open_email(match):
+    text = match.string
+    
+    # Try to extract recipient email
+    recipient = ""
+    rec_match = re.search(r"to\s+([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,})", text, re.I)
+    if rec_match:
+        recipient = rec_match.group(1)
+    else:
+        # Check if they just provided a name
+        name_match = re.search(r"to\s+([a-zA-Z]+)", text, re.I)
+        if name_match and name_match.group(1).lower() not in ["send", "write", "draft", "open", "an", "email"]:
+            recipient = name_match.group(1)
+            
+    # Try to extract subject
+    subject = ""
+    sub_match = re.search(r"(?:about|regarding|subject|saying)\s+(.+)", text, re.I)
+    if sub_match:
+        subject = sub_match.group(1).strip()
+        
+    import urllib.parse
+    
+    if _find_and_focus_tab("Gmail") or _find_and_focus_tab("Mail"):
+        try:
+            import pyautogui
+            import time
+            pyautogui.press('c') # Gmail shortcut for compose
+            time.sleep(1.0)
+            if recipient:
+                pyautogui.write(recipient)
+                time.sleep(0.5)
+                pyautogui.press('enter')
+                time.sleep(0.2)
+                pyautogui.press('tab')
+                if subject:
+                    pyautogui.write(subject)
+                pyautogui.press('tab')
+            return "Opened email compose window."
+        except Exception:
+            pass
+            
+    url = f"mailto:{recipient}"
+    if subject:
+        url += f"?subject={urllib.parse.quote(subject)}"
+        
+    webbrowser.open(url)
+    return "Opening your email client to draft the mail."
 
 def _send_whatsapp(match):
     message = match.group(1).strip()
@@ -68,6 +157,28 @@ def _send_whatsapp(match):
     
     import urllib.parse
     encoded = urllib.parse.quote(message)
+    
+    if _find_and_focus_tab("WhatsApp"):
+        try:
+            import pyautogui
+            import time
+            # Focus search bar
+            pyautogui.hotkey('ctrl', 'alt', '/')
+            time.sleep(0.5)
+            if recipient:
+                pyautogui.write(recipient.strip())
+                time.sleep(1.0) # wait for search results
+                pyautogui.press('enter')
+                time.sleep(0.5)
+            if message:
+                pyautogui.write(message)
+                time.sleep(0.2)
+                pyautogui.press('enter')
+                return f"Sent '{message}'{recipient_text} on WhatsApp."
+            return f"Opened WhatsApp chat for {recipient.strip()}."
+        except Exception:
+            pass
+            
     webbrowser.open(f"https://web.whatsapp.com/send?text={encoded}")
     return f"Opening WhatsApp. Please select the contact to send '{message}'{recipient_text}."
 
@@ -120,8 +231,9 @@ PATTERNS = [
     (re.compile(r"^open\s+(my\s+)?(notepad|notes|text)$", re.I), _open_notepad),
     (re.compile(r"^open\s+spotify$",                 re.I), _open_spotify),
     (re.compile(r"^open\s+(calculator|calc)$",       re.I), _open_calculator),
-    (re.compile(r"^(?:send|write)\s+(.+?)(?:\s+to\s+(.+?))?\s+on\s+whatsapp$", re.I), _send_whatsapp),
-    (re.compile(r"^open\s+whatsapp$",                re.I), _open_whatsapp),
+    (re.compile(r"(?:send|write|message)\s+(.+?)(?:\s+to\s+(.+?))?\s+on\s+whatsapp", re.I), _send_whatsapp),
+    (re.compile(r"(?:open\s+whatsapp|check\s+whatsapp)",                re.I), _open_whatsapp),
+    (re.compile(r"(?:open\s+email|draft\s+an?\s+email|send\s+an?\s+email|write\s+an?\s+email)", re.I), _open_email),
     (re.compile(r"^play\s+(.+)$",                    re.I), _play_music),
     (re.compile(r"^(what.?s the time|current time|time now|what time)$", re.I), _get_time),
     (re.compile(r"^(what.?s today|what day|today.?s date)$", re.I), _get_date),

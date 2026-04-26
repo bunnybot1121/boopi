@@ -20,7 +20,8 @@ IMPORTANT: You have animated expressions. Start every response with exactly one 
 Example: "[happy] That sounds great!" or "[angry] Stop doing that."
 If the user asks you to write a prompt, draft a post, or type something down, you MUST output the text inside [NOTEPAD] and [/NOTEPAD] tags. 
 If you are writing a fresh draft or rewriting something entirely, you MUST first output [NOTEPAD_CLEAR] before [NOTEPAD] to erase the old text.
-Example: [NOTEPAD_CLEAR][NOTEPAD]Here is the fresh draft...[/NOTEPAD]
+You can also set the title of the note by outputting [TITLE]Your Title Here[/TITLE] before the [NOTEPAD] tag.
+Example: [NOTEPAD_CLEAR][TITLE]New Draft[/TITLE][NOTEPAD]Here is the fresh draft...[/NOTEPAD]
 Everything inside these tags will be typed directly into the user's Notepad. Do not include these tags for normal conversation.
 Current user: {user_name}
 User's notes/memories:
@@ -35,6 +36,7 @@ class AIThread(QThread):
     error_occurred = pyqtSignal(str)
     notepad_insert = pyqtSignal(str)
     notepad_clear = pyqtSignal()
+    notepad_title = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -178,6 +180,8 @@ class AIThread(QThread):
                 # Notepad parsing state
                 in_notepad = False
                 notepad_buffer = ""
+                in_title = False
+                title_buffer = ""
 
                 for chunk in response:
                     if self._interrupted: break
@@ -203,6 +207,38 @@ class AIThread(QThread):
                                 if not self._interrupted: self.response_started.emit("talking")
                                 current_sentence += emotion_buffer
                                 parsing_emotion = False
+                            continue
+                        
+                        if in_title:
+                            title_buffer += delta
+                            if "[/TITLE]" in title_buffer:
+                                idx = title_buffer.find("[/TITLE]")
+                                title = title_buffer[:idx]
+                                if not self._interrupted:
+                                    self.notepad_title.emit(title)
+                                current_sentence = title_buffer[idx+8:]
+                                title_buffer = ""
+                                in_title = False
+                            continue
+                            
+                        if "[TITLE]" in current_sentence + delta:
+                            idx = (current_sentence + delta).find("[TITLE]")
+                            before_tag = (current_sentence + delta)[:idx]
+                            if before_tag.strip() and not self._interrupted:
+                                self.response_chunk.emit(before_tag.strip())
+                                
+                            combined = (current_sentence + delta)[idx+7:]
+                            if "[/TITLE]" in combined:
+                                idx2 = combined.find("[/TITLE]")
+                                title = combined[:idx2]
+                                if not self._interrupted:
+                                    self.notepad_title.emit(title)
+                                current_sentence = combined[idx2+8:]
+                                in_title = False
+                            else:
+                                title_buffer = combined
+                                in_title = True
+                                current_sentence = ""
                             continue
                         
                         if "[NOTEPAD_CLEAR]" in current_sentence + delta:

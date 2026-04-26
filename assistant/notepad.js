@@ -69,4 +69,9 @@ document.addEventListener('DOMContentLoaded', () => {
         noteTitle.value = 'New Note';
         noteContent.dispatchEvent(new Event('input'));
     });
+
+    // Listen for title set command from AI
+    ipcRenderer.on('notepad-title', (event, title) => {
+        noteTitle.value = title;
+    });
 });

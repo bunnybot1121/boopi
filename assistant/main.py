@@ -181,10 +181,14 @@ def on_ai_notepad(text: str):
 def on_ai_notepad_clear():
     print(json.dumps({"type": "notepad_clear"}), flush=True)
 
+def on_ai_notepad_title(title: str):
+    print(json.dumps({"type": "notepad_title", "value": title}), flush=True)
+
 ai.response_started.connect(on_ai_started)
 ai.response_chunk.connect(on_ai_chunk)
 ai.notepad_insert.connect(on_ai_notepad)
 ai.notepad_clear.connect(on_ai_notepad_clear)
+ai.notepad_title.connect(on_ai_notepad_title)
 ai.error_occurred.connect(lambda e: (
     print(json.dumps({"type": "log", "message": f"[AI Error] {e}"}), flush=True),
     state_mgr.force("error"),

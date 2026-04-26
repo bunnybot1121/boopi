@@ -6,9 +6,11 @@ let mainWindow;
 let tray;
 let pyEngine;
 let currentState = "idle";
-let notepadWindow;
-let notepadReady = false;
+let notepadWindow = null;
+let isDev = process.argv.includes('--dev');
 let notepadQueue = [];
+let notepadReady = false;
+let notepadPendingTitle = null;
 
 function createNotepadWindow() {
   if (notepadWindow) {
@@ -34,9 +36,17 @@ function createNotepadWindow() {
 
   notepadWindow.webContents.on('did-finish-load', () => {
     notepadReady = true;
-    if (notepadQueue.length > 0) {
-      notepadQueue.forEach(val => notepadWindow.webContents.send('notepad-insert', val));
-      notepadQueue = [];
+    
+    // Set pending title if any
+    if (notepadPendingTitle) {
+      notepadWindow.webContents.send('notepad-title', notepadPendingTitle);
+      notepadPendingTitle = null;
+    }
+
+    // Flush any pending chunks that arrived before the window loaded
+    while (notepadQueue.length > 0) {
+      let chunk = notepadQueue.shift();
+      notepadWindow.webContents.send('notepad-insert', chunk);
     }
   });
 
@@ -124,6 +134,13 @@ function spawnEngine() {
             notepadQueue = [];
           } else {
             notepadWindow.webContents.send('notepad-clear');
+          }
+        } else if (msg.type === "notepad_title") {
+          if (!notepadWindow) createNotepadWindow();
+          if (!notepadReady) {
+            notepadPendingTitle = msg.value;
+          } else {
+            notepadWindow.webContents.send('notepad-title', msg.value);
           }
         }
       } catch (e) {
