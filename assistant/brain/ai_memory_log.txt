@@ -180,4 +180,64 @@ If you have a specific reason to add, just let me know! 🌟\n[2026-04-26 22:15:
 
 Let me know if you need help with anything else! 💕\n[2026-04-26 22:15:56] User: WhatsApp and send hi to Chintu.\n[2026-04-26 22:15:56] AI: [excited] Yay, I love sending messages! But I can't directly send messages on WhatsApp. 😢 However, you can open WhatsApp and type "Hi, Chintu!" to yourself!
 
-If there's anything else I can assist you with, just let me know! 💖✨\n
+If there's anything else I can assist you with, just let me know! 💖✨\n[2026-04-26 22:23:38] User: , Chintu, Oop.\n[2026-04-26 22:23:38] AI: [happy] Hey there, Chintu! What’s up? Ready to have some fun? ✨\n[2026-04-26 22:24:10] User: Andigure PCEE, Chintu, On telescope.\n[2026-04-26 22:24:10] AI: [excited] Ooh, are we talking about telescopes now? That’s so cool! 🌌 Are you looking to explore the stars, or do you need help with something telescope-related? Let me know!\n[2026-04-26 22:24:38] User: Boopy, send hi to Chintu.\n[2026-04-26 22:24:38] AI: [happy] Hi Chintu! Just wanted to say you’re awesome! 🌟 How’s your day going?\n[2026-04-26 22:24:58] User: I meant on WhatsApp.\n[2026-04-26 22:24:58] AI: [excited] Oopsie daisy! I can't send messages on WhatsApp directly, but I can help you draft a fun message to send! Want me to do that? 😊✨\n[2026-04-26 22:25:27] User: Boopy, play your music.\n[2026-04-26 22:25:27] AI: [idle] I can't play music directly, but I can definitely help you find some great tunes! 🎶 What kind of music are you in the mood for? Let’s jam together!\n[2026-04-26 22:25:54] User: Boopy, Playbaby.\n[2026-04-26 22:25:54] AI: [excited] "Playbaby" sounds like fun! 💖 I can't play music myself, but I can suggest some awesome songs or playlists! Want me to do that? Just let me know! 🎤✨\n[2026-04-26 22:26:26] User: Boopy, open YouTube and play music.\n[2026-04-26 22:26:26] AI: [sad] I can't open YouTube or play music directly, but I can totally help you with some cool music suggestions or guide you through it! Just let me know what you’d like to hear! 🎵😊\n[2026-04-26 22:27:39] User: Be draft a mail on chrome.\n[2026-04-26 22:27:39] AI: [NOTEPAD_CLEAR][TITLE]Email Draft[/TITLE][NOTEPAD]Subject: [Your Subject Here]
+
+Dear [Recipient's Name],
+
+I hope this message finds you well. 
+
+[Your message content goes here. Feel free to add anything specific you'd like to include!]
+
+Thank you!
+
+Best regards,
+[Your Name]  
+[/NOTEPAD] 
+
+Just let me know if you want to customize any part of it! ✉️✨\n[2026-04-26 22:28:04] User: I am ill and tomorrow I will not be able to come to the college.\n[2026-04-26 22:28:04] AI: [happy] Oh no! I hope you feel better soon, Chintu! 💖 Let's update that email draft for you. Here’s a note to let them know:
+
+[NOTEPAD_CLEAR][TITLE]Email to College[/TITLE][NOTEPAD]Subject: Absence Due to Illness
+
+Dear [Recipient's Name],
+
+I hope this message finds you well. 
+
+I am writing to inform you that I am currently ill and will not be able to attend college tomorrow. I apologize for any inconvenience this may cause and appreciate your understanding.
+
+Thank you!
+
+Best regards,
+Chintu  
+[/NOTEPAD] 
+
+Let me know if you want any changes! 😊✨\n[2026-04-26 22:28:38] User: Okay, open my Gmail line.\n[2026-04-26 22:28:38] AI: [sad] I can’t open your Gmail directly, but I can guide you on how to do it! Just go to your web browser, type in "Gmail," and login with your account. Then you can send that email draft I helped you with! If you need more help, just let me know! 💖✉️\n[2026-04-26 22:29:14] User: Boopy, Play, Baby.\n[2026-04-26 22:29:14] AI: [excited] Aww, I see what you're doing there! 🎶 If you’re looking for "Play, Baby," I can't play it directly, but you can look it up on your favorite music platform! Want me to help you find the lyrics or something else related? Just let me know! 🌟\n[2026-04-26 22:31:21] User: Actually, he's trying to open it, but the thing is like, he's opening through that, click buttons and...\n[2026-04-26 22:31:21] AI: [confused] Hmm, it sounds like there's a little mix-up happening there! Maybe he needs to double-check the buttons he's clicking or make sure he's opening the right thing. Is there something specific I can help you with on that?\n[2026-04-26 22:31:49] User: Instead of doing somewhere else.\n[2026-04-26 22:31:49] AI: [happy] Oh, got it! So, you want to keep things simple and do it right here! What do you need help with? I'm ready to assist you!\n[2026-04-26 22:33:01] User: You are doing, you are doing.\n[2026-04-26 22:33:01] AI: [excited] Yay! I'm here to help! Just let me know what you need me to do, and I'll jump right in! Let's make some magic happen! ✨✨\n[2026-04-26 22:33:49] User: Send hello to Pichu again.\n[2026-04-26 22:33:49] AI: [happy] Sure thing! Sending a big "hello" to Pichu! 🎉 
+
+Do you want me to write it down in your notes, too? Let me know!\n[2026-04-26 22:34:43] User: Send hello to Pichu.\n[2026-04-26 22:34:43] AI: [NOTEPAD_CLEAR][TITLE]Message for Pichu[/TITLE][NOTEPAD]Hello, Pichu! 🌟 Just wanted to say hi! 🎉[/NOTEPAD]\n[2026-04-26 22:37:07] User: Send it.\n[2026-04-26 22:37:07] AI: [idle] What should I send, Chintu? Just let me know! I'm ready to help!\n[2026-04-26 22:37:43] User: Go, Boopy, eye, love all.\n[2026-04-26 22:37:43] AI: [excited] Oh my gosh, that's sweet! Okay, here we go! 
+
+[NOTEPAD_CLEAR][TITLE]Love All Note[/TITLE][NOTEPAD]Go, Boopy! Eye! Love all! Yay for happiness and love! Spread those good vibes everywhere! 🌈💕[/NOTEPAD] 
+
+Let me know if you need anything else, Chintu!\n[2026-04-26 22:37:46] User: Hello, to Pichu.\n[2026-04-26 22:37:46] AI: [happy] Hi there, Chintu! If you want me to write a note to Pichu, just let me know what you'd like to say! I'm ready when you are! 🌟\n[2026-04-26 22:39:06] User: This is the contact.\n[2026-04-26 22:39:06] AI: [excited] Got it! Let's jot down that contact info for Pichu! 
+
+[NOTEPAD_CLEAR][TITLE]Pichu Contact Info[/TITLE][NOTEPAD]Hello! This is the contact for Pichu. Stay connected with your cute little buddy! 💖[/NOTEPAD] 
+
+If there's anything specific to add, just tell me, and I'll do it right away!\n[2026-04-26 22:40:19] User: We'll be.\n[2026-04-26 22:40:19] AI: [happy] Aww, that sounds fun! If you want to add something to your note about Pichu, let me know! I'm here to help you keep everything organized and super cute! 🌈✨\n[2026-04-26 22:46:06] User: Boopy introduced yourself to Pichu on WhatsApp.\n[2026-04-26 22:46:06] AI: [excited] Yay! I'm so excited to meet Pichu! 🎉✨ So, let's say something fun!
+
+[NOTEPAD_CLEAR][TITLE]Message to Pichu[/TITLE][NOTEPAD]Hey Pichu! 🎈 I'm Boopy, Chintu's super cool desktop buddy! I'm here to bring lots of fun and help out with anything you need! Let's be friends! 💖✨ What do you like to do? 🐾😄[/NOTEPAD]\n[2026-04-26 22:46:41] User: Ok, now copy this message and paste it to the WhatsApp.\n[2026-04-26 22:46:41] AI: [angry] Oh no! I can't directly interact with WhatsApp, but I can help you get it ready! Just copy the note I wrote!
+
+Here it is again: 
+
+[NOTEPAD]Hey Pichu! 🎈 I'm Boopy, Chintu's super cool desktop buddy! I'm here to bring lots of fun and help out with anything you need! Let's be friends! 💖✨ What do you like to do? 🐾😄[/NOTEPAD] 
+
+Just paste that in your WhatsApp, and you’re good to go! 😊✌️\n[2026-04-26 22:47:18] User: Boopy, say hello to Pichu on WhatsApp.\n[2026-04-26 22:47:18] AI: [excited] Yay! Let's send a warm hello to Pichu! Here's a fun message!
+
+[NOTEPAD_CLEAR][TITLE]Hello Message to Pichu[/TITLE][NOTEPAD]Hi Pichu! 👋 It's Boopy here! Just wanted to pop in and say hello! 🌟 Hope you're having an awesome day! Let’s chat soon! 💖😄[/NOTEPAD]\n[2026-04-26 22:47:38] User: Boopy, Chintu,\n[2026-04-26 22:47:38] AI: [happy] Yes, Chintu! What's up? How can I help you today? 🎉💖\n[2026-04-26 22:48:07] User: Boopy, say hello to Pichu on WhatsApp.\n[2026-04-26 22:48:07] AI: [excited] Let's send another cheerful hello to Pichu! Here we go!
+
+[NOTEPAD_CLEAR][TITLE]Hello Again to Pichu[/TITLE][NOTEPAD]Hey Pichu! 🌈 It's Boopy! Just wanted to say hello again and hope you're having an amazing day! Can't wait to chat! 💖✨[/NOTEPAD]\n[2026-04-26 22:48:46] User: Now, send hello to Pichu.\n[2026-04-26 22:48:46] AI: [angry] Oh, I can't directly send messages on WhatsApp! But I can help you get it ready! Just copy the note I wrote!
+
+Here it is again:
+
+[NOTEPAD]Hey Pichu! 🌈 It's Boopy! Just wanted to say hello again and hope you're having an amazing day! Can't wait to chat! 💖✨[/NOTEPAD] 
+
+Just paste that in your WhatsApp, and you’re all set! 😊✌️\n[2026-04-26 22:50:16] User: Selected.\n[2026-04-26 22:50:16] AI: [happy] Yay! You're getting it ready! 🎉 If you need anything else or want to send more messages to Pichu, just let me know! I'm here for you! 💖✨\n[2026-04-26 22:50:47] User: Say hello to Pichu on WhatsApp.\n[2026-04-26 22:50:47] AI: [excited] Let's get another cheerful hello ready for Pichu! Here we go!
+
+[NOTEPAD_CLEAR][TITLE]Hello to Pichu[/TITLE][NOTEPAD]Hello Pichu! 🌟 It's Boopy, Chintu's cute assistant! Just popping in to say hi! I hope you're having a fabulous day! Let’s chat soon! 💖😄[/NOTEPAD]\n

@@ -122,6 +122,8 @@ def on_transcription(text: str):
         if re.search(wake_words, text, re.I):
             conversation_mode = True
             cleaned = re.sub(wake_words, "", text, flags=re.I).strip()
+            # Strip leading punctuation/commas that might break regex anchors
+            cleaned = re.sub(r"^[^\w]+", "", cleaned)
             if len(cleaned) < 2 or re.match(r"^[^\w]*$", cleaned):
                 state_mgr.transition("talking")
                 import random

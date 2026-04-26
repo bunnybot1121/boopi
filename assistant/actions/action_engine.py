@@ -73,25 +73,34 @@ def _find_and_focus_tab(keyword):
         if not browsers:
             return False
             
-        win = browsers[0]
-        if win.isMinimized:
-            win.restore()
-        win.activate()
-        time.sleep(0.5)
-        
-        initial_title = win.title
-        for i in range(20):
-            current = win.title
-            if keyword.lower() in current.lower():
-                return True
-            pyautogui.hotkey('ctrl', 'tab')
-            time.sleep(0.2)
-            if win.title == initial_title and i > 0:
-                break
+        for win in browsers:
+            if win.isMinimized:
+                win.restore()
+            win.activate()
+            time.sleep(0.3)
+            
+            initial_title = win.title
+            for i in range(25):
+                current = win.title
+                if keyword.lower() in current.lower():
+                    return True
+                pyautogui.hotkey('ctrl', 'tab')
+                time.sleep(0.05)
+                if win.title == initial_title and i > 0:
+                    break
         return False
     except Exception as e:
         print("Tab finding error:", e)
         return False
+
+def _open_in_chrome(url):
+    import os
+    # Force opening in Chrome instead of default OS browser to retain user session
+    os.system(f'start chrome "{url}"')
+
+def _open_youtube(match=None):
+    _open_in_chrome("https://www.youtube.com/")
+    return "Opening YouTube."
 
 def _open_whatsapp(match=None):
     if _find_and_focus_tab("WhatsApp"):
@@ -144,7 +153,7 @@ def _open_email(match):
     if subject:
         url += f"?subject={urllib.parse.quote(subject)}"
         
-    webbrowser.open(url)
+    _open_in_chrome(url)
     return "Opening your email client to draft the mail."
 
 def _send_whatsapp(match):
@@ -179,7 +188,7 @@ def _send_whatsapp(match):
         except Exception:
             pass
             
-    webbrowser.open(f"https://web.whatsapp.com/send?text={encoded}")
+    _open_in_chrome(f"https://web.whatsapp.com/send?text={encoded}")
     return f"Opening WhatsApp. Please select the contact to send '{message}'{recipient_text}."
 
 def _take_screenshot(match=None):
@@ -205,22 +214,32 @@ def _remember_fact(match):
     return f"I'll remember that {fact}."
 
 def _play_music(match):
-    import pywhatkit
     query = match.group(1).strip()
     # Handle generic requests
     if query.lower() in ["music", "some music", "a song"]:
-        webbrowser.open("https://music.youtube.com/")
+        _open_in_chrome("https://music.youtube.com/")
         return "Opening YouTube Music."
     
     # Strip out trailing words if present
     clean_query = re.sub(r'(?i)\s+(on youtube|on youtube music)', '', query).strip()
     
+    import urllib.parse
+    import urllib.request
+    
+    encoded = urllib.parse.quote(clean_query)
     try:
-        pywhatkit.playonyt(clean_query)
-        return f"Playing {clean_query} on YouTube."
+        req = urllib.request.Request(f"https://www.youtube.com/results?search_query={encoded}", headers={"User-Agent": "Mozilla/5.0"})
+        html = urllib.request.urlopen(req).read().decode()
+        video_ids = re.findall(r"watch\?v=(\S{11})", html)
+        if video_ids:
+            url = f"https://www.youtube.com/watch?v={video_ids[0]}"
+            _open_in_chrome(url)
+            return f"Playing {clean_query} on YouTube."
     except Exception as e:
-        webbrowser.open(f"https://www.youtube.com/results?search_query={clean_query.replace(' ', '+')}")
-        return f"Searching for {clean_query} on YouTube."
+        pass
+        
+    _open_in_chrome(f"https://www.youtube.com/results?search_query={encoded}")
+    return f"Searching for {clean_query} on YouTube."
 
 PATTERNS = [
     (re.compile(r"^(call me|my name is)\s+(.+)$",     re.I), _set_name),
@@ -231,10 +250,11 @@ PATTERNS = [
     (re.compile(r"^open\s+(my\s+)?(notepad|notes|text)$", re.I), _open_notepad),
     (re.compile(r"^open\s+spotify$",                 re.I), _open_spotify),
     (re.compile(r"^open\s+(calculator|calc)$",       re.I), _open_calculator),
-    (re.compile(r"(?:send|write|message)\s+(.+?)(?:\s+to\s+(.+?))?\s+on\s+whatsapp", re.I), _send_whatsapp),
-    (re.compile(r"(?:open\s+whatsapp|check\s+whatsapp)",                re.I), _open_whatsapp),
-    (re.compile(r"(?:open\s+email|draft\s+an?\s+email|send\s+an?\s+email|write\s+an?\s+email)", re.I), _open_email),
-    (re.compile(r"^play\s+(.+)$",                    re.I), _play_music),
+    (re.compile(r"(?:send|write|message|text)\s+(.+?)(?:\s+to\s+(.+?))?\s+on\s+whatsapp", re.I), _send_whatsapp),
+    (re.compile(r"(?:open|check)\s+(?:my\s+)?whatsapp",                re.I), _open_whatsapp),
+    (re.compile(r"(?:play|listen\s+to|stream)\s+(.+)",                 re.I), _play_music),
+    (re.compile(r"(?:open|start)\s+(?:youtube|yt)",                    re.I), _open_youtube),
+    (re.compile(r"(?:open|draft|send|write)\s+(?:my\s+|an?\s+|the\s+)?(?:email|mail|emails)", re.I), _open_email),
     (re.compile(r"^(what.?s the time|current time|time now|what time)$", re.I), _get_time),
     (re.compile(r"^(what.?s today|what day|today.?s date)$", re.I), _get_date),
     (re.compile(r"^(take a screenshot|screenshot)$", re.I), _take_screenshot),
