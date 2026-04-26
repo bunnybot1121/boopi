@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Boopy's Notepad</title>
+    <style>
+        :root {
+            --bg-color: #f8f9fe;
+            --sidebar-bg: #ffffff;
+            --primary: #8e94f2;
+            --primary-hover: #7b81ea;
+            --text-dark: #333333;
+            --text-light: #888888;
+            --border-color: #eaebf1;
+            --note-bg: #f8f9fe;
+            --btn-pink: #ffb3c6;
+            --btn-yellow: #ffdf8c;
+            --btn-green: #b5e48c;
+            --btn-light-purple: #c8b6ff;
+            --btn-red: #ffadad;
+            --font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: var(--font-family);
+            background-color: var(--bg-color);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+            color: var(--text-dark);
+            -webkit-app-region: drag;
+        }
+
+        /* Make interactive elements undraggable */
+        button, input, textarea, .note-item, .toolbar-btn, .editor-area {
+            -webkit-app-region: no-drag;
+        }
+
+        .sidebar {
+            width: 320px;
+            background-color: var(--sidebar-bg);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            box-sizing: border-box;
+            z-index: 10;
+        }
+
+        .header-logo {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .header-logo img {
+            width: 50px;
+            height: 50px;
+            margin-right: 15px;
+        }
+
+        .header-text h1 {
+            margin: 0;
+            font-size: 20px;
+            color: var(--primary);
+        }
+
+        .header-text p {
+            margin: 0;
+            font-size: 12px;
+            color: var(--text-light);
+        }
+
+        .sidebar-actions {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .new-note-btn {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            padding: 10px 15px;
+            font-weight: bold;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            flex: 1;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+
+        .new-note-btn:hover {
+            background-color: var(--primary-hover);
+        }
+
+        .search-bar {
+            flex: 2;
+            background-color: var(--note-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 0 15px;
+            display: flex;
+            align-items: center;
+        }
+
+        .search-bar input {
+            border: none;
+            background: transparent;
+            width: 100%;
+            outline: none;
+            padding: 10px 0;
+            color: var(--text-dark);
+        }
+
+        .notes-list {
+            flex: 1;
+            overflow-y: auto;
+            margin-right: -10px;
+            padding-right: 10px;
+        }
+
+        .notes-list::-webkit-scrollbar {
+            width: 6px;
+        }
+        .notes-list::-webkit-scrollbar-thumb {
+            background-color: #ddd;
+            border-radius: 3px;
+        }
+
+        .section-title {
+            font-size: 12px;
+            color: var(--text-light);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin: 15px 0 10px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .note-item {
+            background-color: white;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .note-item:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            transform: translateY(-2px);
+        }
+
+        .note-item.active {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(142, 148, 242, 0.2);
+        }
+
+        .note-item.yellow { background-color: #fff9e6; border-color: #ffe8a1; }
+        .note-item.blue { background-color: #f0f4ff; border-color: #d1e0ff; }
+        .note-item.green { background-color: #f2fcf5; border-color: #c3f0d1; }
+        .note-item.pink { background-color: #fff0f3; border-color: #ffc9d6; }
+
+        .note-title {
+            font-weight: bold;
+            margin: 0 0 5px 0;
+            font-size: 14px;
+        }
+
+        .note-preview {
+            font-size: 12px;
+            color: var(--text-light);
+            margin: 0 0 10px 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .note-tags {
+            display: flex;
+            gap: 5px;
+            font-size: 10px;
+        }
+
+        .tag {
+            background-color: rgba(0,0,0,0.05);
+            padding: 3px 8px;
+            border-radius: 10px;
+            color: var(--text-light);
+            font-weight: bold;
+        }
+
+        .note-date {
+            position: absolute;
+            bottom: 15px;
+            right: 15px;
+            font-size: 10px;
+            color: var(--text-light);
+        }
+
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 30px;
+            background-color: white;
+            margin: 15px 15px 15px 0;
+            border-radius: 20px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.02);
+            position: relative;
+        }
+
+        .window-controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            gap: 8px;
+            z-index: 20;
+        }
+
+        .win-btn {
+            width: 30px;
+            height: 30px;
+            border-radius: 8px;
+            border: none;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            background-color: var(--note-bg);
+            color: var(--text-light);
+            font-size: 16px;
+        }
+
+        .win-btn:hover {
+            background-color: var(--border-color);
+        }
+
+        .win-btn.close {
+            color: #ff5f56;
+        }
+        
+        .win-btn.close:hover {
+            background-color: #ffe5e5;
+        }
+
+        .editor-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+            margin-right: 100px;
+            gap: 15px;
+        }
+
+        .title-input {
+            flex: 1;
+            font-size: 24px;
+            font-weight: bold;
+            border: none;
+            outline: none;
+            color: var(--text-dark);
+            background: transparent;
+        }
+
+        .title-input::placeholder {
+            color: #ccc;
+        }
+
+        .add-tag-btn {
+            background-color: white;
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 8px 15px;
+            color: var(--text-light);
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 10px;
+            padding: 10px 0;
+            border-top: 1px solid var(--border-color);
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 20px;
+            align-items: center;
+        }
+
+        .toolbar-group {
+            display: flex;
+            gap: 5px;
+            border-right: 1px solid var(--border-color);
+            padding-right: 10px;
+        }
+        
+        .toolbar-group:last-child {
+            border-right: none;
+        }
+
+        .toolbar-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-light);
+            width: 30px;
+            height: 30px;
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-weight: bold;
+        }
+
+        .toolbar-btn:hover {
+            background-color: var(--note-bg);
+            color: var(--primary);
+        }
+
+        .toolbar-select {
+            border: none;
+            background: transparent;
+            color: var(--text-light);
+            font-weight: bold;
+            outline: none;
+            cursor: pointer;
+        }
+
+        .editor-area {
+            flex: 1;
+            border: none;
+            outline: none;
+            resize: none;
+            font-size: 16px;
+            line-height: 1.6;
+            color: var(--text-dark);
+            font-family: inherit;
+        }
+
+        .editor-area::placeholder {
+            color: #ddd;
+        }
+
+        .editor-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px dashed var(--border-color);
+        }
+
+        .status-text {
+            font-size: 12px;
+            color: var(--text-light);
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background-color: var(--btn-green);
+            border-radius: 50%;
+        }
+
+        .footer-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .action-btn {
+            padding: 10px 20px;
+            border-radius: 12px;
+            border: none;
+            font-weight: bold;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-dark);
+        }
+
+        .btn-save { background-color: var(--btn-light-purple); color: white; }
+        .btn-delete { background-color: var(--btn-red); color: white; }
+        .btn-pin { background-color: var(--btn-yellow); }
+        
+        .cute-decor {
+            position: absolute;
+            pointer-events: none;
+        }
+
+        .decor-top-right {
+            top: -20px;
+            right: 40px;
+            width: 150px;
+        }
+        
+        .decor-bottom-right {
+            bottom: 0px;
+            right: -20px;
+            width: 100px;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <div class="header-logo">
+            <!-- Placeholder for Boopy logo -->
+            <div style="width:50px; height:50px; background-color:var(--btn-light-purple); border-radius:15px; display:flex; justify-content:center; align-items:center; color:white; font-size:24px;">B</div>
+            <div class="header-text">
+                <h1>Boopy's Notepad</h1>
+                <p>Write it. Save it. Code it. 💙</p>
+            </div>
+        </div>
+
+        <div class="sidebar-actions">
+            <button class="new-note-btn" id="newNoteBtn">
+                + New Note
+            </button>
+            <div class="search-bar">
+                <input type="text" placeholder="Search notes...">
+            </div>
+        </div>
+
+        <div class="notes-list" id="notesList">
+            <div class="section-title">📌 Pinned</div>
+            
+            <div class="note-item yellow active" data-id="1">
+                <h3 class="note-title">ESP32 WiFi Code</h3>
+                <p class="note-preview">#include &lt;WiFi.h&gt;\nconst char* ssid = ...</p>
+                <div class="note-tags">
+                    <span class="tag">#ESP32</span>
+                </div>
+                <span class="note-date">12 May 2024</span>
+            </div>
+
+            <div class="section-title">📄 All Notes</div>
+
+            <div class="note-item blue" data-id="2">
+                <h3 class="note-title">Motor Control Code</h3>
+                <p class="note-preview">int speed = 200;\nanalogWrite(9, speed);</p>
+                <div class="note-tags">
+                    <span class="tag">#Arduino</span>
+                    <span class="tag">#Motor</span>
+                </div>
+                <span class="note-date">10 May 2024</span>
+            </div>
+            
+            <div class="note-item green" data-id="3">
+                <h3 class="note-title">Project Ideas</h3>
+                <p class="note-preview">Smart Home AI Assistant</p>
+                <div class="note-tags">
+                    <span class="tag">#Ideas</span>
+                </div>
+                <span class="note-date">8 May 2024</span>
+            </div>
+        </div>
+        
+        <div style="margin-top: auto; padding-top: 20px; font-size: 12px; color: var(--text-light); text-align: center; border-top: 1px solid var(--border-color);">
+            🐾 Boopy is here to help! ^_^
+        </div>
+    </div>
+
+    <div class="main-content">
+        <!-- Window Controls -->
+        <div class="window-controls">
+            <button class="win-btn" id="minBtn">−</button>
+            <button class="win-btn" id="maxBtn">□</button>
+            <button class="win-btn close" id="closeBtn">×</button>
+        </div>
+
+        <div class="editor-header">
+            <span style="color: var(--text-light); font-weight: bold;">Title:</span>
+            <input type="text" class="title-input" id="noteTitle" value="ESP32 WiFi Code">
+            <button class="add-tag-btn">+ Tag</button>
+        </div>
+
+        <div class="toolbar">
+            <div class="toolbar-group">
+                <button class="toolbar-btn">↩</button>
+                <button class="toolbar-btn">↪</button>
+            </div>
+            <div class="toolbar-group">
+                <select class="toolbar-select">
+                    <option>Plain Text</option>
+                    <option>Markdown</option>
+                    <option>Code</option>
+                </select>
+            </div>
+            <div class="toolbar-group">
+                <button class="toolbar-btn" style="font-weight: 900;">B</button>
+                <button class="toolbar-btn" style="font-style: italic;">I</button>
+                <button class="toolbar-btn" style="text-decoration: underline;">U</button>
+            </div>
+            <div class="toolbar-group">
+                <button class="toolbar-btn">≡</button>
+                <button class="toolbar-btn">☷</button>
+                <button class="toolbar-btn">&lt;/&gt;</button>
+                <button class="toolbar-btn">❝</button>
+            </div>
+        </div>
+
+        <textarea class="editor-area" id="noteContent" placeholder="Start writing your ideas, code, notes, anything..."></textarea>
+
+        <div class="editor-footer">
+            <div class="status-text">
+                <div class="status-dot" id="saveDot"></div>
+                <span id="saveStatus">Auto-saved just now</span>
+            </div>
+            <div style="font-size: 10px; color: var(--text-light);">
+                Words: <span id="wordCount">0</span> | Characters: <span id="charCount">0</span>
+            </div>
+        </div>
+        
+        <div class="editor-footer" style="margin-top: 10px; padding-top: 0; border-top: none;">
+            <div class="footer-actions">
+                <button class="action-btn btn-save" id="saveBtn">💾 Save Note</button>
+                <button class="action-btn btn-delete">🗑 Delete</button>
+                <button class="action-btn btn-pin">📌 Pin Note</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="notepad.js"></script>
+</body>
+</html>

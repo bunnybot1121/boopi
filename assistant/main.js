@@ -6,6 +6,45 @@ let mainWindow;
 let tray;
 let pyEngine;
 let currentState = "idle";
+let notepadWindow;
+let notepadReady = false;
+let notepadQueue = [];
+
+function createNotepadWindow() {
+  if (notepadWindow) {
+    if (notepadWindow.isMinimized()) notepadWindow.restore();
+    notepadWindow.focus();
+    return;
+  }
+
+  notepadReady = false;
+  notepadWindow = new BrowserWindow({
+    width: 900,
+    height: 600,
+    minWidth: 600,
+    minHeight: 400,
+    frame: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    }
+  });
+
+  notepadWindow.loadFile('notepad.html');
+
+  notepadWindow.webContents.on('did-finish-load', () => {
+    notepadReady = true;
+    if (notepadQueue.length > 0) {
+      notepadQueue.forEach(val => notepadWindow.webContents.send('notepad-insert', val));
+      notepadQueue = [];
+    }
+  });
+
+  notepadWindow.on('closed', () => {
+    notepadWindow = null;
+    notepadReady = false;
+  });
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -66,6 +105,16 @@ function spawnEngine() {
             startRunningAnimation();
           } else if (msg.value === "stop_running") {
             stopRunningAnimation();
+          } else if (msg.value === "open_notepad") {
+            createNotepadWindow();
+          }
+        } else if (msg.type === "notepad_insert") {
+          if (!notepadWindow) createNotepadWindow();
+          
+          if (!notepadReady) {
+            notepadQueue.push(msg.value);
+          } else {
+            notepadWindow.webContents.send('notepad-insert', msg.value);
           }
         }
       } catch (e) {
@@ -110,6 +159,7 @@ if (!gotTheLock) {
     tray.setToolTip('Boopy - Desktop Companion');
 
     const contextMenu = Menu.buildFromTemplate([
+      { label: 'Open Notepad', click: () => createNotepadWindow() },
       { label: 'Toggle Conversation Mode', click: () => sendCommand('toggle_conversation') },
       { label: 'Clear Memory', click: () => sendCommand('clear_memory') },
       { label: 'Toggle Overlay', click: () => {
@@ -145,6 +195,29 @@ if (!gotTheLock) {
         width: Math.round(newWidth),
         height: Math.round(newHeight)
       });
+    });
+
+    // Notepad IPC handlers
+    ipcMain.on('notepad-minimize', () => {
+      if (notepadWindow) notepadWindow.minimize();
+    });
+    
+    ipcMain.on('notepad-maximize', () => {
+      if (notepadWindow) {
+        if (notepadWindow.isMaximized()) {
+          notepadWindow.unmaximize();
+        } else {
+          notepadWindow.maximize();
+        }
+      }
+    });
+
+    ipcMain.on('notepad-close', () => {
+      if (notepadWindow) notepadWindow.close();
+    });
+
+    ipcMain.on('notepad-save', (event, data) => {
+      console.log("Notepad saved:", data.title);
     });
 
     app.on('activate', () => {
