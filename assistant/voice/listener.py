@@ -24,7 +24,7 @@ class ListenerThread(QThread):
         self._energy_threshold = 800
         import whisper
         print("[Whisper] Loading model...")
-        self._model = whisper.load_model("base")
+        self._model = whisper.load_model("base.en")  # Used English-only model for improved accuracy
         print("[Whisper] Model loaded.")
 
     def run(self):
@@ -104,7 +104,7 @@ class ListenerThread(QThread):
     def _transcribe(self, audio: np.ndarray):
         self._paused = True # Auto-pause while transcribing and processing
         audio_f32 = audio.astype(np.float32) / 32768.0
-        result = self._model.transcribe(audio_f32, language="en")
+        result = self._model.transcribe(audio_f32, language="en", fp16=False)
         text = result["text"].strip()
         self.transcription_ready.emit(text)
 

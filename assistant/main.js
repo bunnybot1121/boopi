@@ -38,7 +38,12 @@ function spawnEngine() {
   // Spawn Python engine
   pyEngine = spawn('python', ['main.py'], {
     cwd: __dirname,
-    stdio: ['pipe', 'pipe', 'pipe']
+    stdio: ['pipe', 'pipe', 'pipe'],
+    shell: true
+  });
+
+  pyEngine.on('error', (err) => {
+    console.error("Failed to start python process:", err);
   });
 
   pyEngine.stderr.on('data', (data) => {

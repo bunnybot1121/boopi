@@ -81,17 +81,22 @@ def _remember_fact(match):
     return f"I'll remember that {fact}."
 
 def _play_music(match):
+    import pywhatkit
     query = match.group(1).strip()
     # Handle generic requests
     if query.lower() in ["music", "some music", "a song"]:
         webbrowser.open("https://music.youtube.com/")
         return "Opening YouTube Music."
     
-    # Strip out "on youtube music" if they included it
-    clean_query = re.sub(r'(?i)\s+on youtube music', '', query).strip()
+    # Strip out trailing words if present
+    clean_query = re.sub(r'(?i)\s+(on youtube|on youtube music)', '', query).strip()
     
-    webbrowser.open(f"https://music.youtube.com/search?q={clean_query.replace(' ', '+')}")
-    return f"Playing {clean_query} on YouTube Music."
+    try:
+        pywhatkit.playonyt(clean_query)
+        return f"Playing {clean_query} on YouTube."
+    except Exception as e:
+        webbrowser.open(f"https://www.youtube.com/results?search_query={clean_query.replace(' ', '+')}")
+        return f"Searching for {clean_query} on YouTube."
 
 PATTERNS = [
     (re.compile(r"call me (.+)|my name is (.+)",     re.I), _set_name),

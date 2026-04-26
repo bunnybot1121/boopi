@@ -811,3 +811,52 @@
 [2026-04-19 23:03:07] [Speaker] Step 3: Sleeping 0.1s for disk flush
 [2026-04-19 23:03:07] [Speaker] Step 4: Calling Win32Audio.play()
 [2026-04-19 23:03:07] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 23:03:22] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 23:03:22] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 23:03:47] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 23:03:47] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 23:03:47] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 23:03:47] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 23:04:05] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 23:04:05] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 23:04:23] [Speaker] Step 1: Starting edge-tts subprocess for: Ooo, yes! In some cases, AI can remember facts and
+[2026-04-19 23:04:28] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 23:04:28] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 23:04:28] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 23:04:28] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 23:04:55] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 23:04:55] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 23:05:04] [Speaker] Step 1: Starting edge-tts subprocess for: Aww, that's sweet of you, Chintu! I’d love to reme
+[2026-04-19 23:05:10] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 23:05:10] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 23:05:10] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 23:05:10] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 23:05:35] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 23:05:35] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 23:05:51] [Speaker] Step 1: Starting edge-tts subprocess for: Oh, addresses can be super important! But could yo
+[2026-04-19 23:05:56] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 23:05:56] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 23:05:57] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 23:05:57] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 23:06:15] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 23:06:15] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 23:06:24] [Speaker] Step 1: Starting edge-tts subprocess for: Sure thing! "Thank you" in Japanese is "Arigatou" 
+[2026-04-19 23:06:28] [Speaker] Step 2: edge-tts subprocess completed
+[2026-04-19 23:06:28] [Speaker] Step 3: Sleeping 0.1s for disk flush
+[2026-04-19 23:06:29] [Speaker] Step 4: Calling Win32Audio.play()
+[2026-04-19 23:06:29] [Speaker] Step 5: Win32Audio.play() returned, entering poll loop
+[2026-04-19 23:06:46] [Speaker] Step 6: Playback loop finished, cleaning up
+[2026-04-19 23:06:46] [Speaker] Step 8: Audio task completed successfully
+[2026-04-19 23:07:11] === Python engine starting ===
+[2026-04-19 23:10:44] === Python engine starting ===
+[2026-04-19 23:22:47] === Python engine starting ===
+[2026-04-19 23:27:34] === Python engine starting ===
+[2026-04-21 05:42:11] === Python engine starting ===
+[2026-04-21 05:47:42] [Speaker] TTS Gen Error: Command '['edge-tts', '--text', "I'm here.", '--voice', 'en-US-AnaNeural', '--write-media', 'temp_speech_2.mp3']' returned non-zero exit status 1.
+[2026-04-26 12:45:33] === Python engine starting ===
+[2026-04-26 12:46:27] [Speaker] TTS Gen Error: [WinError 4551] An Application Control policy has blocked this file
+[2026-04-26 12:47:27] === Python engine starting ===
+[2026-04-26 12:47:44] [Speaker] TTS Gen Error: [WinError 4551] An Application Control policy has blocked this file
+[2026-04-26 12:50:49] === Python engine starting ===
+[2026-04-26 12:51:10] [Speaker] TTS Gen Error: [WinError 4551] An Application Control policy has blocked this file
+[2026-04-26 12:51:51] === Python engine starting ===

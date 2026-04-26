@@ -116,7 +116,7 @@ class SpeakerThread(QThread):
                 out_path = f"temp_speech_{self._chunk_counter}.mp3"
                 try:
                     subprocess.run(
-                        ["edge-tts", "--text", text, "--voice", voice, "--write-media", out_path],
+                        ["python", "-m", "edge_tts", "--text", text, "--voice", voice, "--write-media", out_path],
                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                         creationflags=flags, check=True
                     )
