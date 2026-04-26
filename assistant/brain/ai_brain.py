@@ -87,6 +87,17 @@ class AIThread(QThread):
                 notes_str = "\\n".join([f"- {n}" for n in notes]) if notes else "None"
                 
                 messages = [{"role": "system", "content": SYSTEM_PROMPT.format(user_name=user_name, notes=notes_str)}]
+                
+                import re
+                if re.search(r'\blinkedin\b', text, re.I):
+                    try:
+                        style_path = os.path.join(os.path.dirname(__file__), "linkedin_style.txt")
+                        with open(style_path, "r", encoding="utf-8") as f:
+                            linkedin_style = f.read()
+                        messages[0]["content"] += "\n\n" + linkedin_style
+                    except Exception as e:
+                        print(f"From Python: [AI Warning] Could not load linkedin style: {e}", flush=True)
+
                 for item in self._history:
                     messages.append({"role": item["role"], "content": item["content"]})
                 messages.append({"role": "user", "content": text})

@@ -104,7 +104,10 @@ class ListenerThread(QThread):
     def _transcribe(self, audio: np.ndarray):
         self._paused = True # Auto-pause while transcribing and processing
         audio_f32 = audio.astype(np.float32) / 32768.0
-        result = self._model.transcribe(audio_f32, language="en", fp16=False)
+        
+        # Give whisper context to heavily bias towards names and app functions we care about
+        prompt = "Boopy, Chintu, WhatsApp, Notepad, OpenRouter, Claude, send a message to, search for, rewrite."
+        result = self._model.transcribe(audio_f32, language="en", fp16=False, initial_prompt=prompt)
         text = result["text"].strip()
         self.transcription_ready.emit(text)
 

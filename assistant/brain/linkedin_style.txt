@@ -1,0 +1,193 @@
+If the user asks you to write or draft a LinkedIn post, you MUST match their personal writing style exactly. 
+Their style is highly structured, engaging, and uses storytelling. 
+
+Key characteristics of their LinkedIn posts:
+1. **Strong Hooks**: Start with a relatable problem, a bold statement, or a story (e.g., "My AI agent had the memory of a goldfish. 🐟").
+2. **Clear Structure & Formatting**: Use block separators like `━━━━━━━━━━━━━━━━━━━━━━━` or generous line breaks. Use bullet points with `→` or checkmarks `✅` to list facts, stats, or features.
+3. **Problem-Solution Narrative**: Explain the problem deeply, why it matters, and how it was fixed.
+4. **Authenticity**: Be honest. If they failed or lost a competition, they own it (e.g., "Didn't win. Won't stop. 🚀").
+5. **Tech Details**: Mention the tech stack explicitly (e.g., "Stack: React 18 · Node.js · Express").
+6. **Emojis**: Use emojis purposefully to highlight key points, but don't overdo it.
+7. **Call to Action**: End with a question to engage the audience.
+8. **Hashtags**: Include relevant hashtags at the very bottom.
+
+Here are 4 examples of their actual LinkedIn posts to use as a template for tone and structure:
+
+=== EXAMPLE 1 ===
+Yeah, I'm late to post this. But some things deserve more than a rushed caption. 🙂
+
+Here's the full story of NagarSevak — what we built, why, and what's actually powering it.
+
+━━━━━━━━━━━━━━━━━━━━━━━
+🚨 WE DIDN'T IMAGINE THE PROBLEM. WE MEASURED IT.
+━━━━━━━━━━━━━━━━━━━━━━━
+
+Field visits: Panvel, Pen Municipal Corp & Uran Nagar Parishad.
+Interviews with Assistant Commissioners, HODs, Engineers & field staff.
+Structured citizen surveys. Real data.
+
+→ 46% physically visit the office just to file a complaint
+→ 34% wait 2–4 weeks with ZERO update
+→ 12% of complaints are never resolved. Ever.
+→ Only 10% see resolution within 3 days
+→ 32% rate municipal corps as the least accountable institution
+
+Three root causes:
+🔴 VIP Bypass — political influence decides priority
+🔴 Social Media Trigger — action only after public outrage
+🔴 Burying Effect — file-based systems bury old complaints under new ones
+
+The system wasn't broken. It was never designed to be fair.
+So we redesigned it.
+
+━━━━━━━━━━━━━━━━━━━━━━━
+⚙️ NAGARSEVAK — THREE PORTALS. ONE EXECUTION LOOP.
+━━━━━━━━━━━━━━━━━━━━━━━
+
+🖥️ Admin → rnunicipal.vercel.app
+📱 Worker → fieldstaff.vercel.app
+📲 Citizen → citizenz.vercel.app
+
+Stack: React 18 · Node.js · Express · Supabase · Gemini Vision API · Leaflet · Recharts
+
+━━━━━━━━━━━━━━━━━━━━━━━
+🧠 THE AI ENGINE
+━━━━━━━━━━━━━━━━━━━━━━━
+
+Forget "AI-powered" as a buzzword. Here's the actual formula:
+
+📐 Priority Score = (15 + NLP Signals) × Multipliers
+
+→ Base 15: every complaint gets a floor score — nothing disappears
+→ 145 NLP signals: hazard level, keywords, severity
+→ Multipliers: urgency × geographic impact
+
+Rule-Based + AI Hybrid. 9 categories. 7D Calibration Logic.
+Gemini Vision assigns a Trust Score to every photo before it hits the admin screen.
+
+We formalized this as a research paper on safety-weighted AI prioritization — under conference review.
+
+━━━━━━━━━━━━━━━━━━━━━━━
+
+We didn't qualify for the next round.
+
+And honestly? That's okay.
+
+We didn't build NagarSevak for a trophy. We built it because 12% of civic complaints in this country never get resolved — and nobody was treating that like the emergency it is.
+
+The research is real. The system works. The problem still exists.
+That's enough reason to keep going.
+
+None of this without the people —
+Saloni Patil , Sahil Tate & Vikas Pal — every late night, every rethink. Proud of what we built.
+Prof. Nilofer Tamboli — for never letting us cut corners.
+Dr. Sunita Pal — that Deputy Commissioner meeting changed our entire escalation logic.
+
+First Avishkar. Didn't win. Won't stop. 🚀
+
+👇 What's the one civic problem in your city you wish had a system like this?
+
+#NagarSevak #Avishkar2026 #CivicTech #AI #SmartCity #FullStack #MunicipalTech #SCOE #GeminiAPI #BuildInPublic
+
+=== EXAMPLE 2 ===
+I got tired of browsing 10 tabs for UI inspiration.
+
+So I built a vault.
+
+🗄️ Introducing UI Vault — V2.0 NEO
+
+COLLECT • REMIX • REUSE
+
+UI Vault is a curated library of UI design styles and components — built for developers and designers who are done reinventing the wheel.
+
+The new version just dropped and it's the biggest update yet:
+
+⭐ 41 total components
+📐 12 ready-to-use layouts
+❤️ 24 community favorites
+🔎 Search & filter by style — #Glass, #Minimal, #Neon, #Cards, #Dashboards & more
+🎨 Browse styles like Glassmorphism, Neo-Brutalism, Neumorphism, Skeuomorphism and beyond
+💻 Copy the CSS & HTML directly into your own codebase — no setup, no friction
+
+The design? Yeah, it slaps too.
+
+I wanted the product itself to feel like a UI component — bold, intentional, and a little unexpected. Think comic-book energy meets developer tool.
+
+This is still growing and I'd love your honest feedback.
+
+👉 Try it: https://lnkd.in/dAXUtr5x
+
+What UI style are you building in right now? Drop it below 👇
+
+#UIVault #UIDesign #FrontendDevelopment #WebDesign #DesignSystem #Glassmorphism #NeoBrutalism #Neumorphism #ComponentLibrary #OpenSource
+
+=== EXAMPLE 3 ===
+My AI agent had the memory of a goldfish. 🐟
+
+Session after session, it kept generating the same Fibonacci problem. Different wording, same bug. My users were stuck in a loop — and so was I.
+
+This was BugHunt — a coding mentor that watches how you code, spots your recurring mistakes, and generates new challenges targeting your weak spots. Built it at a hackathon with my team, and the bug we had to hunt... was inside the agent itself. 🐛
+
+Here's what went wrong:
+I had a rich memory object storing error types, thinking patterns, session history — everything. But when the LLM generated the next problem, it never actually checked what it had already generated.
+
+Profile read ✅
+Passed to LLM ✅
+LLM ignoring history completely ✅ (unfortunately)
+
+The fix? Before generating, fetch the last 10 problem titles from memory and explicitly tell the model: "Do NOT generate these again."
+
+That's it. One context injection. And suddenly the agent actually remembered.
+
+🔑 The lesson that stuck with me:
+Memory being stored ≠ memory being used.
+You have to inject it actively into the prompt — not just pass it along and hope the model figures it out.
+
+Biggest takeaway from this hackathon? The visible memory IS the feature. The heatmap, the AI Recommendation banner, the "MEMORY UPDATED" badge — they're not decoration. They're why users trust the system.
+
+Results still pending, but honestly? This was one of my best hackathon experiences. Shoutout to my team — you guys were unreal. 🙌
+
+Built with: Next.js 14 · Hindsight by Vectorize · Qwen3-32B · Groq · Clerk · Monaco Editor
+Shoutout to my team — Pragya Yadav and Saloni Patil, you guys were unreal. 🙌
+
+#Hackathon #AIAgents #NextJS #BuildInPublic #MachineLearning #WebDev #100DaysOfCode
+
+=== EXAMPLE 4 ===
+🥈 Runner-Up. National Technology Day – Poster Making Competition. Feeling absolutely 🔥
+
+But let me tell you what went into this poster.
+
+The theme: "Role of Technology in Shaping the Future"
+
+My concept? Mutual dependency.
+Not AI replacing humans. Not humans fearing AI.
+But both — incomplete without each other.
+
+The visual that inspired me: a face split down the middle.
+🧠 Left side — human. Organic. Emotional. Intuitive.
+🤖 Right side — AI. Grid. Logical. Precise.
+One face. Two natures. One future.
+
+Every element on my poster was intentional:
+— The split between nature and technology wasn't a conflict. It was a conversation.
+— The AI grid overlaid on a human face wasn't replacement. It was fusion.
+— The surrounding tech ecosystem — drones, IoT, renewable energy, circuits — wasn't noise. It was the world these two halves are building together.
+
+AI without human values is directionless.
+Humans without AI are limited in scale.
+Take one away — the system breaks.
+
+🎤 And then came the 5-minute presentation round —
+Walking the judges through each visual decision. Explaining why the colours, why the split, why the ecosystem. Turning a hand-painted poster into a full narrative about India's technological future.
+
+That experience — communicating a vision with clarity and conviction — was worth more than any prize. 💡
+
+🏆 Huge congratulations to Piyush Yenorkar for clinching the First Prize — your work was outstanding and fully deserved! 👏
+
+And to every participant who showed up with passion — your creativity was visible in every stroke. Keep going. 🙌
+
+This is why I chose engineering. To think in systems. To build with intention. To create things that say something.
+
+More to come. 🚀
+
+#NationalTechnologyDay #PosterCompetition #AIAndHumanity #ComputerEngineering #TechForFuture #Innovation #RunnerUp #StudentLife #Engineering #ProudMoment #SaraswatiCollegeOfEngineering

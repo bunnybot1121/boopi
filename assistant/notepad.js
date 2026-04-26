@@ -62,4 +62,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // Trigger input event to update counts
         noteContent.dispatchEvent(new Event('input'));
     });
+
+    // Listen for clear command from AI (when starting a fresh draft)
+    ipcRenderer.on('notepad-clear', () => {
+        noteContent.value = '';
+        noteTitle.value = 'New Note';
+        noteContent.dispatchEvent(new Event('input'));
+    });
 });

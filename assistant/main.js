@@ -116,6 +116,15 @@ function spawnEngine() {
           } else {
             notepadWindow.webContents.send('notepad-insert', msg.value);
           }
+        } else if (msg.type === "notepad_clear") {
+          if (!notepadWindow) createNotepadWindow();
+          
+          if (!notepadReady) {
+            // If window isn't ready yet, clear the pending queue so we start fresh
+            notepadQueue = [];
+          } else {
+            notepadWindow.webContents.send('notepad-clear');
+          }
         }
       } catch (e) {
         console.log("From Python:", line);

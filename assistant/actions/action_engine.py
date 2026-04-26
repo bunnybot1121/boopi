@@ -60,10 +60,16 @@ def _open_whatsapp(match=None):
 
 def _send_whatsapp(match):
     message = match.group(1).strip()
+    # Strip common fluff from speech-to-text
+    message = re.sub(r'^(a\s+)?message\s+(saying\s+)?', '', message, flags=re.I)
+    
+    recipient = match.group(2)
+    recipient_text = f" to {recipient.strip()}" if recipient else ""
+    
     import urllib.parse
     encoded = urllib.parse.quote(message)
     webbrowser.open(f"https://web.whatsapp.com/send?text={encoded}")
-    return "Opening WhatsApp. Please select the contact to send the message."
+    return f"Opening WhatsApp. Please select the contact to send '{message}'{recipient_text}."
 
 def _take_screenshot(match=None):
     try:
@@ -114,7 +120,7 @@ PATTERNS = [
     (re.compile(r"^open\s+(my\s+)?(notepad|notes|text)$", re.I), _open_notepad),
     (re.compile(r"^open\s+spotify$",                 re.I), _open_spotify),
     (re.compile(r"^open\s+(calculator|calc)$",       re.I), _open_calculator),
-    (re.compile(r"^(send|write)\s+(.+)\s+on\s+whatsapp$", re.I), _send_whatsapp),
+    (re.compile(r"^(?:send|write)\s+(.+?)(?:\s+to\s+(.+?))?\s+on\s+whatsapp$", re.I), _send_whatsapp),
     (re.compile(r"^open\s+whatsapp$",                re.I), _open_whatsapp),
     (re.compile(r"^play\s+(.+)$",                    re.I), _play_music),
     (re.compile(r"^(what.?s the time|current time|time now|what time)$", re.I), _get_time),
