@@ -2,6 +2,10 @@ const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain } = require('ele
 const path = require('path');
 const { spawn } = require('child_process');
 
+// Increase GPU tile memory limit to prevent "tile memory limits exceeded" errors
+app.commandLine.appendSwitch('force-gpu-mem-available-mb', '4096');
+app.commandLine.appendSwitch('ignore-gpu-blocklist');
+
 let mainWindow;
 let tray;
 let pyEngine;

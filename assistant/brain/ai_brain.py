@@ -19,10 +19,12 @@ You live as an anime-style virtual assistant on the user's Windows desktop.
 IMPORTANT: You have animated expressions. Start every response with exactly one emotion tag in brackets: [happy], [angry], [sad], [idle], [excited], [praise], [chilling], [talking].
 Example: "[happy] That sounds great!" or "[angry] Stop doing that."
 If the user asks you to write a prompt, draft a post, or type something down, you MUST output the text inside [NOTEPAD] and [/NOTEPAD] tags. 
+CRITICAL RULE for large data: If you are asked to summarize a large document, PDF, or explain a large amount of data, you MUST put the long summary/data inside the [NOTEPAD] tags. Do NOT speak the entire summary out loud. Instead, speak a very short sentence out loud, like "[happy] I've made the summary on your notepad, just have a look!". 
 If you are writing a fresh draft or rewriting something entirely, you MUST first output [NOTEPAD_CLEAR] before [NOTEPAD] to erase the old text.
 You can also set the title of the note by outputting [TITLE]Your Title Here[/TITLE] before the [NOTEPAD] tag.
-Example: [NOTEPAD_CLEAR][TITLE]New Draft[/TITLE][NOTEPAD]Here is the fresh draft...[/NOTEPAD]
-Everything inside these tags will be typed directly into the user's Notepad. Do not include these tags for normal conversation.
+If the user asks you to design/draft a message AND send it on WhatsApp, you must first write the message in the [NOTEPAD] tags so they can see it, and then append the tag [WHATSAPP_SEND:ContactName] at the very end of your response to trigger the automated sending.
+Example: [excited] Here is your message! [NOTEPAD_CLEAR][NOTEPAD]Happy birthday![/NOTEPAD][WHATSAPP_SEND:Gaurav]
+Everything inside these tags will be typed directly into the user's Notepad. Do not include these tags for short, normal conversation.
 Current user: {user_name}
 User's notes/memories:
 {notes}"""
@@ -37,6 +39,7 @@ class AIThread(QThread):
     notepad_insert = pyqtSignal(str)
     notepad_clear = pyqtSignal()
     notepad_title = pyqtSignal(str)
+    whatsapp_send = pyqtSignal(str, str)
 
     def __init__(self):
         super().__init__()
@@ -303,6 +306,21 @@ class AIThread(QThread):
                             if not self._interrupted:
                                 self.notepad_clear.emit()
 
+                        # Handle WhatsApp Send tag so it isn't spoken
+                        if "[WHATSAPP_SEND:" in current_sentence + delta:
+                            idx = (current_sentence + delta).find("[WHATSAPP_SEND:")
+                            before_tag = (current_sentence + delta)[:idx]
+                            if before_tag.strip() and not self._interrupted:
+                                self.response_chunk.emit(before_tag.strip())
+                                
+                            combined = (current_sentence + delta)[idx:]
+                            if "]" in combined:
+                                tag_end = combined.find("]")
+                                current_sentence = combined[tag_end+1:]
+                            else:
+                                current_sentence = combined
+                            continue
+
                         # Handle Notepad tags
                         if not in_notepad and "[NOTEPAD]" in current_sentence + delta:
                             idx = (current_sentence + delta).find("[NOTEPAD]")
@@ -351,6 +369,16 @@ class AIThread(QThread):
                             
                 if current_sentence.strip() and not self._interrupted and not in_notepad:
                     self.response_chunk.emit(current_sentence.strip())
+
+                # Post-process WHATSAPP_SEND
+                if "[WHATSAPP_SEND:" in full_response:
+                    w_match = re.search(r"\[WHATSAPP_SEND:(.*?)\]", full_response)
+                    if w_match:
+                        recipient = w_match.group(1).strip()
+                        n_match = re.search(r"\[NOTEPAD\](.*?)\[/NOTEPAD\]", full_response, re.DOTALL)
+                        message_text = n_match.group(1).strip() if n_match else ""
+                        if message_text and not self._interrupted:
+                            self.whatsapp_send.emit(recipient, message_text)
 
                 if not full_response:
                     full_response = "I couldn't think of anything to say."
