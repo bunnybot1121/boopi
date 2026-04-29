@@ -7,7 +7,7 @@ SAMPLE_RATE = 16000
 FRAME_MS = 30
 FRAME_SAMPLES = int(SAMPLE_RATE * FRAME_MS / 1000)
 VAD_AGGRESSIVENESS = 2
-SILENCE_FRAMES = 20
+SILENCE_FRAMES = 65 # ~1.95 seconds of silence before cutting off to allow for longer prompts
 MIN_SPEECH_FRAMES = 10
 PRE_ROLL_FRAMES = 10
 
@@ -106,7 +106,7 @@ class ListenerThread(QThread):
         audio_f32 = audio.astype(np.float32) / 32768.0
         
         # Give whisper context to heavily bias towards names and app functions we care about
-        prompt = "Boopy, Chintu, WhatsApp, Notepad, OpenRouter, Claude, send a message to, search for, rewrite."
+        prompt = "Bupi, PDF, Document, WhatsApp, Notepad, OpenRouter, Claude, summarize, rewrite."
         result = self._model.transcribe(audio_f32, language="en", fp16=False, initial_prompt=prompt)
         text = result["text"].strip()
         self.transcription_ready.emit(text)

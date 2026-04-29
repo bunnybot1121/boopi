@@ -101,7 +101,7 @@ def on_transcription(text: str):
         QTimer.singleShot(1000, start_listening)
         return
 
-    if re.search(r"\b(exit|quit|goodbye|bye boopy)\b", text, re.I):
+    if re.search(r"\b(exit|quit|goodbye|bye bupi)\b", text, re.I):
         conversation_mode = False
         speaker.say("Goodbye! See you next time.")
         QTimer.singleShot(2500, app.quit)
@@ -283,7 +283,7 @@ def startup_sequence():
     hour = datetime.now().hour
     greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 17 else "Good evening"
     state_mgr.force("startup")
-    speaker.say(f"{greeting}, {user_name}. Boopy is ready. Just call my name!")
+    speaker.say(f"{greeting}, {user_name}. Bupi is ready. Just call my name!")
     speaker.speech_finished.connect(
         lambda: state_mgr.force("idle"),
         Qt.ConnectionType.SingleShotConnection if hasattr(Qt, 'ConnectionType') else 1

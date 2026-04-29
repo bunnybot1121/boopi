@@ -182,7 +182,7 @@ if (!gotTheLock) {
     const { nativeImage } = require('electron');
     const iconPath = path.join(__dirname, 'assets', 'icon.png');
     tray = new Tray(nativeImage.createFromPath(iconPath));
-    tray.setToolTip('Boopy - Desktop Companion');
+    tray.setToolTip('Bupi - Desktop Companion');
 
     const contextMenu = Menu.buildFromTemplate([
       { label: 'Open Notepad', click: () => createNotepadWindow() },
@@ -194,7 +194,7 @@ if (!gotTheLock) {
         }
       },
       { type: 'separator' },
-      { label: 'Quit Boopy', click: () => {
+      { label: 'Quit Bupi', click: () => {
           sendCommand('quit');
           setTimeout(() => app.quit(), 1000);
         }

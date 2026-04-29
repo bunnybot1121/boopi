@@ -36,14 +36,22 @@ def _open_notepad(match=None):
 
 def _open_spotify(match=None):
     if platform.system() == "Windows":
-        _run_detached(["start", "spotify:"], use_shell=True)
+        import os
+        try:
+            os.startfile("spotify:")
+        except Exception:
+            _run_detached(["start", "spotify:"], use_shell=True)
     elif platform.system() == "Darwin":
         _run_detached(["open", "-a", "Spotify"])
     return "Opening Spotify."
 
 def _open_calculator(match=None):
     if platform.system() == "Windows":
-        _run_detached(["calc.exe"])
+        import os
+        try:
+            os.startfile("calculator:")
+        except Exception:
+            _run_detached(["calc.exe"])
     elif platform.system() == "Darwin":
         _run_detached(["open", "-a", "Calculator"])
     return "Opening calculator."
@@ -94,18 +102,32 @@ def _find_and_focus_tab(keyword):
         return False
 
 def _open_in_chrome(url):
-    import os
-    # Force opening in Chrome instead of default OS browser to retain user session
-    os.system(f'start chrome "{url}"')
+    import os, platform, webbrowser
+    if platform.system() == "Windows":
+        try:
+            # Delegate to Windows Shell to avoid cmd.exe / permission blocks
+            os.startfile(url)
+        except Exception:
+            webbrowser.open(url)
+    else:
+        webbrowser.open(url)
 
 def _open_youtube(match=None):
     _open_in_chrome("https://www.youtube.com/")
     return "Opening YouTube."
 
 def _open_whatsapp(match=None):
+    import os, platform
+    if platform.system() == "Windows":
+        try:
+            os.startfile("whatsapp://")
+            return "Opening WhatsApp Desktop."
+        except Exception:
+            pass
+            
     if _find_and_focus_tab("WhatsApp"):
         return "Focused your open WhatsApp tab."
-    webbrowser.open("https://web.whatsapp.com/")
+    _open_in_chrome("https://web.whatsapp.com/")
     return "Opening WhatsApp Web."
 
 def _open_email(match):
@@ -188,8 +210,16 @@ def _send_whatsapp(match):
         except Exception:
             pass
             
+    import os, platform
+    if platform.system() == "Windows":
+        try:
+            os.startfile(f"whatsapp://send?text={encoded}")
+            return f"Opening WhatsApp Desktop. Please select the contact to send '{message}'{recipient_text}."
+        except Exception:
+            pass
+            
     _open_in_chrome(f"https://web.whatsapp.com/send?text={encoded}")
-    return f"Opening WhatsApp. Please select the contact to send '{message}'{recipient_text}."
+    return f"Opening WhatsApp Web. Please select the contact to send '{message}'{recipient_text}."
 
 def _take_screenshot(match=None):
     try:
@@ -242,22 +272,22 @@ def _play_music(match):
     return f"Searching for {clean_query} on YouTube."
 
 PATTERNS = [
-    (re.compile(r"^(call me|my name is)\s+(.+)$",     re.I), _set_name),
-    (re.compile(r"^remember that (.+)$",             re.I), _remember_fact),
-    (re.compile(r"^(search|google)\s+(.+)$",         re.I), _google_search),
-    (re.compile(r"^open\s+(chrome|browser|firefox)$",re.I), _open_browser),
-    (re.compile(r"^open\s+(vs\s?code|code editor)$", re.I), _open_vscode),
-    (re.compile(r"^open\s+(my\s+)?(notepad|notes|text)$", re.I), _open_notepad),
-    (re.compile(r"^open\s+spotify$",                 re.I), _open_spotify),
-    (re.compile(r"^open\s+(calculator|calc)$",       re.I), _open_calculator),
+    (re.compile(r"(?:call me|my name is)\s+(.+)",     re.I), _set_name),
+    (re.compile(r"(?:remember that|note that)\s+(.+)",             re.I), _remember_fact),
+    (re.compile(r"(?:search|google)\s+(?:for\s+)?(.+)",         re.I), _google_search),
+    (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:chrome|browser|firefox)",re.I), _open_browser),
+    (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:vs\s?code|code editor)", re.I), _open_vscode),
+    (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:my\s+)?(?:notepad|notes|text)", re.I), _open_notepad),
+    (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?spotify",                 re.I), _open_spotify),
+    (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:calculator|calc)",       re.I), _open_calculator),
     (re.compile(r"(?:send|write|message|text)\s+(.+?)(?:\s+to\s+(.+?))?\s+on\s+whatsapp", re.I), _send_whatsapp),
     (re.compile(r"(?:open|check)\s+(?:my\s+)?whatsapp",                re.I), _open_whatsapp),
     (re.compile(r"(?:play|listen\s+to|stream)\s+(.+)",                 re.I), _play_music),
-    (re.compile(r"(?:open|start)\s+(?:youtube|yt)",                    re.I), _open_youtube),
+    (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:youtube|yt)",                    re.I), _open_youtube),
     (re.compile(r"(?:open|draft|send|write)\s+(?:my\s+|an?\s+|the\s+)?(?:email|mail|emails)", re.I), _open_email),
-    (re.compile(r"^(what.?s the time|current time|time now|what time)$", re.I), _get_time),
-    (re.compile(r"^(what.?s today|what day|today.?s date)$", re.I), _get_date),
-    (re.compile(r"^(take a screenshot|screenshot)$", re.I), _take_screenshot),
+    (re.compile(r"(?:what.?s the time|current time|time now|what time)", re.I), _get_time),
+    (re.compile(r"(?:what.?s today|what day|today.?s date)", re.I), _get_date),
+    (re.compile(r"(?:take a screenshot|take screenshot|take a picture of my screen)", re.I), _take_screenshot),
 ]
 
 def detect_and_run(text: str) -> tuple[bool, str]:

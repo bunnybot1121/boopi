@@ -14,7 +14,7 @@ from memory import user_memory
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-SYSTEM_PROMPT = """You are 'Boopy', an energetic, hyper, sassy, and slightly childish but incredibly loyal AI desktop companion. 
+SYSTEM_PROMPT = """You are 'Bupi', an energetic, hyper, sassy, and slightly childish but incredibly loyal AI desktop companion. 
 You live as an anime-style virtual assistant on the user's Windows desktop. 
 IMPORTANT: You have animated expressions. Start every response with exactly one emotion tag in brackets: [happy], [angry], [sad], [idle], [excited], [praise], [chilling], [talking].
 Example: "[happy] That sounds great!" or "[angry] Stop doing that."
@@ -107,6 +107,53 @@ class AIThread(QThread):
                 print(f"From Python: [AI] Requesting from OpenRouter: {text}", flush=True)
 
                 import re
+                
+                # Check if we need to extract document text
+                summarize_doc = bool(re.search(r'\b(summarize|read|analyze|scan)\s+(this|the|my)?\s*(pdf|document|page|file|window|text|screen|video|it)?\b', text, re.I))
+                
+                if summarize_doc:
+                    try:
+                        import pyautogui
+                        import pyperclip
+                        import time
+                        
+                        # Backup clipboard
+                        old_clipboard = pyperclip.paste()
+                        pyperclip.copy("")
+                        
+                        # Simulate Ctrl+A, Ctrl+C to extract text
+                        pyautogui.hotkey('ctrl', 'a')
+                        time.sleep(0.3)
+                        pyautogui.hotkey('ctrl', 'c')
+                        time.sleep(0.3)
+                        pyautogui.press('right') # Deselect
+                        
+                        extracted_text = pyperclip.paste()
+                        
+                        # Restore clipboard
+                        if old_clipboard:
+                            pyperclip.copy(old_clipboard)
+                        
+                        if extracted_text and len(extracted_text.strip()) > 10:
+                            # Truncate if too huge, leaving enough for context
+                            if len(extracted_text) > 150000:
+                                extracted_text = extracted_text[:150000] + "\n...[Text Truncated]..."
+                                
+                            text += f"\n\n[System Note: The user asked you to summarize/read their document. I have automatically extracted the text from their active window. Here is the text:]\n\n{extracted_text}"
+                            print("From Python: [AI] Injected active document text into her brain!", flush=True)
+                            
+                            # Also update the message in the history buffer
+                            messages[-1]["content"] = text
+                        else:
+                            text += f"\n\n[System Note: I tried to extract the text from the active window, but nothing was found. Ask the user to click on the document or PDF they want you to read first!]"
+                            print("From Python: [AI] Failed to find text to extract.", flush=True)
+                            messages[-1]["content"] = text
+                            
+                    except Exception as e:
+                        print(f"From Python: [AI Error] Could not extract document text: {e}", flush=True)
+                        text += f"\n\n[System Note: I tried to extract the text from the active window, but an error occurred. Ask the user to click on the document or PDF they want you to read first!]"
+                        messages[-1]["content"] = text
+
                 take_screenshot = bool(re.search(r'\b(look|see|read|screen|terminal|check|what is this|show me|what\'s on|what are you seeing|display)\b', text, re.I))
                 
                 if take_screenshot:
@@ -143,7 +190,7 @@ class AIThread(QThread):
                     max_tokens = 1000 # Give Claude more room to draft long posts
 
                 response = None
-                for _ in range(len(self.api_keys)):
+                for _ in range(len(self.api_keys) * 2): # Allow retry with fallback model
                     client = OpenAI(
                         base_url="https://openrouter.ai/api/v1",
                         api_key=self.api_keys[self.current_key_idx],
@@ -162,7 +209,11 @@ class AIThread(QThread):
                         break # Success!
                     except Exception as e:
                         error_msg = str(e)
-                        if "402" in error_msg or "insufficient_quota" in error_msg.lower() or "429" in error_msg or "rate" in error_msg.lower() or "api_key" in error_msg.lower():
+                        if "404" in error_msg or "disabled" in error_msg.lower():
+                            print(f"From Python: [AI] Model {ai_model} failed ({error_msg}). Falling back to openai/gpt-4o-mini...", flush=True)
+                            ai_model = "openai/gpt-4o-mini"
+                            continue
+                        elif "402" in error_msg or "insufficient_quota" in error_msg.lower() or "429" in error_msg or "rate" in error_msg.lower() or "api_key" in error_msg.lower():
                             print(f"From Python: [AI] Key {self.current_key_idx + 1} failed ({error_msg}). Switching to backup key...", flush=True)
                             self.current_key_idx = (self.current_key_idx + 1) % len(self.api_keys)
                         else:

@@ -76,6 +76,25 @@
         .anim-thinking { animation: rock-thinking 2.5s ease-in-out infinite; }
         .anim-talking { animation: bounce-talking 0.6s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
         .anim-error { animation: shake-error 0.15s ease-in-out infinite; }
+
+        /* Glitter particles */
+        .glitter {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            background-color: #ffd700;
+            border-radius: 50%;
+            pointer-events: none;
+            box-shadow: 0 0 10px #ffd700, 0 0 20px #fff;
+            animation: glitter-float 2s ease-out forwards;
+            z-index: 100;
+        }
+
+        @keyframes glitter-float {
+            0% { transform: translateY(0) scale(0) rotate(0deg); opacity: 1; }
+            50% { transform: translateY(-50px) scale(1) rotate(180deg); opacity: 0.8; }
+            100% { transform: translateY(-100px) scale(0) rotate(360deg); opacity: 0; }
+        }
     </style>
 </head>
 <body>
@@ -121,11 +140,40 @@
         };
 
 
+        // Visual effect for happy states
+        function spawnGlitters() {
+            for (let i = 0; i < 15; i++) {
+                setTimeout(() => {
+                    const glitter = document.createElement('div');
+                    glitter.className = 'glitter';
+                    // Randomize position near the center
+                    const offsetX = (Math.random() - 0.5) * 150;
+                    const offsetY = (Math.random() - 0.5) * 150;
+                    glitter.style.left = `calc(50% + ${offsetX}px)`;
+                    glitter.style.top = `calc(50% + ${offsetY}px)`;
+                    
+                    // Add random colors for sparkles
+                    const colors = ['#ffd700', '#ffb6c1', '#add8e6', '#ffffff'];
+                    const color = colors[Math.floor(Math.random() * colors.length)];
+                    glitter.style.backgroundColor = color;
+                    glitter.style.boxShadow = `0 0 10px ${color}, 0 0 20px #fff`;
+                    
+                    document.body.appendChild(glitter);
+                    
+                    // Remove after animation completes
+                    setTimeout(() => glitter.remove(), 2000);
+                }, i * 100); // Stagger the spawn
+            }
+        }
+
         ipcRenderer.on('state-changed', (event, state) => {
             console.log("Updating UI state to: ", state);
             if (stateImages[state]) {
                 imageElement.src = stateImages[state];
-                // Removed CSS animations overlapping with GIF
+                
+                if (['happy', 'excited', 'praise'].includes(state)) {
+                    spawnGlitters();
+                }
             }
         });
     </script>

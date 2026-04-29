@@ -70,6 +70,16 @@ class SpeakerThread(QThread):
     def say(self, text: str, interrupt=True):
         if not text or not text.strip():
             return
+            
+        try:
+            import emoji
+            text = emoji.replace_emoji(text, replace="")
+            text = text.replace("*", "") # Strip markdown asterisks
+        except ImportError:
+            pass
+            
+        if not text.strip():
+            return
         
         if interrupt:
             self.interrupt()
