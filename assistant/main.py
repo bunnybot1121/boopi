@@ -186,11 +186,17 @@ def on_ai_notepad_clear():
 def on_ai_notepad_title(title: str):
     print(json.dumps({"type": "notepad_title", "value": title}), flush=True)
 
+def on_ai_whatsapp_send(recipient: str, message: str):
+    from actions.action_engine import send_whatsapp_message
+    print(f"From Python: [AI Triggered Action] Sending to {recipient}...", flush=True)
+    send_whatsapp_message(recipient, message)
+
 ai.response_started.connect(on_ai_started)
 ai.response_chunk.connect(on_ai_chunk)
 ai.notepad_insert.connect(on_ai_notepad)
 ai.notepad_clear.connect(on_ai_notepad_clear)
 ai.notepad_title.connect(on_ai_notepad_title)
+ai.whatsapp_send.connect(on_ai_whatsapp_send)
 ai.error_occurred.connect(lambda e: (
     print(json.dumps({"type": "log", "message": f"[AI Error] {e}"}), flush=True),
     state_mgr.force("error"),

@@ -68,32 +68,61 @@ def _find_and_focus_tab(keyword):
         import pyautogui
         import time
         
-        # Check active tabs first
+        keyword_lower = keyword.lower()
+        
+        # 1. Direct match: If a window's title contains the keyword (e.g. WhatsApp PWA)
         for w in gw.getAllWindows():
-            if keyword.lower() in w.title.lower() and ('Google Chrome' in w.title or 'Edge' in w.title):
+            title_lower = w.title.lower()
+            if keyword_lower in title_lower and ('chrome' in title_lower or 'edge' in title_lower or keyword_lower == title_lower or 'whatsapp' in title_lower):
                 if w.isMinimized:
                     w.restore()
-                w.activate()
+                if not w.isMaximized:
+                    try:
+                        w.maximize()
+                    except:
+                        pass
+                try:
+                    # Windows focus hack: press Alt twice so it doesn't leave the window menu focused
+                    pyautogui.press('alt')
+                    pyautogui.press('alt')
+                    w.activate()
+                except Exception:
+                    pass
                 time.sleep(0.5)
                 return True
                 
-        browsers = [w for w in gw.getAllWindows() if 'Google Chrome' in w.title or 'Edge' in w.title]
+        # 2. Tab switching: If it's buried in a Chrome window
+        browsers = [w for w in gw.getAllWindows() if 'chrome' in w.title.lower() or 'edge' in w.title.lower()]
         if not browsers:
             return False
             
         for win in browsers:
             if win.isMinimized:
                 win.restore()
-            win.activate()
+            if not win.isMaximized:
+                try:
+                    win.maximize()
+                except:
+                    pass
+            try:
+                # Windows focus hack: press Alt twice so it doesn't leave the window menu focused
+                pyautogui.press('alt')
+                pyautogui.press('alt')
+                win.activate()
+            except Exception:
+                pass
             time.sleep(0.3)
             
             initial_title = win.title
             for i in range(25):
                 current = win.title
-                if keyword.lower() in current.lower():
+                if keyword_lower in current.lower():
                     return True
-                pyautogui.hotkey('ctrl', 'tab')
-                time.sleep(0.05)
+                # Explicitly press and release Ctrl to avoid dropped modifiers
+                pyautogui.keyDown('ctrl')
+                pyautogui.press('tab')
+                pyautogui.keyUp('ctrl')
+                time.sleep(0.1)
                 if win.title == initial_title and i > 0:
                     break
         return False
@@ -121,16 +150,23 @@ def _open_in_chrome(url, force_new_tab=False):
                     
                 if win.isMinimized:
                     win.restore()
-                win.activate()
+                try:
+                    win.activate()
+                except Exception:
+                    pass
                 time.sleep(0.3)
                 
                 old_clip = pyperclip.paste()
                 pyperclip.copy(url)
                 
-                pyautogui.hotkey('ctrl', 'l')
-                time.sleep(0.1)
-                pyautogui.hotkey('ctrl', 'v')
-                time.sleep(0.1)
+                # F6 focuses the address bar
+                pyautogui.press('f6')
+                time.sleep(0.3)
+                
+                # Since Ctrl+V is failing on the user's machine, we will type the URL directly!
+                # This guarantees the URL is entered into the address bar.
+                pyautogui.write(url, interval=0.01)
+                time.sleep(0.3)
                 pyautogui.press('enter')
                 time.sleep(0.1)
                 
@@ -156,14 +192,6 @@ def _open_youtube(match=None):
     return "Opening YouTube."
 
 def _open_whatsapp(match=None):
-    import os, platform
-    if platform.system() == "Windows":
-        try:
-            os.startfile("whatsapp://")
-            return "Opening WhatsApp Desktop."
-        except Exception:
-            pass
-            
     if _find_and_focus_tab("WhatsApp"):
         return "Focused your open WhatsApp tab."
     _open_in_chrome("https://web.whatsapp.com/")
@@ -256,38 +284,72 @@ def send_whatsapp_message(recipient, message):
     recipient_text = f" to {recipient}" if recipient else ""
     
     import urllib.parse
-    encoded = urllib.parse.quote(message)
-    
     if _find_and_focus_tab("WhatsApp"):
         try:
             import pyautogui
             import time
-            # Focus search bar
-            pyautogui.hotkey('ctrl', 'alt', '/')
-            time.sleep(0.5)
+            
+            def slow_hotkey(*keys):
+                """Press keys with a slight delay to prevent Windows from dropping modifiers."""
+                for key in keys:
+                    pyautogui.keyDown(key)
+                    time.sleep(0.05)
+                for key in reversed(keys):
+                    pyautogui.keyUp(key)
+                    time.sleep(0.05)
+
+            # Ensure the web page DOM has actual keyboard focus by clicking the center of the screen.
+            # This clicks the chat background, which is safe.
+            screen_width, screen_height = pyautogui.size()
+            pyautogui.click(screen_width // 2, screen_height // 2)
+            time.sleep(0.2)
+            
+            # Press ESC repeatedly to close any active chat text boxes or emoji panels.
+            pyautogui.press('esc', presses=3, interval=0.1)
+            time.sleep(0.3)
+            
+            # Use the WhatsApp Web search shortcut
+            slow_hotkey('ctrl', 'alt', '/')
+            time.sleep(0.3)
+            
+            # Press backspace to clear the '/' in case Windows drops the modifiers
+            pyautogui.press('backspace')
+            time.sleep(0.2)
+            
             if recipient:
-                pyautogui.write(recipient)
-                time.sleep(1.0) # wait for search results
+                print(f"From Python: [DEBUG] Typing recipient exactly as: '{recipient}'", flush=True)
+                # Type the name to search
+                pyautogui.write(recipient, interval=0.02)
+                time.sleep(2.0) # wait for search results to filter
                 pyautogui.press('enter')
-                time.sleep(0.5)
+                time.sleep(1.0) # wait for the chat to open
+                
             if message:
-                pyautogui.write(message)
+                pyautogui.write(message, interval=0.01)
                 time.sleep(0.2)
                 pyautogui.press('enter')
                 return f"Sent '{message}'{recipient_text} on WhatsApp."
+                
             return f"Opened WhatsApp chat for {recipient}."
-        except Exception:
+        except Exception as e:
+            print(f"WhatsApp sending error: {e}")
             pass
             
-    import os, platform
-    if platform.system() == "Windows":
-        try:
-            os.startfile(f"whatsapp://send?text={encoded}")
-            return f"Opening WhatsApp Desktop. Please select the contact to send '{message}'{recipient_text}."
-        except Exception:
-            pass
-            
-    _open_in_chrome(f"https://web.whatsapp.com/send?text={encoded}")
+    # Absolute Fallback if no WhatsApp tab exists at all
+    encoded = urllib.parse.quote(message)
+    url = f"https://web.whatsapp.com/send?text={encoded}"
+    _open_in_chrome(url, force_new_tab=True)
+    if recipient and message:
+        import pyautogui
+        import time
+        time.sleep(8.0) 
+        pyautogui.write(recipient)
+        time.sleep(2.0)
+        pyautogui.press('enter')
+        time.sleep(1.0)
+        pyautogui.press('enter')
+        return f"Sent '{message}'{recipient_text} on WhatsApp."
+        
     return f"Opening WhatsApp Web. Please select the contact to send '{message}'{recipient_text}."
 
 def _take_screenshot(match=None):
