@@ -30,8 +30,25 @@ class ListenerThread(QThread):
     def run(self):
         self._running = True
         try:
-            with sd.InputStream(samplerate=SAMPLE_RATE, channels=1,
-                                dtype='int16', blocksize=FRAME_SAMPLES) as stream:
+            stream = None
+            try:
+                stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype='int16', blocksize=FRAME_SAMPLES)
+            except Exception as e:
+                print(f"From Python: [Listener Warning] Default device failed: {e}. Trying fallbacks...", flush=True)
+                for i, dev in enumerate(sd.query_devices()):
+                    if dev['max_input_channels'] > 0:
+                        try:
+                            stream = sd.InputStream(device=i, samplerate=SAMPLE_RATE, channels=1, dtype='int16', blocksize=FRAME_SAMPLES)
+                            print(f"From Python: [Listener] Selected fallback device {i}: {dev['name']}", flush=True)
+                            break
+                        except Exception:
+                            stream = None
+                            continue
+            
+            if stream is None:
+                raise Exception("Could not open any audio input device.")
+
+            with stream:
                 
                 # Dynamic microphone calibration (1 second) to handle loud laptop fans/AC
                 ambient_frames = []

@@ -110,9 +110,12 @@ class SpeakerThread(QThread):
         self._audio_queue.put(None)
 
     def run(self):
+        from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
+        from PyQt6.QtCore import QUrl, QEventLoop, QTimer
+
         def tts_generator_loop():
             voice = "en-US-AnaNeural"
-            flags = subprocess.CREATE_NO_WINDOW
+            flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             while True:
                 item = self._text_queue.get()
                 if item is None:
@@ -125,6 +128,7 @@ class SpeakerThread(QThread):
                 self._chunk_counter += 1
                 out_path = f"temp_speech_{self._chunk_counter}.mp3"
                 try:
+                    # Fallback to pure module invocation to bypass some edge-tts script blocks
                     subprocess.run(
                         ["python", "-m", "edge_tts", "--text", text, "--voice", voice, "--write-media", out_path],
                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -157,12 +161,35 @@ class SpeakerThread(QThread):
                 
                 self.speech_started.emit()
                 
-                Win32Audio.play(path)
+                print(f"From Python: [TTS] Playing audio from {os.path.abspath(path)}...", flush=True)
                 
-                while Win32Audio.is_playing() and epoch == self._epoch and not self._exit_flag:
-                    time.sleep(0.1)
+                loop = QEventLoop()
+                player = QMediaPlayer()
+                audio = QAudioOutput()
+                player.setAudioOutput(audio)
+                player.setSource(QUrl.fromLocalFile(os.path.abspath(path)))
                 
-                Win32Audio.stop()
+                def on_status(status):
+                    if status == QMediaPlayer.MediaStatus.EndOfMedia or status == QMediaPlayer.MediaStatus.InvalidMedia:
+                        loop.quit()
+                player.mediaStatusChanged.connect(on_status)
+
+                def check_interrupt():
+                    if epoch != self._epoch or self._exit_flag:
+                        player.stop()
+                        loop.quit()
+
+                timer = QTimer()
+                timer.timeout.connect(check_interrupt)
+                timer.start(100)
+                
+                player.play()
+                loop.exec()
+                
+                timer.stop()
+                timer.deleteLater()
+                player.deleteLater()
+                audio.deleteLater()
                 
                 if os.path.exists(path):
                     try: os.remove(path)
