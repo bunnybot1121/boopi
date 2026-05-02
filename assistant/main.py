@@ -33,6 +33,7 @@ from voice.speaker import SpeakerThread
 from actions.action_engine import detect_and_run
 from memory import user_memory
 from event_bus import bus
+from bupi_node_server import start_node_server, send_to_esp32
 
 app = QCoreApplication(sys.argv)
 
@@ -44,6 +45,17 @@ ai = AIThread()
 speaker = SpeakerThread()
 
 conversation_mode = False
+
+# -------------------------------------------------------------
+# Init Hardware / ESP32 Bridge
+# -------------------------------------------------------------
+start_node_server()
+
+# Setup an Hourly Water Reminder for the LCD
+water_timer = QTimer()
+water_timer.setInterval(3600000) # 1 hour in milliseconds
+water_timer.timeout.connect(lambda: send_to_esp32("Reminder!", "Drink Water!"))
+water_timer.start()
 
 # -------------------------------------------------------------
 # Inactivity Timer
@@ -62,6 +74,16 @@ inactivity_timer.start()
 # IPC state observer
 def on_global_state_changed(state: str):
     print(json.dumps({"type": "state", "value": state}), flush=True)
+    
+    # Send state updates to the ESP32 LCD!
+    if state == "listening":
+        send_to_esp32("Bupi Status:", "Listening...")
+    elif state == "thinking":
+        send_to_esp32("Bupi Status:", "Thinking...")
+    elif state == "talking":
+        send_to_esp32("Bupi Status:", "Talking...")
+    elif state == "idle":
+        send_to_esp32("Bupi Status:", "Idling (Zzz)")
 
 bus.state_changed.connect(on_global_state_changed)
 
