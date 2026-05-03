@@ -21,11 +21,12 @@
             height: 95vmin;
             border-radius: 50%;
             overflow: hidden;
-            -webkit-app-region: drag; /* Let users click and drag the character */
+            -webkit-app-region: drag; /* Restore native dragging */
+            user-select: none;
             display: flex;
             justify-content: center;
             align-items: center;
-            transition: all 0.3s ease;
+            transition: transform 0.3s ease;
         }
 
         #state-image {
@@ -51,7 +52,7 @@
         }
         @keyframes pulse-listening {
             0% { transform: scale(1) translateY(0); }
-            50% { transform: scale(1.08) translateY(-2px); }
+            50% { transform: scale(1.05) translateY(-2px); }
             100% { transform: scale(1) translateY(0); }
         }
         @keyframes rock-thinking {
@@ -76,6 +77,66 @@
         .anim-thinking { animation: rock-thinking 2.5s ease-in-out infinite; }
         .anim-talking { animation: bounce-talking 0.6s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
         .anim-error { animation: shake-error 0.15s ease-in-out infinite; }
+
+        /* Anime Thought Bubble CSS */
+        #thought-bubble {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: #fff;
+            border: 3px solid #333;
+            border-radius: 50%; /* Cloud-like round shape */
+            padding: 10px 15px;
+            font-family: 'Comic Sans MS', cursive, sans-serif;
+            font-size: 13px;
+            font-weight: bold;
+            color: #333;
+            min-width: 60px;
+            max-width: 100px;
+            text-align: center;
+            box-shadow: 3px 3px 0px rgba(0,0,0,0.2);
+            opacity: 0;
+            transform: scale(0.8) translateY(10px);
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            z-index: 200;
+            pointer-events: none;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Anime Bubble Trail (Big dot) */
+        #thought-bubble::before {
+            content: '';
+            position: absolute;
+            bottom: -12px;
+            left: 20px;
+            width: 14px;
+            height: 14px;
+            background: #fff;
+            border: 3px solid #333;
+            border-radius: 50%;
+            box-shadow: 2px 2px 0px rgba(0,0,0,0.2);
+        }
+
+        /* Anime Bubble Trail (Small dot) */
+        #thought-bubble::after {
+            content: '';
+            position: absolute;
+            bottom: -24px;
+            left: 8px;
+            width: 8px;
+            height: 8px;
+            background: #fff;
+            border: 3px solid #333;
+            border-radius: 50%;
+            box-shadow: 2px 2px 0px rgba(0,0,0,0.2);
+        }
+
+        #thought-bubble.visible {
+            opacity: 1;
+            transform: scale(1) translateY(0);
+        }
 
         /* Glitter particles */
         .glitter {
@@ -102,6 +163,9 @@
         <!-- Live-2D Native GIF Element -->
         <img id="state-image" src="assets/animations/idle.gif" />
     </div>
+    
+    <div id="thought-bubble"></div>
+
 
     <script>
         const { ipcRenderer } = require('electron');
@@ -109,6 +173,7 @@
 
         // Allow user to resize by scrolling mouse wheel over the character
         document.addEventListener('wheel', (e) => {
+            if (!e.ctrlKey) return; // Prevent accidental resizing! User must hold Ctrl.
             const step = e.deltaY > 0 ? -25 : 25; // Scroll down = shrink, Scroll up = grow
             ipcRenderer.send('resize-window', step);
         });
@@ -166,16 +231,58 @@
             }
         }
 
+        const thoughtBubble = document.getElementById('thought-bubble');
+        let bubbleTimeout = null;
+        
+        const stateThoughts = {
+            "idle": "Zzz...",
+            "listening": "I'm listening...",
+            "thinking": "Let me think...",
+            "talking": "Blah blah...",
+            "error": "Oops, error!",
+            "angry": "Why are you not talking to me?! 😤",
+            "happy": "Yay! ^_^",
+            "startup": "Waking up...",
+            "praise": "Hehe! 😊",
+            "excited": "So exciting! ✨",
+            "booting": "Loading...",
+            "chilling": "Just chilling~",
+            "waiting": "Any orders?"
+        };
+
         ipcRenderer.on('state-changed', (event, state) => {
             console.log("Updating UI state to: ", state);
             if (stateImages[state]) {
                 imageElement.src = stateImages[state];
+                
+                // Clear existing animation classes
+                const container = document.getElementById('video-container');
+                container.className = ''; 
+                
+                // Apply new animation class if it exists
+                if (stateAnimations[state]) {
+                    container.classList.add(stateAnimations[state]);
+                }
+                
+                // Update thought bubble
+                if (stateThoughts[state]) {
+                    thoughtBubble.innerText = stateThoughts[state];
+                    thoughtBubble.classList.add('visible');
+                    
+                    if (bubbleTimeout) clearTimeout(bubbleTimeout);
+                    bubbleTimeout = setTimeout(() => {
+                        thoughtBubble.classList.remove('visible');
+                    }, 4000);
+                } else {
+                    thoughtBubble.classList.remove('visible');
+                }
                 
                 if (['happy', 'excited', 'praise'].includes(state)) {
                     spawnGlitters();
                 }
             }
         });
+
     </script>
 </body>
 </html>

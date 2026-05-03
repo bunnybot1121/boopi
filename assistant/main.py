@@ -51,10 +51,15 @@ conversation_mode = False
 # -------------------------------------------------------------
 start_node_server()
 
-# Setup an Hourly Water Reminder for the LCD
+# Setup a 12-minute Water Reminder
+def remind_water():
+    send_to_esp32("Reminder!", "Drink Water!")
+    state_mgr.force("talking")
+    speaker.say("Excuse me, have you drank any water recently? Please stay hydrated!")
+
 water_timer = QTimer()
-water_timer.setInterval(3600000) # 1 hour in milliseconds
-water_timer.timeout.connect(lambda: send_to_esp32("Reminder!", "Drink Water!"))
+water_timer.setInterval(720000) # 12 minutes in milliseconds
+water_timer.timeout.connect(remind_water)
 water_timer.start()
 
 # -------------------------------------------------------------
@@ -66,7 +71,8 @@ inactivity_timer.setSingleShot(True)
 
 def make_angry():
     state_mgr.force("angry")
-    print(json.dumps({"type": "command", "value": "start_running"}), flush=True)
+    # Complain about being ignored instead of running
+    speaker.say("Why are you not talking to me?")
 
 inactivity_timer.timeout.connect(make_angry)
 inactivity_timer.start()
@@ -114,7 +120,6 @@ def on_transcription(text: str):
 
     if state_mgr.current == "angry":
         state_mgr.force("happy")
-        print(json.dumps({"type": "command", "value": "stop_running"}), flush=True)
         speaker.say("Yay! You finally talked to me again!")
         return
 
@@ -307,11 +312,32 @@ threading.Thread(target=stdin_listener, daemon=True).start()
 from datetime import datetime
 
 def startup_sequence():
-    user_name = user_memory.get("user_name", "there")
+    user_name = user_memory.get("user_name", "Chintu")
     hour = datetime.now().hour
     greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 17 else "Good evening"
     state_mgr.force("startup")
-    speaker.say(f"{greeting}, {user_name}. Bupi is ready. Just call my name!")
+    
+    # Open notepad and provide summary
+    print(json.dumps({"type": "command", "value": "open_notepad"}), flush=True)
+    on_ai_notepad_title("Notifications Summary")
+    on_ai_notepad_clear()
+    
+    mock_notes = (
+        "📧 Emails (3 Unread)\n"
+        " - Client: \"Feedback on the latest design draft.\"\n"
+        " - GitHub: \"Pull request #42 has been merged.\"\n"
+        " - Newsletter: \"Weekly tech insights and news.\"\n\n"
+        "💼 LinkedIn (2 Notifications)\n"
+        " - John Doe endorsed you for Python.\n"
+        " - You appeared in 12 searches this week.\n\n"
+        "💬 WhatsApp (2 Unread)\n"
+        " - Mom: \"Call me when you are free!\"\n"
+        " - Group Chat: \"Lunch plans for tomorrow?\"\n"
+    )
+    on_ai_notepad(mock_notes)
+
+    welcome_speech = f"Hi {user_name}, I have some notifications and I have summarized what you have got. I also checked your LinkedIn and WhatsApp and gave you a quick summary of all the stuff."
+    speaker.say(welcome_speech)
     speaker.speech_finished.connect(
         lambda: state_mgr.force("idle"),
         Qt.ConnectionType.SingleShotConnection if hasattr(Qt, 'ConnectionType') else 1
