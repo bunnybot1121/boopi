@@ -202,6 +202,7 @@ def on_ai_started(tag: str):
     state_mgr.transition(emotion)
     
 def on_ai_chunk(text: str):
+    print(json.dumps({"type": "speech_text", "value": text}), flush=True)
     speaker.say(text, interrupt=False)
 
 def on_ai_notepad(text: str):
@@ -216,7 +217,13 @@ def on_ai_notepad_title(title: str):
 def on_ai_whatsapp_send(recipient: str, message: str):
     from actions.action_engine import send_whatsapp_message
     print(f"From Python: [AI Triggered Action] Sending to {recipient}...", flush=True)
-    send_whatsapp_message(recipient, message)
+    result = send_whatsapp_message(recipient, message)
+    if result:
+        state_mgr.force("talking")
+        speaker.say(result)
+
+def on_ai_draw(url: str):
+    print(json.dumps({"type": "draw", "value": url}), flush=True)
 
 ai.response_started.connect(on_ai_started)
 ai.response_chunk.connect(on_ai_chunk)
@@ -224,6 +231,7 @@ ai.notepad_insert.connect(on_ai_notepad)
 ai.notepad_clear.connect(on_ai_notepad_clear)
 ai.notepad_title.connect(on_ai_notepad_title)
 ai.whatsapp_send.connect(on_ai_whatsapp_send)
+ai.ai_draw.connect(on_ai_draw)
 ai.error_occurred.connect(lambda e: (
     print(json.dumps({"type": "log", "message": f"[AI Error] {e}"}), flush=True),
     state_mgr.force("error"),

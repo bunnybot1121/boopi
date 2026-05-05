@@ -302,7 +302,50 @@ def send_whatsapp_message(recipient, message):
             # This clicks the chat background, which is safe.
             screen_width, screen_height = pyautogui.size()
             pyautogui.click(screen_width // 2, screen_height // 2)
-            time.sleep(0.2)
+            time.sleep(0.5) # Give it a moment to stabilize
+            
+            # --- VISION AI AGENT: Check if chat is locked ---
+            print("From Python: [Vision AI] Taking screenshot to analyze WhatsApp state...", flush=True)
+            import os, base64
+            from io import BytesIO
+            from PIL import ImageGrab
+            from openai import OpenAI
+            
+            screen = ImageGrab.grab(all_screens=True)
+            screen.thumbnail((1280, 720)) # Optimize for speed
+            buffered = BytesIO()
+            screen.save(buffered, format="JPEG", quality=70)
+            img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+            
+            api_key = None
+            for k, v in os.environ.items():
+                if k.startswith("OPENROUTER_API_KEY") and v.strip():
+                    api_key = v.strip()
+                    break
+                    
+            if api_key:
+                client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+                try:
+                    resp = client.chat.completions.create(
+                        model="openai/gpt-4o-mini",
+                        messages=[{
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": "Look at this screenshot of WhatsApp Web. Is there a security lock, PIN code prompt, password screen, or 'Enter your lock screen password' dialog currently displayed blocking the chat? Respond with exactly one word: YES or NO."},
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_str}"}}
+                            ]
+                        }],
+                        max_tokens=10
+                    )
+                    is_locked = "YES" in resp.choices[0].message.content.strip().upper()
+                    if is_locked:
+                        print("From Python: [Vision AI] Detected locked chat!", flush=True)
+                        return f"Your WhatsApp is currently locked. Please enter your security code to unlock it, and then I can send the message!"
+                    else:
+                        print("From Python: [Vision AI] Chat is unlocked. Proceeding with automation.", flush=True)
+                except Exception as e:
+                    print(f"From Python: [Vision AI Error] {e}", flush=True)
+            # ------------------------------------------------
             
             # Press ESC repeatedly to close any active chat text boxes or emoji panels.
             pyautogui.press('esc', presses=3, interval=0.1)
@@ -415,9 +458,11 @@ PATTERNS = [
     (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:my\s+)?(?:notepad|notes|text)", re.I), _open_notepad),
     (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?spotify",                 re.I), _open_spotify),
     (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:calculator|calc)",       re.I), _open_calculator),
-    (re.compile(r"^(?:send|write|message|text)\s+(?:a\s+)?(?:whatsapp\s+)?message\s+to\s+", re.I), _send_whatsapp),
-    (re.compile(r"^(?:send|write|message|text)\s+.+?\s+to\s+.+?(?:\s+on\s+whatsapp)?$", re.I), _send_whatsapp),
-    (re.compile(r"^whatsapp\s+.+?\s+(?:saying|that)\s+", re.I), _send_whatsapp),
+    # WhatsApp regexes removed to allow ai_brain.py (NLP LLM) to seamlessly parse intent,
+    # draft the message in Bupi Hub, and trigger the action intelligently!
+    # (re.compile(r"^(?:send|write|message|text)\s+(?:a\s+)?(?:whatsapp\s+)?message\s+to\s+", re.I), _send_whatsapp),
+    # (re.compile(r"^(?:send|write|message|text)\s+.+?\s+to\s+.+?(?:\s+on\s+whatsapp)?$", re.I), _send_whatsapp),
+    # (re.compile(r"^whatsapp\s+.+?\s+(?:saying|that)\s+", re.I), _send_whatsapp),
     (re.compile(r"(?:open|check)\s+(?:my\s+)?whatsapp",                re.I), _open_whatsapp),
     (re.compile(r"(?:play|listen\s+to|stream)\s+(.+)",                 re.I), _play_music),
     (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:youtube|yt)",                    re.I), _open_youtube),

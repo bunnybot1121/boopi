@@ -81,22 +81,24 @@
         /* Anime Thought Bubble CSS */
         #thought-bubble {
             position: absolute;
-            top: 15px;
-            right: 15px;
+            top: 6vw;
+            right: 6vw;
             background: #fff;
-            border: 3px solid #333;
-            border-radius: 50%; /* Cloud-like round shape */
-            padding: 10px 15px;
+            border: 1.2vw solid #333;
+            border-radius: 8vw; /* Changed from 50% to prevent weird oval stretching on long text */
+            padding: 4vw 6vw;
             font-family: 'Comic Sans MS', cursive, sans-serif;
-            font-size: 13px;
+            font-size: 5.2vw;
+            line-height: 1.4;
             font-weight: bold;
             color: #333;
-            min-width: 60px;
-            max-width: 100px;
+            min-width: 24vw;
+            max-width: 72vw; /* Increased max width so it grows horizontally before vertically */
+            word-wrap: break-word;
             text-align: center;
-            box-shadow: 3px 3px 0px rgba(0,0,0,0.2);
+            box-shadow: 1.2vw 1.2vw 0px rgba(0,0,0,0.2);
             opacity: 0;
-            transform: scale(0.8) translateY(10px);
+            transform: scale(0.8) translateY(4vw);
             transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
             z-index: 200;
             pointer-events: none;
@@ -109,28 +111,28 @@
         #thought-bubble::before {
             content: '';
             position: absolute;
-            bottom: -12px;
-            left: 20px;
-            width: 14px;
-            height: 14px;
+            bottom: -4.8vw;
+            left: 8vw;
+            width: 5.6vw;
+            height: 5.6vw;
             background: #fff;
-            border: 3px solid #333;
+            border: 1.2vw solid #333;
             border-radius: 50%;
-            box-shadow: 2px 2px 0px rgba(0,0,0,0.2);
+            box-shadow: 0.8vw 0.8vw 0px rgba(0,0,0,0.2);
         }
 
         /* Anime Bubble Trail (Small dot) */
         #thought-bubble::after {
             content: '';
             position: absolute;
-            bottom: -24px;
-            left: 8px;
-            width: 8px;
-            height: 8px;
+            bottom: -9.6vw;
+            left: 3.2vw;
+            width: 3.2vw;
+            height: 3.2vw;
             background: #fff;
-            border: 3px solid #333;
+            border: 1.2vw solid #333;
             border-radius: 50%;
-            box-shadow: 2px 2px 0px rgba(0,0,0,0.2);
+            box-shadow: 0.8vw 0.8vw 0px rgba(0,0,0,0.2);
         }
 
         #thought-bubble.visible {
@@ -281,6 +283,21 @@
                     spawnGlitters();
                 }
             }
+        });
+
+        ipcRenderer.on('speech-text', (event, text) => {
+            // Truncate text to keep bubble from getting massive
+            if (text.length > 50) {
+                thoughtBubble.innerText = text.substring(0, 47) + "...";
+            } else {
+                thoughtBubble.innerText = text;
+            }
+            
+            thoughtBubble.classList.add('visible');
+            if (bubbleTimeout) clearTimeout(bubbleTimeout);
+            bubbleTimeout = setTimeout(() => {
+                thoughtBubble.classList.remove('visible');
+            }, 5000);
         });
 
     </script>

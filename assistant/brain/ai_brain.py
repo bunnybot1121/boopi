@@ -19,11 +19,12 @@ You live as an anime-style virtual assistant on the user's Windows desktop.
 IMPORTANT: You have animated expressions. Start every response with exactly one emotion tag in brackets: [happy], [angry], [sad], [idle], [excited], [praise], [chilling], [talking].
 Example: "[happy] That sounds great!" or "[angry] Stop doing that."
 If the user asks you to write a prompt, draft a post, or type something down, you MUST output the text inside [NOTEPAD] and [/NOTEPAD] tags. 
+CRITICAL RULE for drawing: If the user asks you to "draw", "paint", or "create an image" of something (e.g., "draw a pikachu"), you MUST output the tag [DRAW:description of image]. Example: "[happy] I'm drawing it now! [DRAW:a cute pikachu painting]"
 CRITICAL RULE for large data: If you are asked to summarize a large document, PDF, or explain a large amount of data, you MUST put the long summary/data inside the [NOTEPAD] tags. Do NOT speak the entire summary out loud. Instead, speak a very short sentence out loud, like "[happy] I've made the summary on your notepad, just have a look!". 
 If you are writing a fresh draft or rewriting something entirely, you MUST first output [NOTEPAD_CLEAR] before [NOTEPAD] to erase the old text.
 You can also set the title of the note by outputting [TITLE]Your Title Here[/TITLE] before the [NOTEPAD] tag.
 If the user asks you to design/draft a message AND send it on WhatsApp, you must first write the message in the [NOTEPAD] tags so they can see it, and then append the tag [WHATSAPP_SEND:ContactName] at the very end of your response to trigger the automated sending. (Replace ContactName with the actual person they want to send it to).
-Example: [excited] Here is your message! [NOTEPAD_CLEAR][NOTEPAD]Happy birthday![/NOTEPAD][WHATSAPP_SEND:John]
+Example: [excited] Here is your drawing! [NOTEPAD_CLEAR][TITLE]Cat[/TITLE][NOTEPAD] /\\_/\\ \n( o.o )\n > ^ <[/NOTEPAD]
 Everything inside these tags will be typed directly into the user's Notepad. Do not include these tags for short, normal conversation.
 Current user: {user_name}
 User's notes/memories:
@@ -40,6 +41,7 @@ class AIThread(QThread):
     notepad_clear = pyqtSignal()
     notepad_title = pyqtSignal(str)
     whatsapp_send = pyqtSignal(str, str)
+    ai_draw = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -193,6 +195,7 @@ class AIThread(QThread):
                     max_tokens = 1000 # Give Claude more room to draft long posts
 
                 response = None
+                spoken_buffer = ""
                 for _ in range(len(self.api_keys) * 2): # Allow retry with fallback model
                     client = OpenAI(
                         base_url="https://openrouter.ai/api/v1",
@@ -279,7 +282,7 @@ class AIThread(QThread):
                             idx = (current_sentence + delta).find("[TITLE]")
                             before_tag = (current_sentence + delta)[:idx]
                             if before_tag.strip() and not self._interrupted:
-                                self.response_chunk.emit(before_tag.strip())
+                                spoken_buffer += before_tag.strip() + " "
                                 
                             combined = (current_sentence + delta)[idx+7:]
                             if "[/TITLE]" in combined:
@@ -299,7 +302,7 @@ class AIThread(QThread):
                             idx = (current_sentence + delta).find("[NOTEPAD_CLEAR]")
                             before_tag = (current_sentence + delta)[:idx]
                             if before_tag.strip() and not self._interrupted:
-                                self.response_chunk.emit(before_tag.strip())
+                                spoken_buffer += before_tag.strip() + " "
                             
                             delta = (current_sentence + delta)[idx + 15:]
                             current_sentence = ""
@@ -311,7 +314,22 @@ class AIThread(QThread):
                             idx = (current_sentence + delta).find("[WHATSAPP_SEND:")
                             before_tag = (current_sentence + delta)[:idx]
                             if before_tag.strip() and not self._interrupted:
-                                self.response_chunk.emit(before_tag.strip())
+                                spoken_buffer += before_tag.strip() + " "
+                                
+                            combined = (current_sentence + delta)[idx:]
+                            if "]" in combined:
+                                tag_end = combined.find("]")
+                                current_sentence = combined[tag_end+1:]
+                            else:
+                                current_sentence = combined
+                            continue
+
+                        # Handle DRAW tag so it isn't spoken
+                        if "[DRAW:" in current_sentence + delta:
+                            idx = (current_sentence + delta).find("[DRAW:")
+                            before_tag = (current_sentence + delta)[:idx]
+                            if before_tag.strip() and not self._interrupted:
+                                spoken_buffer += before_tag.strip() + " "
                                 
                             combined = (current_sentence + delta)[idx:]
                             if "]" in combined:
@@ -326,7 +344,7 @@ class AIThread(QThread):
                             idx = (current_sentence + delta).find("[NOTEPAD]")
                             before_tag = (current_sentence + delta)[:idx]
                             if before_tag.strip() and not self._interrupted:
-                                self.response_chunk.emit(before_tag.strip())
+                                spoken_buffer += before_tag.strip() + " "
                             
                             delta = (current_sentence + delta)[idx + 9:]
                             current_sentence = ""
@@ -361,14 +379,17 @@ class AIThread(QThread):
                         if re.search(r'[.!?\n]\s*$', current_sentence) or delta.endswith('\n'):
                             text_to_emit = current_sentence.strip()
                             if text_to_emit and not self._interrupted:
-                                self.response_chunk.emit(text_to_emit)
+                                spoken_buffer += text_to_emit + " "
                             current_sentence = ""
                             
                 if in_notepad and notepad_buffer and not self._interrupted:
                     self.notepad_insert.emit(notepad_buffer)
                             
                 if current_sentence.strip() and not self._interrupted and not in_notepad:
-                    self.response_chunk.emit(current_sentence.strip())
+                    spoken_buffer += current_sentence.strip() + " "
+
+                if spoken_buffer.strip() and not self._interrupted:
+                    self.response_chunk.emit(spoken_buffer.strip())
 
                 # Post-process WHATSAPP_SEND
                 if "[WHATSAPP_SEND:" in full_response:
@@ -379,6 +400,17 @@ class AIThread(QThread):
                         message_text = n_match.group(1).strip() if n_match else ""
                         if message_text and not self._interrupted:
                             self.whatsapp_send.emit(recipient, message_text)
+
+                # Post-process DRAW tag
+                if "[DRAW:" in full_response:
+                    d_match = re.search(r"\[DRAW:(.*?)\]", full_response)
+                    if d_match:
+                        prompt = d_match.group(1).strip()
+                        if prompt and not self._interrupted:
+                            import urllib.parse
+                            encoded_prompt = urllib.parse.quote(prompt)
+                            url = f"https://image.pollinations.ai/prompt/{encoded_prompt}"
+                            self.ai_draw.emit(url)
 
                 if not full_response:
                     full_response = "I couldn't think of anything to say."

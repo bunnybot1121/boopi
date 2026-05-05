@@ -1,77 +1,94 @@
 const { ipcRenderer } = require('electron');
 
 document.addEventListener('DOMContentLoaded', () => {
+    // Window controls
     const minBtn = document.getElementById('minBtn');
     const maxBtn = document.getElementById('maxBtn');
     const closeBtn = document.getElementById('closeBtn');
+
+    minBtn.addEventListener('click', () => ipcRenderer.send('notepad-minimize'));
+    maxBtn.addEventListener('click', () => ipcRenderer.send('notepad-maximize'));
+    closeBtn.addEventListener('click', () => ipcRenderer.send('notepad-close'));
+
+    // Tab Navigation
+    const navItems = document.querySelectorAll('.nav-item');
+    const panels = document.querySelectorAll('.content-panel');
+
+    navItems.forEach(item => {
+        item.addEventListener('click', () => {
+            // Remove active from all
+            navItems.forEach(nav => nav.classList.remove('active'));
+            panels.forEach(panel => panel.classList.remove('active'));
+
+            // Add active to clicked
+            item.classList.add('active');
+            const targetId = item.getAttribute('data-target');
+            document.getElementById(targetId).classList.add('active');
+        });
+    });
+
+    // Notes Logic
     const saveBtn = document.getElementById('saveBtn');
     const noteContent = document.getElementById('noteContent');
+    const noteTitle = document.getElementById('noteTitle');
     const wordCount = document.getElementById('wordCount');
-    const charCount = document.getElementById('charCount');
     const saveStatus = document.getElementById('saveStatus');
-    const saveDot = document.getElementById('saveDot');
 
-    // Window controls
-    minBtn.addEventListener('click', () => {
-        ipcRenderer.send('notepad-minimize');
-    });
-
-    maxBtn.addEventListener('click', () => {
-        ipcRenderer.send('notepad-maximize');
-    });
-
-    closeBtn.addEventListener('click', () => {
-        ipcRenderer.send('notepad-close');
-    });
-
-    // Update words and chars
     noteContent.addEventListener('input', () => {
         const text = noteContent.value;
-        charCount.textContent = text.length;
         const words = text.trim() === '' ? 0 : text.trim().split(/\s+/).length;
         wordCount.textContent = words;
         
         saveStatus.textContent = 'Editing...';
-        saveDot.style.backgroundColor = '#ffdf8c'; // Yellow while editing
+        saveStatus.style.color = '#ffbd2e'; // Yellow while editing
     });
 
-    // Save button
     saveBtn.addEventListener('click', () => {
-        saveStatus.textContent = 'Auto-saved just now';
-        saveDot.style.backgroundColor = '#b5e48c'; // Green when saved
+        saveStatus.textContent = 'Saved just now';
+        saveStatus.style.color = 'var(--accent-green)'; // Green when saved
         
-        // Notify backend of save
         ipcRenderer.send('notepad-save', {
-            title: document.getElementById('noteTitle').value,
+            title: noteTitle.value,
             content: noteContent.value
         });
     });
 
-    // Listen for text injections from AI
+    // ESP32 Logic
+    const pingEspBtn = document.getElementById('pingEspBtn');
+    if (pingEspBtn) {
+        pingEspBtn.addEventListener('click', () => {
+            // We will wire this to backend via IPC later
+            alert("Sent Ping to ESP32! (Backend wiring in progress)");
+        });
+    }
+
+    // AI IPC Receivers (Compatibility)
     ipcRenderer.on('notepad-insert', (event, text) => {
         const start = noteContent.selectionStart;
         const end = noteContent.selectionEnd;
         const currentText = noteContent.value;
         
-        // Insert text at cursor position
         noteContent.value = currentText.substring(0, start) + text + currentText.substring(end);
-        
-        // Move cursor after inserted text
         noteContent.selectionStart = noteContent.selectionEnd = start + text.length;
-        
-        // Trigger input event to update counts
         noteContent.dispatchEvent(new Event('input'));
+        
+        // Auto-switch to notes panel
+        document.querySelector('[data-target="panel-notes"]').click();
     });
 
-    // Listen for clear command from AI (when starting a fresh draft)
     ipcRenderer.on('notepad-clear', () => {
         noteContent.value = '';
         noteTitle.value = 'New Note';
         noteContent.dispatchEvent(new Event('input'));
     });
 
-    // Listen for title set command from AI
     ipcRenderer.on('notepad-title', (event, title) => {
         noteTitle.value = title;
+    });
+
+    ipcRenderer.on('notepad-draw', (event, imageUrl) => {
+        const paintArea = document.getElementById('paintArea');
+        paintArea.innerHTML = `<img src="${imageUrl}" style="max-width:100%; max-height:100%; object-fit:contain; border-radius:10px;" />`;
+        document.querySelector('[data-target="panel-paint"]').click();
     });
 });

@@ -114,6 +114,17 @@ function spawnEngine() {
           if (mainWindow) {
             mainWindow.webContents.send('state-changed', msg.value);
           }
+        } else if (msg.type === "speech_text") {
+          if (mainWindow) {
+            mainWindow.webContents.send('speech-text', msg.value);
+          }
+        } else if (msg.type === "draw") {
+          if (notepadWindow) {
+            notepadWindow.webContents.send('notepad-draw', msg.value);
+            if (!notepadWindow.isVisible()) {
+              notepadWindow.show();
+            }
+          }
         } else if (msg.type === "command") {
           if (msg.value === "start_running") {
             startRunningAnimation();

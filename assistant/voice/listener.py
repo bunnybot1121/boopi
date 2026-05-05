@@ -7,7 +7,7 @@ SAMPLE_RATE = 16000
 FRAME_MS = 30
 FRAME_SAMPLES = int(SAMPLE_RATE * FRAME_MS / 1000)
 VAD_AGGRESSIVENESS = 2
-SILENCE_FRAMES = 65 # ~1.95 seconds of silence before cutting off to allow for longer prompts
+SILENCE_FRAMES = 30 # Reduced to ~0.9 seconds to vastly improve response time
 MIN_SPEECH_FRAMES = 10
 PRE_ROLL_FRAMES = 10
 
@@ -23,8 +23,8 @@ class ListenerThread(QThread):
         self._paused = False
         self._energy_threshold = 800
         import whisper
-        print("[Whisper] Loading model...")
-        self._model = whisper.load_model("base.en")  # Used English-only model for improved accuracy
+        print("[Whisper] Loading ultra-fast tiny model...", flush=True)
+        self._model = whisper.load_model("tiny.en")  # Used tiny model for blazing fast CPU transcription
         print("[Whisper] Model loaded.")
 
     def run(self):
