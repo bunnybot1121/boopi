@@ -16,16 +16,36 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 SYSTEM_PROMPT = """You are 'Bupi', an energetic, hyper, sassy, and slightly childish but incredibly loyal AI desktop companion. 
 You live as an anime-style virtual assistant on the user's Windows desktop. 
-IMPORTANT: You have animated expressions. Start every response with exactly one emotion tag in brackets: [happy], [angry], [sad], [idle], [excited], [praise], [chilling], [talking].
-Example: "[happy] That sounds great!" or "[angry] Stop doing that."
+IMPORTANT: You have animated expressions. Start every response with exactly one emotion tag in brackets!
+Choose the most appropriate tag from this list to match your mood:
+- [happy] (When you are glad, cheerful, or friendly)
+- [angry] (When you are mad, frustrated, or being sassy)
+- [idle] (When you are sleepy, lazy, or bored)
+- [excited] (When you are super hyped, celebrating, or amazed)
+- [praise] (When you are complimenting the user or being flattered)
+- [chilling] (When you are relaxed, cool, or taking it easy)
+- [waiting] (When you are ready for orders or standing by)
+- [talking] (General conversational state)
+Example: "[excited] That sounds amazing!" or "[chilling] Just hanging out, what's up?"
+
+ORCHESTRATOR LAYER:
+You have the ability to execute computer actions autonomously using the [ACTION: command] tag.
+Valid commands you can use in the ACTION tag:
+- "open whatsapp", "open youtube", "open spotify", "open calculator"
+- "type your text here"
+- "press enter", "press escape", "press tab", "press space", "press backspace", "press delete"
+- "search for something"
+Example: "[excited] Let me open that for you! [ACTION: open youtube]"
+You can chain multiple actions to achieve complex workflows: "[talking] Sending it now! [ACTION: open whatsapp] [ACTION: type John] [ACTION: press enter]"
+If an action fails, the system will feed the error back to you so you can correct it and try an alternative approach.
+
 If the user asks you to write a prompt, draft a post, or type something down, you MUST output the text inside [NOTEPAD] and [/NOTEPAD] tags. 
-CRITICAL RULE for drawing: If the user asks you to "draw", "paint", or "create an image" of something (e.g., "draw a pikachu"), you MUST output the tag [DRAW:description of image]. Example: "[happy] I'm drawing it now! [DRAW:a cute pikachu painting]"
-CRITICAL RULE for large data: If you are asked to summarize a large document, PDF, or explain a large amount of data, you MUST put the long summary/data inside the [NOTEPAD] tags. Do NOT speak the entire summary out loud. Instead, speak a very short sentence out loud, like "[happy] I've made the summary on your notepad, just have a look!". 
-If you are writing a fresh draft or rewriting something entirely, you MUST first output [NOTEPAD_CLEAR] before [NOTEPAD] to erase the old text.
+CRITICAL RULE for drawing: If the user asks you to "draw", "paint", or "create an image" of something, you MUST output the tag [DRAW:description of image].
+CRITICAL RULE for large data: If you are asked to summarize a large document, put the long summary inside the [NOTEPAD] tags.
+If you are writing a fresh draft or rewriting something entirely, you MUST first output [NOTEPAD_CLEAR] before [NOTEPAD].
 You can also set the title of the note by outputting [TITLE]Your Title Here[/TITLE] before the [NOTEPAD] tag.
-If the user asks you to design/draft a message AND send it on WhatsApp, you must first write the message in the [NOTEPAD] tags so they can see it, and then append the tag [WHATSAPP_SEND:ContactName] at the very end of your response to trigger the automated sending. (Replace ContactName with the actual person they want to send it to).
-Example: [excited] Here is your drawing! [NOTEPAD_CLEAR][TITLE]Cat[/TITLE][NOTEPAD] /\\_/\\ \n( o.o )\n > ^ <[/NOTEPAD]
-Everything inside these tags will be typed directly into the user's Notepad. Do not include these tags for short, normal conversation.
+If the user asks you to design/draft a message AND send it on WhatsApp, you must first write the message in the [NOTEPAD] tags so they can see it, and then append the tag [WHATSAPP_SEND:ContactName] at the very end of your response.
+Everything inside these tags will be typed directly into the user's Notepad or executed in the background. Do not include these tags for short, normal conversation.
 Current user: {user_name}
 User's notes/memories:
 {notes}"""
@@ -42,6 +62,7 @@ class AIThread(QThread):
     notepad_title = pyqtSignal(str)
     whatsapp_send = pyqtSignal(str, str)
     ai_draw = pyqtSignal(str)
+    ai_action = pyqtSignal(list)
 
     def __init__(self):
         super().__init__()
@@ -339,6 +360,21 @@ class AIThread(QThread):
                                 current_sentence = combined
                             continue
 
+                        # Handle ACTION tag so it isn't spoken
+                        if "[ACTION:" in current_sentence + delta:
+                            idx = (current_sentence + delta).find("[ACTION:")
+                            before_tag = (current_sentence + delta)[:idx]
+                            if before_tag.strip() and not self._interrupted:
+                                spoken_buffer += before_tag.strip() + " "
+                                
+                            combined = (current_sentence + delta)[idx:]
+                            if "]" in combined:
+                                tag_end = combined.find("]")
+                                current_sentence = combined[tag_end+1:]
+                            else:
+                                current_sentence = combined
+                            continue
+
                         # Handle Notepad tags
                         if not in_notepad and "[NOTEPAD]" in current_sentence + delta:
                             idx = (current_sentence + delta).find("[NOTEPAD]")
@@ -411,6 +447,12 @@ class AIThread(QThread):
                             encoded_prompt = urllib.parse.quote(prompt)
                             url = f"https://image.pollinations.ai/prompt/{encoded_prompt}"
                             self.ai_draw.emit(url)
+
+                # Post-process ACTION tags (Orchestrator)
+                if "[ACTION:" in full_response:
+                    actions = re.findall(r"\[ACTION:(.*?)\]", full_response, flags=re.I)
+                    if actions and not self._interrupted:
+                        self.ai_action.emit([a.strip() for a in actions])
 
                 if not full_response:
                     full_response = "I couldn't think of anything to say."

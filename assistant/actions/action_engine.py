@@ -221,21 +221,35 @@ def _open_email(match):
     
     if _find_and_focus_tab("Gmail") or _find_and_focus_tab("Mail"):
         try:
+            import pygetwindow as gw
             import pyautogui
             import time
+            
+            def check_focus():
+                aw = gw.getActiveWindow()
+                if not aw or ('mail' not in aw.title.lower() and 'chrome' not in aw.title.lower() and 'edge' not in aw.title.lower()):
+                    raise RuntimeError("Lost window focus")
+
+            check_focus()
             pyautogui.press('c') # Gmail shortcut for compose
             time.sleep(1.0)
             if recipient:
+                check_focus()
                 pyautogui.write(recipient)
                 time.sleep(0.5)
+                check_focus()
                 pyautogui.press('enter')
                 time.sleep(0.2)
+                check_focus()
                 pyautogui.press('tab')
                 if subject:
+                    check_focus()
                     pyautogui.write(subject)
+                check_focus()
                 pyautogui.press('tab')
             return "Opened email compose window."
-        except Exception:
+        except Exception as e:
+            print(f"Gmail automation error: {e}")
             pass
             
     url = f"mailto:{recipient}"
@@ -243,7 +257,7 @@ def _open_email(match):
         url += f"?subject={urllib.parse.quote(subject)}"
         
     _open_in_chrome(url)
-    return "Opening your email client to draft the mail."
+    return "Opening your email client to draft the mail as a fallback."
 
 def _send_whatsapp(match):
     # Depending on the regex that hit, the groups might be different.
@@ -286,11 +300,18 @@ def send_whatsapp_message(recipient, message):
     import urllib.parse
     if _find_and_focus_tab("WhatsApp"):
         try:
+            import pygetwindow as gw
             import pyautogui
             import time
             
+            def check_focus():
+                aw = gw.getActiveWindow()
+                if not aw or ('whatsapp' not in aw.title.lower() and 'chrome' not in aw.title.lower() and 'edge' not in aw.title.lower()):
+                    raise RuntimeError("Lost window focus")
+
             def slow_hotkey(*keys):
                 """Press keys with a slight delay to prevent Windows from dropping modifiers."""
+                check_focus()
                 for key in keys:
                     pyautogui.keyDown(key)
                     time.sleep(0.05)
@@ -302,74 +323,39 @@ def send_whatsapp_message(recipient, message):
             # This clicks the chat background, which is safe.
             screen_width, screen_height = pyautogui.size()
             pyautogui.click(screen_width // 2, screen_height // 2)
-            time.sleep(0.5) # Give it a moment to stabilize
-            
-            # --- VISION AI AGENT: Check if chat is locked ---
-            print("From Python: [Vision AI] Taking screenshot to analyze WhatsApp state...", flush=True)
-            import os, base64
-            from io import BytesIO
-            from PIL import ImageGrab
-            from openai import OpenAI
-            
-            screen = ImageGrab.grab(all_screens=True)
-            screen.thumbnail((1280, 720)) # Optimize for speed
-            buffered = BytesIO()
-            screen.save(buffered, format="JPEG", quality=70)
-            img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-            
-            api_key = None
-            for k, v in os.environ.items():
-                if k.startswith("OPENROUTER_API_KEY") and v.strip():
-                    api_key = v.strip()
-                    break
-                    
-            if api_key:
-                client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
-                try:
-                    resp = client.chat.completions.create(
-                        model="openai/gpt-4o-mini",
-                        messages=[{
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": "Look at this screenshot of WhatsApp Web. Is there a security lock, PIN code prompt, password screen, or 'Enter your lock screen password' dialog currently displayed blocking the chat? Respond with exactly one word: YES or NO."},
-                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_str}"}}
-                            ]
-                        }],
-                        max_tokens=10
-                    )
-                    is_locked = "YES" in resp.choices[0].message.content.strip().upper()
-                    if is_locked:
-                        print("From Python: [Vision AI] Detected locked chat!", flush=True)
-                        return f"Your WhatsApp is currently locked. Please enter your security code to unlock it, and then I can send the message!"
-                    else:
-                        print("From Python: [Vision AI] Chat is unlocked. Proceeding with automation.", flush=True)
-                except Exception as e:
-                    print(f"From Python: [Vision AI Error] {e}", flush=True)
-            # ------------------------------------------------
-            
+            time.sleep(0.2)
+
+            check_focus()
             # Press ESC repeatedly to close any active chat text boxes or emoji panels.
             pyautogui.press('esc', presses=3, interval=0.1)
             time.sleep(0.3)
             
+            check_focus()
             # Use the WhatsApp Web search shortcut
             slow_hotkey('ctrl', 'alt', '/')
             time.sleep(0.3)
             
+            check_focus()
             # Press backspace to clear the '/' in case Windows drops the modifiers
             pyautogui.press('backspace')
             time.sleep(0.2)
             
             if recipient:
+                check_focus()
                 print(f"From Python: [DEBUG] Typing recipient exactly as: '{recipient}'", flush=True)
                 # Type the name to search
                 pyautogui.write(recipient, interval=0.02)
                 time.sleep(2.0) # wait for search results to filter
+                
+                check_focus()
                 pyautogui.press('enter')
                 time.sleep(1.0) # wait for the chat to open
                 
             if message:
+                check_focus()
                 pyautogui.write(message, interval=0.01)
                 time.sleep(0.2)
+                check_focus()
                 pyautogui.press('enter')
                 return f"Sent '{message}'{recipient_text} on WhatsApp."
                 
@@ -378,22 +364,16 @@ def send_whatsapp_message(recipient, message):
             print(f"WhatsApp sending error: {e}")
             pass
             
-    # Absolute Fallback if no WhatsApp tab exists at all
+    # Absolute Fallback if no WhatsApp tab exists at all, or if UI automation failed
     encoded = urllib.parse.quote(message)
     url = f"https://web.whatsapp.com/send?text={encoded}"
     _open_in_chrome(url, force_new_tab=True)
+    
+    # We avoid blindly typing in the fallback since it's prone to errors if focus shifts
     if recipient and message:
-        import pyautogui
-        import time
-        time.sleep(8.0) 
-        pyautogui.write(recipient)
-        time.sleep(2.0)
-        pyautogui.press('enter')
-        time.sleep(1.0)
-        pyautogui.press('enter')
-        return f"Sent '{message}'{recipient_text} on WhatsApp."
+        return f"Opened WhatsApp Web fallback. Please select the contact '{recipient}' and press Enter to send your message."
         
-    return f"Opening WhatsApp Web. Please select the contact to send '{message}'{recipient_text}."
+    return f"Opening WhatsApp Web fallback. Please select the contact to send '{message}'{recipient_text}."
 
 def _take_screenshot(match=None):
     try:
@@ -470,7 +450,85 @@ PATTERNS = [
     (re.compile(r"(?:what.?s the time|current time|time now|what time)", re.I), _get_time),
     (re.compile(r"(?:what.?s today|what day|today.?s date)", re.I), _get_date),
     (re.compile(r"(?:take a screenshot|take screenshot|take a picture of my screen)", re.I), _take_screenshot),
+    (re.compile(r"^(?:type|write|enter)\s+(.+)", re.I), _keyboard_type),
+    (re.compile(r"^(?:press|hit)\s+(?:the\s+)?([a-z0-9]+)\s+(?:key|button)?", re.I), _keyboard_press),
+    (re.compile(r".*(?:birthday).*", re.I), lambda m: _birthday_surprise(m)),
 ]
+
+def _keyboard_type(match):
+    text = match.group(1).strip()
+    try:
+        import pyautogui
+        # remove trailing quotes if any
+        if text.startswith(('"', "'")) and text.endswith(('"', "'")):
+            text = text[1:-1]
+        pyautogui.write(text, interval=0.02)
+        return "" # Do not speak to avoid interrupting
+    except Exception as e:
+        return f"Error typing: {e}"
+
+def _keyboard_press(match):
+    key = match.group(1).strip().lower()
+    try:
+        import pyautogui
+        # Map common spoken keys to pyautogui keys
+        key_map = {
+            "enter": "enter",
+            "return": "enter",
+            "escape": "esc",
+            "esc": "esc",
+            "tab": "tab",
+            "space": "space",
+            "spacebar": "space",
+            "backspace": "backspace",
+            "delete": "delete",
+            "up": "up",
+            "down": "down",
+            "left": "left",
+            "right": "right"
+        }
+        target_key = key_map.get(key, key)
+        pyautogui.press(target_key)
+        return "" # Do not speak
+    except Exception as e:
+        return f"Error pressing key: {e}"
+
+def _birthday_surprise(match=None):
+    import json
+    from PyQt6.QtCore import QTimer
+    from state_manager import state_mgr
+    
+    # We delay the excited state so that it overwrites the 'talking' state set by main.py
+    QTimer.singleShot(100, lambda: state_mgr.force("excited"))
+    
+    # Open notepad and clear it
+    print(json.dumps({"type": "command", "value": "open_notepad"}), flush=True)
+    QTimer.singleShot(200, lambda: print(json.dumps({"type": "notepad_clear"}), flush=True))
+    QTimer.singleShot(300, lambda: print(json.dumps({"type": "notepad_title", "value": "🎉 Happy Birthday! 🎉"}), flush=True))
+    
+    cake_art = (
+        "\n\n"
+        "             ,,,,\n"
+        "            _||||_\n"
+        "           {~*~*~*~}\n"
+        "         __{*~*~*~*}__\n"
+        "        `-------------`\n"
+        "\n"
+        "  ✨ Happy Birthday! ✨\n"
+        "  Wishing you a fantastic day\n"
+        "  filled with joy and happiness!\n"
+        "  Boopi loves you! 💖\n"
+    )
+    QTimer.singleShot(400, lambda: print(json.dumps({"type": "notepad_insert", "value": cake_art}), flush=True))
+    
+    # Play a Happy Birthday song on YouTube directly
+    class FakeMatch:
+        def group(self, i):
+            return "happy birthday song"
+    QTimer.singleShot(500, lambda: _play_music(FakeMatch()))
+    
+    return "Happy birthday to you! I prepared a little surprise with a cake, and I am putting on some music for you!"
+
 
 def detect_and_run(text: str) -> tuple[bool, str]:
     """Returns (handled, response_text). If handled=True, skip Gemini."""
@@ -480,5 +538,5 @@ def detect_and_run(text: str) -> tuple[bool, str]:
             try:
                 return True, handler(match) or "Done."
             except Exception as e:
-                return True, f"I tried but hit an error: {str(e)}"
+                return True, f"Error: {str(e)}"
     return False, ""

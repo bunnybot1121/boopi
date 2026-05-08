@@ -111,8 +111,37 @@ listener.error_occurred.connect(lambda e: (
     QTimer.singleShot(2000, lambda: state_mgr.force("idle"))
 ))
 
+instruction_queue = []
+
+def process_next_instruction():
+    if not instruction_queue:
+        return
+        
+    task = instruction_queue.pop(0)
+    print(f"From Python: [Task Queue] Executing: {task}", flush=True)
+    
+    handled, response = detect_and_run(task)
+    if handled:
+        if response and response.lower().startswith("error"):
+            print(f"From Python: [Orchestrator] Action '{task}' failed: {response}", flush=True)
+            # Clear remaining tasks because a step failed
+            instruction_queue.clear()
+            # Feed error back to AI for self-correction
+            ai.ask(f"[System Error in Orchestrator]: The action '{task}' failed with error: {response}. Please apologize and output a new [ACTION: ...] to try an alternative approach.")
+        else:
+            state_mgr.transition("talking")
+            if response:
+                speaker.say(response)
+            else:
+                # Give a small delay before next task if no speech
+                QTimer.singleShot(500, process_next_instruction)
+    else:
+        ai.ask(task)
+
 def on_transcription(text: str):
     global conversation_mode
+    global instruction_queue
+    
     safe_text = text.encode('ascii', 'ignore').decode('ascii')
     print(f"From Python: [Heard] '{safe_text}'", flush=True)
 
@@ -127,6 +156,9 @@ def on_transcription(text: str):
         state_mgr.transition("idle")
         QTimer.singleShot(1000, start_listening)
         return
+
+    # Clear pending tasks if the user interrupts with a new command
+    instruction_queue.clear()
 
     if re.search(r"\b(exit|quit|goodbye|bye bupi)\b", text, re.I):
         conversation_mode = False
@@ -162,10 +194,21 @@ def on_transcription(text: str):
             QTimer.singleShot(1000, start_listening)
             return
 
+    # Parse multiple instructions using common sequence words
+    parts = re.split(r'\b(?:and then|then)\b', text, flags=re.I)
+    parts = [p.strip() for p in parts if len(p.strip()) > 1]
+    
+    if len(parts) > 1:
+        print(f"From Python: [Task Queue] Queued {len(parts)} instructions.", flush=True)
+        instruction_queue.extend(parts)
+        process_next_instruction()
+        return
+
     handled, response = detect_and_run(text)
     if handled:
         state_mgr.transition("talking")
-        speaker.say(response)
+        if response:
+            speaker.say(response)
         return
 
     ai.ask(text)
@@ -225,6 +268,14 @@ def on_ai_whatsapp_send(recipient: str, message: str):
 def on_ai_draw(url: str):
     print(json.dumps({"type": "draw", "value": url}), flush=True)
 
+def on_ai_action(actions: list):
+    global instruction_queue
+    print(f"From Python: [AI Orchestrator] Queued {len(actions)} actions: {actions}", flush=True)
+    instruction_queue.extend(actions)
+    # If not currently speaking/executing, start processing immediately
+    if not speaker.isRunning() or state_mgr.current == "idle":
+        QTimer.singleShot(500, process_next_instruction)
+
 ai.response_started.connect(on_ai_started)
 ai.response_chunk.connect(on_ai_chunk)
 ai.notepad_insert.connect(on_ai_notepad)
@@ -232,6 +283,7 @@ ai.notepad_clear.connect(on_ai_notepad_clear)
 ai.notepad_title.connect(on_ai_notepad_title)
 ai.whatsapp_send.connect(on_ai_whatsapp_send)
 ai.ai_draw.connect(on_ai_draw)
+ai.ai_action.connect(on_ai_action)
 ai.error_occurred.connect(lambda e: (
     print(json.dumps({"type": "log", "message": f"[AI Error] {e}"}), flush=True),
     state_mgr.force("error"),
@@ -242,8 +294,12 @@ ai.error_occurred.connect(lambda e: (
 # Wiring Speaker
 # -------------------------------------------------------------
 def on_speech_finished():
-    state_mgr.transition("idle")
-    QTimer.singleShot(1000, start_listening)
+    if instruction_queue:
+        # Give a slight delay before triggering the next task so it feels natural
+        QTimer.singleShot(1500, process_next_instruction)
+    else:
+        state_mgr.transition("idle")
+        QTimer.singleShot(1000, start_listening)
 
 speaker.speech_finished.connect(on_speech_finished)
 speaker.error_occurred.connect(lambda e: (
