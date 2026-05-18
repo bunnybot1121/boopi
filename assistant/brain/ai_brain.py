@@ -35,6 +35,7 @@ Valid commands you can use in the ACTION tag:
 - "type your text here"
 - "press enter", "press escape", "press tab", "press space", "press backspace", "press delete"
 - "search for something"
+- "print <your text here> on esp32" (Displays custom text to the physical ESP32 screen. Replace <your text here> with the actual text)
 Example: "[excited] Let me open that for you! [ACTION: open youtube]"
 You can chain multiple actions to achieve complex workflows: "[talking] Sending it now! [ACTION: open whatsapp] [ACTION: type John] [ACTION: press enter]"
 If an action fails, the system will feed the error back to you so you can correct it and try an alternative approach.

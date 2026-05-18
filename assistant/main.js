@@ -15,6 +15,7 @@ let isDev = process.argv.includes('--dev');
 let notepadQueue = [];
 let notepadReady = false;
 let notepadPendingTitle = null;
+let notepadPendingClear = false;
 
 function createNotepadWindow() {
   if (notepadWindow) {
@@ -41,6 +42,11 @@ function createNotepadWindow() {
   notepadWindow.webContents.on('did-finish-load', () => {
     notepadReady = true;
     
+    if (notepadPendingClear) {
+      notepadWindow.webContents.send('notepad-clear');
+      notepadPendingClear = false;
+    }
+
     // Set pending title if any
     if (notepadPendingTitle) {
       notepadWindow.webContents.send('notepad-title', notepadPendingTitle);
@@ -147,6 +153,7 @@ function spawnEngine() {
           if (!notepadReady) {
             // If window isn't ready yet, clear the pending queue so we start fresh
             notepadQueue = [];
+            notepadPendingClear = true;
           } else {
             notepadWindow.webContents.send('notepad-clear');
           }

@@ -35,7 +35,20 @@ async def _send_to_esp32_async(title, message):
         except Exception as e:
             print(f"From Python: [Hardware Error] Could not send: {e}", flush=True)
 
-def send_to_esp32(title, message):
+import time
+
+_message_override_until = 0
+
+def send_to_esp32(title, message, duration=0):
+    global _message_override_until
+    
+    # If this is an automated status update, check if we are locked by a custom message
+    if title == "Bupi Status:" and time.time() < _message_override_until:
+        return
+        
+    if duration > 0:
+        _message_override_until = time.time() + duration
+
     """Thread-safe way for Bupi's main engine to send messages to the LCD"""
     if _loop is not None and _loop.is_running():
         asyncio.run_coroutine_threadsafe(_send_to_esp32_async(title, message), _loop)

@@ -270,11 +270,22 @@ def on_ai_draw(url: str):
 
 def on_ai_action(actions: list):
     global instruction_queue
-    print(f"From Python: [AI Orchestrator] Queued {len(actions)} actions: {actions}", flush=True)
-    instruction_queue.extend(actions)
-    # If not currently speaking/executing, start processing immediately
-    if not speaker.isRunning() or state_mgr.current == "idle":
-        QTimer.singleShot(500, process_next_instruction)
+    print(f"From Python: [AI Orchestrator] Received {len(actions)} actions: {actions}", flush=True)
+    
+    queued_actions = []
+    for act in actions:
+        # Run screen updates instantly for immediate visual feedback (don't wait for TTS to finish)
+        if re.search(r"print|display|show", act, re.I) and "esp" in act.lower():
+            print(f"From Python: [Fast Track] Executing instantly: {act}", flush=True)
+            detect_and_run(act)
+        else:
+            queued_actions.append(act)
+            
+    if queued_actions:
+        instruction_queue.extend(queued_actions)
+        # If not currently speaking/executing, start processing immediately
+        if not speaker.isRunning() or state_mgr.current == "idle":
+            QTimer.singleShot(500, process_next_instruction)
 
 ai.response_started.connect(on_ai_started)
 ai.response_chunk.connect(on_ai_chunk)

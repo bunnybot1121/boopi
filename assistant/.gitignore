@@ -10,3 +10,12 @@ memory/user_data.json
 
 # Screenshots
 screenshot_*.png
+
+# Temporary audio files
+*.mp3
+
+# Logs
+*log.txt
+
+# Node
+node_modules/

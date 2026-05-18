@@ -429,32 +429,6 @@ def _play_music(match):
     _open_in_chrome(f"https://www.youtube.com/results?search_query={encoded}")
     return f"Searching for {clean_query} on YouTube."
 
-PATTERNS = [
-    (re.compile(r"(?:call me|my name is)\s+(.+)",     re.I), _set_name),
-    (re.compile(r"(?:remember that|note that)\s+(.+)",             re.I), _remember_fact),
-    (re.compile(r"(?:search|google)\s+(?:for\s+)?(.+)",         re.I), _google_search),
-    (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:chrome|browser|firefox)",re.I), _open_browser),
-    (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:vs\s?code|code editor)", re.I), _open_vscode),
-    (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:my\s+)?(?:notepad|notes|text)", re.I), _open_notepad),
-    (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?spotify",                 re.I), _open_spotify),
-    (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:calculator|calc)",       re.I), _open_calculator),
-    # WhatsApp regexes removed to allow ai_brain.py (NLP LLM) to seamlessly parse intent,
-    # draft the message in Bupi Hub, and trigger the action intelligently!
-    # (re.compile(r"^(?:send|write|message|text)\s+(?:a\s+)?(?:whatsapp\s+)?message\s+to\s+", re.I), _send_whatsapp),
-    # (re.compile(r"^(?:send|write|message|text)\s+.+?\s+to\s+.+?(?:\s+on\s+whatsapp)?$", re.I), _send_whatsapp),
-    # (re.compile(r"^whatsapp\s+.+?\s+(?:saying|that)\s+", re.I), _send_whatsapp),
-    (re.compile(r"(?:open|check)\s+(?:my\s+)?whatsapp",                re.I), _open_whatsapp),
-    (re.compile(r"(?:play|listen\s+to|stream)\s+(.+)",                 re.I), _play_music),
-    (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:youtube|yt)",                    re.I), _open_youtube),
-    (re.compile(r"(?:open|draft|send|write)\s+(?:my\s+|an?\s+|the\s+)?(?:email|mail|emails)", re.I), _open_email),
-    (re.compile(r"(?:what.?s the time|current time|time now|what time)", re.I), _get_time),
-    (re.compile(r"(?:what.?s today|what day|today.?s date)", re.I), _get_date),
-    (re.compile(r"(?:take a screenshot|take screenshot|take a picture of my screen)", re.I), _take_screenshot),
-    (re.compile(r"^(?:type|write|enter)\s+(.+)", re.I), _keyboard_type),
-    (re.compile(r"^(?:press|hit)\s+(?:the\s+)?([a-z0-9]+)\s+(?:key|button)?", re.I), _keyboard_press),
-    (re.compile(r".*(?:birthday).*", re.I), lambda m: _birthday_surprise(m)),
-]
-
 def _keyboard_type(match):
     text = match.group(1).strip()
     try:
@@ -528,6 +502,55 @@ def _birthday_surprise(match=None):
     QTimer.singleShot(500, lambda: _play_music(FakeMatch()))
     
     return "Happy birthday to you! I prepared a little surprise with a cake, and I am putting on some music for you!"
+
+def _print_on_esp(match):
+    text = match.group(1).strip()
+    try:
+        from bupi_node_server import send_to_esp32
+        if len(text) > 16:
+            send_to_esp32(text[:16], text[16:32], duration=8)
+        else:
+            send_to_esp32(text, "", duration=8)
+        return f"Printed '{text}' on the screen."
+    except Exception as e:
+        return f"Error printing to ESP: {e}"
+
+def _print_on_esp_alt(match):
+    text = match.group(1).strip()
+    try:
+        from bupi_node_server import send_to_esp32
+        if len(text) > 16:
+            send_to_esp32(text[:16], text[16:32], duration=8)
+        else:
+            send_to_esp32(text, "", duration=8)
+        return f"Printed '{text}' on the screen."
+    except Exception as e:
+        return f"Error printing to ESP: {e}"
+
+PATTERNS = [
+    (re.compile(r"(?:call me|my name is)\s+(.+)",     re.I), _set_name),
+    (re.compile(r"(?:remember that|note that)\s+(.+)",             re.I), _remember_fact),
+    (re.compile(r"(?:search|google)\s+(?:for\s+)?(.+)",         re.I), _google_search),
+    (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:chrome|browser|firefox)",re.I), _open_browser),
+    (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:vs\s?code|code editor)", re.I), _open_vscode),
+    (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:my\s+)?(?:notepad|notes|text)", re.I), _open_notepad),
+    (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?spotify",                 re.I), _open_spotify),
+    (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:calculator|calc)",       re.I), _open_calculator),
+    (re.compile(r"(?:open|check)\s+(?:my\s+)?whatsapp",                re.I), _open_whatsapp),
+    (re.compile(r"(?:play|listen\s+to|stream)\s+(.+)",                 re.I), _play_music),
+    (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:youtube|yt)",                    re.I), _open_youtube),
+    (re.compile(r"(?:open|draft|send|write)\s+(?:my\s+|an?\s+|the\s+)?(?:email|mail|emails)", re.I), _open_email),
+    (re.compile(r"(?:what.?s the time|current time|time now|what time)", re.I), _get_time),
+    (re.compile(r"(?:what.?s today|what day|today.?s date)", re.I), _get_date),
+    (re.compile(r"(?:take a screenshot|take screenshot|take a picture of my screen)", re.I), _take_screenshot),
+    (re.compile(r"^(?:type|write|enter)\s+(.+)", re.I), _keyboard_type),
+    (re.compile(r"^(?:press|hit)\s+(?:the\s+)?([a-z0-9]+)\s+(?:key|button)?", re.I), _keyboard_press),
+    (re.compile(r"^(?:print|display|show)\s+on\s+(?:the\s+)?esp(?:32)?[^\w]*\s+(.+)", re.I), _print_on_esp_alt),
+    (re.compile(r"^(?:print|display|show)\s+(.+?)(?:\s+on\s+(?:the\s+)?esp(?:32)?[^\w]*)?$", re.I), _print_on_esp),
+    (re.compile(r".*(?:birthday).*", re.I), lambda m: _birthday_surprise(m)),
+]
+
+
 
 
 def detect_and_run(text: str) -> tuple[bool, str]:
