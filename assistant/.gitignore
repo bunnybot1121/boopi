@@ -19,3 +19,7 @@ screenshot_*.png
 
 # Node
 node_modules/
+
+# Executables
+*.exe
+ffmpeg.exe

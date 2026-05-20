@@ -9,7 +9,7 @@ const char* password = "YOUR_WIFI_PASSWORD_HERE";
 
 // 2. BUPI PC SERVER SETTINGS (Pre-filled with your current local IP)
 const char* websocket_server = "192.168.0.104";
-const uint16_t websocket_port = 8765;
+const uint16_t websocket_port = 8767;
 
 WebSocketsClient webSocket;
 // Note: If your LCD remains blank or shows black boxes, change 0x27 to 0x3F

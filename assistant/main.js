@@ -1,10 +1,23 @@
 const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
+const fs = require('fs');
 
+const originalConsoleLog = console.log;
+const originalConsoleError = console.error;
+
+console.log = (...args) => {
+  originalConsoleLog(...args);
+  try { fs.appendFileSync('debug_log.txt', args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ') + '\n'); } catch(e){}
+};
+console.error = (...args) => {
+  originalConsoleError(...args);
+  try { fs.appendFileSync('debug_log.txt', '[ERROR] ' + args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ') + '\n'); } catch(e){}
+};
 // Increase GPU tile memory limit to prevent "tile memory limits exceeded" errors
 app.commandLine.appendSwitch('force-gpu-mem-available-mb', '4096');
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
+app.commandLine.appendSwitch('disable-gpu-disk-cache');
 
 let mainWindow;
 let tray;
@@ -16,6 +29,33 @@ let notepadQueue = [];
 let notepadReady = false;
 let notepadPendingTitle = null;
 let notepadPendingClear = false;
+let terminalWindow = null;
+
+function createTerminalWindow() {
+  if (terminalWindow) {
+    if (terminalWindow.isMinimized()) terminalWindow.restore();
+    terminalWindow.focus();
+    return;
+  }
+
+  terminalWindow = new BrowserWindow({
+    width: 700,
+    height: 500,
+    minWidth: 400,
+    minHeight: 300,
+    frame: false,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    }
+  });
+
+  terminalWindow.loadFile('terminal.html');
+
+  terminalWindow.on('closed', () => {
+    terminalWindow = null;
+  });
+}
 
 function createNotepadWindow() {
   if (notepadWindow) {
@@ -101,12 +141,13 @@ function spawnEngine() {
     shell: true
   });
 
+  const fs = require('fs');
   pyEngine.on('error', (err) => {
-    console.error("Failed to start python process:", err);
+    try { fs.appendFileSync('debug_log.txt', "Failed to start python process: " + err + "\n"); } catch(e) {}
   });
 
   pyEngine.stderr.on('data', (data) => {
-    console.error("Python STDERR:", data.toString());
+    try { fs.appendFileSync('debug_log.txt', "Python STDERR: " + data.toString() + "\n"); } catch(e) {}
   });
 
   pyEngine.stdout.on('data', (data) => {
@@ -167,6 +208,9 @@ function spawnEngine() {
         }
       } catch (e) {
         console.log("From Python:", line);
+        if (terminalWindow) {
+          terminalWindow.webContents.send('terminal-log', line);
+        }
       }
     });
   });
@@ -208,6 +252,7 @@ if (!gotTheLock) {
 
     const contextMenu = Menu.buildFromTemplate([
       { label: 'Open Notepad', click: () => createNotepadWindow() },
+      { label: 'Show Logs', click: () => createTerminalWindow() },
       { label: 'Toggle Conversation Mode', click: () => sendCommand('toggle_conversation') },
       { label: 'Clear Memory', click: () => sendCommand('clear_memory') },
       { label: 'Toggle Overlay', click: () => {
@@ -266,6 +311,15 @@ if (!gotTheLock) {
 
     ipcMain.on('notepad-save', (event, data) => {
       console.log("Notepad saved:", data.title);
+    });
+
+    // Terminal IPC handlers
+    ipcMain.on('terminal-minimize', () => {
+      if (terminalWindow) terminalWindow.minimize();
+    });
+    
+    ipcMain.on('terminal-close', () => {
+      if (terminalWindow) terminalWindow.close();
     });
 
     app.on('activate', () => {

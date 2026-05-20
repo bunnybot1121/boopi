@@ -57,7 +57,7 @@ async def _start_server():
     global _loop
     _loop = asyncio.get_running_loop()
     print("From Python: [Hardware] Starting ESP32 Server on port 8765...", flush=True)
-    server = await websockets.serve(handle_connection, "0.0.0.0", 8765)
+    server = await websockets.serve(handle_connection, "0.0.0.0", 8767)
     await asyncio.Future()  # Run forever
 
 def start_node_server():

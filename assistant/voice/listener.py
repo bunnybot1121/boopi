@@ -23,8 +23,8 @@ class ListenerThread(QThread):
         self._paused = False
         self._energy_threshold = 800
         import whisper
-        print("[Whisper] Loading advanced base model for better accuracy...", flush=True)
-        self._model = whisper.load_model("base.en")  # Upgraded from tiny to base for much better NLP
+        print("[Whisper] Loading advanced small model for superior accuracy...", flush=True)
+        self._model = whisper.load_model("small.en")  # Upgraded to small for much better NLP
         print("[Whisper] Model loaded.")
 
     def run(self):

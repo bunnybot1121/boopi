@@ -31,13 +31,13 @@ Example: "[excited] That sounds amazing!" or "[chilling] Just hanging out, what'
 ORCHESTRATOR LAYER:
 You have the ability to execute computer actions autonomously using the [ACTION: command] tag.
 Valid commands you can use in the ACTION tag:
-- "open whatsapp", "open youtube", "open spotify", "open calculator"
+- "open youtube", "open spotify", "open calculator"
 - "type your text here"
 - "press enter", "press escape", "press tab", "press space", "press backspace", "press delete"
 - "search for something"
 - "print <your text here> on esp32" (Displays custom text to the physical ESP32 screen. Replace <your text here> with the actual text)
 Example: "[excited] Let me open that for you! [ACTION: open youtube]"
-You can chain multiple actions to achieve complex workflows: "[talking] Sending it now! [ACTION: open whatsapp] [ACTION: type John] [ACTION: press enter]"
+You can chain multiple actions to achieve complex workflows: "[talking] Setting that up! [ACTION: open spotify] [ACTION: type My Playlist] [ACTION: press enter]"
 If an action fails, the system will feed the error back to you so you can correct it and try an alternative approach.
 
 If the user asks you to write a prompt, draft a post, or type something down, you MUST output the text inside [NOTEPAD] and [/NOTEPAD] tags. 
@@ -45,7 +45,7 @@ CRITICAL RULE for drawing: If the user asks you to "draw", "paint", or "create a
 CRITICAL RULE for large data: If you are asked to summarize a large document, put the long summary inside the [NOTEPAD] tags.
 If you are writing a fresh draft or rewriting something entirely, you MUST first output [NOTEPAD_CLEAR] before [NOTEPAD].
 You can also set the title of the note by outputting [TITLE]Your Title Here[/TITLE] before the [NOTEPAD] tag.
-If the user asks you to design/draft a message AND send it on WhatsApp, you must first write the message in the [NOTEPAD] tags so they can see it, and then append the tag [WHATSAPP_SEND:ContactName] at the very end of your response.
+CRITICAL RULE for WhatsApp: If the user asks you to message someone on WhatsApp, DO NOT chain manual actions. The system already has smart automation to check for open tabs and send the message! You MUST first write the message in the [NOTEPAD] tags so they can see it, and then append the tag [WHATSAPP_SEND:ContactName] at the very end of your response.
 Everything inside these tags will be typed directly into the user's Notepad or executed in the background. Do not include these tags for short, normal conversation.
 Current user: {user_name}
 User's notes/memories:
@@ -79,6 +79,10 @@ class AIThread(QThread):
         if not self.api_keys:
             self.api_keys.append("") # fallback if none found
         self.current_key_idx = 0
+        
+        self.use_local_llm = os.environ.get("USE_LOCAL_LLM", "false").lower() == "true"
+        self.local_llm_url = os.environ.get("LOCAL_LLM_URL", "http://localhost:11434/v1")
+        self.local_llm_model = os.environ.get("LOCAL_LLM_MODEL", "llama3")
         
         self.start()
 
@@ -209,19 +213,51 @@ class AIThread(QThread):
 
                 if self._interrupted: continue
                 
-                # Dynamically switch to Claude if the user specifically asks for it
-                ai_model = "openai/gpt-4o-mini"
-                max_tokens = 250
-                if re.search(r'\bclaude\b', text, re.I):
-                    ai_model = "anthropic/claude-3.5-sonnet"
-                    max_tokens = 1000 # Give Claude more room to draft long posts
+                # --- HYBRID ROUTER LOGIC ---
+                is_complex = False
+                route_reason = ""
+                
+                if summarize_doc:
+                    is_complex = True
+                    route_reason = "Document summarization/reading requested"
+                elif take_screenshot:
+                    is_complex = True
+                    route_reason = "Screenshot/Vision analysis requested"
+                elif re.search(r'\bclaude\b', text, re.I):
+                    is_complex = True
+                    route_reason = "Explicit request for Claude"
+                else:
+                    complex_keywords = [
+                        r'\bcode\b', r'\bscript\b', r'\bpython\b', r'\bjavascript\b', r'\bhtml\b', r'\bcss\b',
+                        r'\bwrite\b', r'\bdraft\b', r'\bessay\b', r'\bpost\b', r'\barticle\b', r'\bemail\b',
+                        r'\bexplain\b', r'\banalyze\b', r'\btranslate\b', r'\bcalculate\b', r'\bmath\b',
+                        r'\bdraw\b', r'\bpaint\b', r'\bgenerate\b', r'\bcreate\b'
+                    ]
+                    for kw in complex_keywords:
+                        if re.search(kw, text, re.I):
+                            is_complex = True
+                            route_reason = f"Complex keyword detected: '{kw.strip(r'\b')}'"
+                            break
+
+                route_to_local = self.use_local_llm and not is_complex
+                
+                if self.use_local_llm:
+                    if route_to_local:
+                        print(f"From Python: [Router] Routing to LOCAL ({self.local_llm_model}) for fast conversational response.", flush=True)
+                    else:
+                        print(f"From Python: [Router] Routing to CLOUD (OpenRouter) because: {route_reason}", flush=True)
+                else:
+                    print(f"From Python: [Router] Routing to CLOUD (Local LLM is disabled in .env)", flush=True)
 
                 response = None
                 spoken_buffer = ""
-                for _ in range(len(self.api_keys) * 2): # Allow retry with fallback model
+                
+                if route_to_local:
+                    ai_model = self.local_llm_model
+                    max_tokens = 1000 # Local models generally have no usage cost, we can use higher limits
                     client = OpenAI(
-                        base_url="https://openrouter.ai/api/v1",
-                        api_key=self.api_keys[self.current_key_idx],
+                        base_url=self.local_llm_url,
+                        api_key="ollama", # dummy key for local
                     )
                     try:
                         response = client.chat.completions.create(
@@ -229,26 +265,50 @@ class AIThread(QThread):
                             messages=messages,
                             stream=True,
                             max_tokens=max_tokens,
-                            extra_headers={
-                                "HTTP-Referer": "http://localhost",
-                                "X-Title": "Desktop AI Companion"
-                            }
+                            extra_body={"keep_alive": -1} # Keep model loaded in VRAM forever for instant responses
                         )
-                        break # Success!
                     except Exception as e:
-                        error_msg = str(e)
-                        if "404" in error_msg or "disabled" in error_msg.lower():
-                            print(f"From Python: [AI] Model {ai_model} failed ({error_msg}). Falling back to openai/gpt-4o-mini...", flush=True)
-                            ai_model = "openai/gpt-4o-mini"
-                            continue
-                        elif "402" in error_msg or "insufficient_quota" in error_msg.lower() or "429" in error_msg or "rate" in error_msg.lower() or "api_key" in error_msg.lower():
-                            print(f"From Python: [AI] Key {self.current_key_idx + 1} failed ({error_msg}). Switching to backup key...", flush=True)
-                            self.current_key_idx = (self.current_key_idx + 1) % len(self.api_keys)
-                        else:
-                            raise e
+                        print(f"From Python: [AI Error] Local LLM {ai_model} failed. Make sure Ollama is running.", flush=True)
+                        raise e
+                else:
+                    # Dynamically switch to Claude if the user specifically asks for it
+                    ai_model = "openai/gpt-4o-mini"
+                    max_tokens = 250
+                    if re.search(r'\bclaude\b', text, re.I):
+                        ai_model = "anthropic/claude-3.5-sonnet"
+                        max_tokens = 1000 # Give Claude more room to draft long posts
 
-                if response is None:
-                    raise Exception("402 All API keys are exhausted or rate limited.")
+                    for _ in range(len(self.api_keys) * 2): # Allow retry with fallback model
+                        client = OpenAI(
+                            base_url="https://openrouter.ai/api/v1",
+                            api_key=self.api_keys[self.current_key_idx],
+                        )
+                        try:
+                            response = client.chat.completions.create(
+                                model=ai_model,
+                                messages=messages,
+                                stream=True,
+                                max_tokens=max_tokens,
+                                extra_headers={
+                                    "HTTP-Referer": "http://localhost",
+                                    "X-Title": "Desktop AI Companion"
+                                }
+                            )
+                            break # Success!
+                        except Exception as e:
+                            error_msg = str(e)
+                            if "404" in error_msg or "disabled" in error_msg.lower():
+                                print(f"From Python: [AI] Model {ai_model} failed ({error_msg}). Falling back to openai/gpt-4o-mini...", flush=True)
+                                ai_model = "openai/gpt-4o-mini"
+                                continue
+                            elif "402" in error_msg or "insufficient_quota" in error_msg.lower() or "429" in error_msg or "rate" in error_msg.lower() or "api_key" in error_msg.lower():
+                                print(f"From Python: [AI] Key {self.current_key_idx + 1} failed ({error_msg}). Switching to backup key...", flush=True)
+                                self.current_key_idx = (self.current_key_idx + 1) % len(self.api_keys)
+                            else:
+                                raise e
+
+                    if response is None:
+                        raise Exception("402 All API keys are exhausted or rate limited.")
                 
                 full_response = ""
                 emotion_tag = "talking"

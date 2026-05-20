@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Boopi Terminal</title>
+  <style>
+    :root {
+      --bg: #0D0D12;
+      --bar-bg: #1A1A24;
+      --text: #A9ADC1;
+      --text-highlight: #FFFFFF;
+      --accent: #7C3AED;
+      --accent-hover: #8B5CF6;
+      --error: #EF4444;
+      --info: #3B82F6;
+      --success: #10B981;
+      --warning: #F59E0B;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+    }
+
+    /* Custom Title Bar for Frameless Window */
+    .titlebar {
+      height: 38px;
+      background-color: var(--bar-bg);
+      -webkit-app-region: drag;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      flex-shrink: 0;
+      user-select: none;
+    }
+
+    .title-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: var(--success);
+      box-shadow: 0 0 8px var(--success);
+    }
+
+    .title-text {
+      color: var(--text-highlight);
+      font-weight: 600;
+      font-size: 12px;
+      letter-spacing: 0.5px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    .window-controls {
+      display: flex;
+      -webkit-app-region: no-drag;
+      gap: 8px;
+    }
+
+    .control-btn {
+      width: 24px;
+      height: 24px;
+      border-radius: 4px;
+      border: none;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .control-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text-highlight);
+    }
+
+    .control-btn.close:hover {
+      background: rgba(239, 68, 68, 0.2);
+      color: var(--error);
+    }
+
+    /* Terminal Output Area */
+    .terminal-container {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+      scroll-behavior: smooth;
+    }
+
+    .terminal-container::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .terminal-container::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .terminal-container::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 4px;
+    }
+
+    .terminal-container::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    .log-line {
+      margin-bottom: 4px;
+      word-wrap: break-word;
+      animation: fadeIn 0.2s ease-in-out;
+    }
+
+    .timestamp {
+      color: rgba(255, 255, 255, 0.3);
+      margin-right: 8px;
+      font-size: 11px;
+    }
+
+    .log-info { color: var(--text); }
+    .log-error { color: var(--error); font-weight: 500; }
+    .log-router { color: var(--accent-hover); }
+    .log-hardware { color: var(--info); }
+    .log-whisper { color: var(--warning); }
+    .log-tts { color: var(--success); }
+
+    .glow-text {
+      color: var(--text-highlight);
+      text-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(2px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Actions Bar */
+    .actions-bar {
+      padding: 8px 16px;
+      background: rgba(0, 0, 0, 0.2);
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .action-btn {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 4px 12px;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+      -webkit-app-region: no-drag;
+    }
+
+    .action-btn:hover {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-highlight);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Title Bar -->
+  <div class="titlebar">
+    <div class="title-group">
+      <div class="status-dot"></div>
+      <div class="title-text">Boopi Engine Terminal</div>
+    </div>
+    <div class="window-controls">
+      <button class="control-btn" id="btn-minimize" title="Minimize">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg>
+      </button>
+      <button class="control-btn close" id="btn-close" title="Close">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Terminal Output -->
+  <div class="terminal-container" id="terminal-output">
+    <div class="log-line log-info"><span class="timestamp"></span>Boopi Engine Terminal initialized... Waiting for logs.</div>
+  </div>
+
+  <!-- Actions -->
+  <div class="actions-bar">
+    <button class="action-btn" id="btn-clear">Clear Output</button>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    const output = document.getElementById('terminal-output');
+    let autoScroll = true;
+
+    // Detect if user scrolls up to stop auto-scrolling
+    output.addEventListener('scroll', () => {
+      const isAtBottom = output.scrollHeight - output.scrollTop <= output.clientHeight + 10;
+      autoScroll = isAtBottom;
+    });
+
+    function getTimestamp() {
+      const now = new Date();
+      return `[${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}]`;
+    }
+
+    function parseLogLine(text) {
+      let cssClass = 'log-info';
+      
+      if (text.includes('[ERROR]') || text.includes('Error Caught') || text.toLowerCase().includes('failed')) {
+        cssClass = 'log-error';
+      } else if (text.includes('[Router]')) {
+        cssClass = 'log-router glow-text';
+      } else if (text.includes('[Hardware]')) {
+        cssClass = 'log-hardware';
+      } else if (text.includes('[Whisper]') || text.includes('[Listener]')) {
+        cssClass = 'log-whisper';
+      } else if (text.includes('[TTS]')) {
+        cssClass = 'log-tts';
+      }
+
+      return `<div class="log-line ${cssClass}"><span class="timestamp">${getTimestamp()}</span>${escapeHTML(text)}</div>`;
+    }
+
+    function escapeHTML(str) {
+      return str.replace(/[&<>'"]/g, 
+        tag => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            "'": '&#39;',
+            '"': '&quot;'
+        }[tag]));
+    }
+
+    ipcRenderer.on('terminal-log', (event, data) => {
+      // Remove trailing newlines and 'From Python: ' prefix if present
+      let cleanData = data.toString().trim();
+      if (!cleanData) return;
+      
+      if (cleanData.startsWith('From Python: ')) {
+        cleanData = cleanData.substring(13);
+      }
+
+      output.insertAdjacentHTML('beforeend', parseLogLine(cleanData));
+
+      if (autoScroll) {
+        output.scrollTop = output.scrollHeight;
+      }
+      
+      // Limit to last 500 lines to prevent memory issues
+      if (output.childElementCount > 500) {
+        output.removeChild(output.firstChild);
+      }
+    });
+
+    // Window Controls
+    document.getElementById('btn-minimize').addEventListener('click', () => {
+      ipcRenderer.send('terminal-minimize');
+    });
+
+    document.getElementById('btn-close').addEventListener('click', () => {
+      ipcRenderer.send('terminal-close');
+    });
+
+    document.getElementById('btn-clear').addEventListener('click', () => {
+      output.innerHTML = '';
+      output.insertAdjacentHTML('beforeend', parseLogLine('Terminal cleared.'));
+    });
+  </script>
+</body>
+</html>
