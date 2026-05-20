@@ -227,17 +227,38 @@ class AIThread(QThread):
                     is_complex = True
                     route_reason = "Explicit request for Claude"
                 else:
-                    complex_keywords = [
-                        r'\bcode\b', r'\bscript\b', r'\bpython\b', r'\bjavascript\b', r'\bhtml\b', r'\bcss\b',
-                        r'\bwrite\b', r'\bdraft\b', r'\bessay\b', r'\bpost\b', r'\barticle\b', r'\bemail\b',
-                        r'\bexplain\b', r'\banalyze\b', r'\btranslate\b', r'\bcalculate\b', r'\bmath\b',
-                        r'\bdraw\b', r'\bpaint\b', r'\bgenerate\b', r'\bcreate\b'
+                    # SMART HYBRID ROUTER
+                    words = text.split()
+                    
+                    # Feature 1: Length (Long prompts are usually complex)
+                    if len(words) > 12:
+                        is_complex = True
+                        route_reason = f"Query length ({len(words)} words) indicates complex instructions"
+                    
+                    # Feature 2: Analytical/Instructional phrasing
+                    analytical_phrases = [
+                        r'\bhow to\b', r'\bwhy is\b', r'\bwhy does\b', r'\bwhat is the difference\b',
+                        r'\bcan you explain\b', r'\bhelp me understand\b', r'\bfigure out\b'
                     ]
-                    for kw in complex_keywords:
-                        if re.search(kw, text, re.I):
+                    for phrase in analytical_phrases:
+                        if re.search(phrase, text, re.I):
                             is_complex = True
-                            route_reason = f"Complex keyword detected: '{kw.strip(r'\b')}'"
+                            route_reason = f"Analytical structure detected: '{phrase}'"
                             break
+                            
+                    # Feature 3: Complex Action Keywords
+                    if not is_complex:
+                        complex_keywords = [
+                            r'\bcode\b', r'\bscript\b', r'\bpython\b', r'\bjavascript\b', r'\bhtml\b', r'\bcss\b',
+                            r'\bwrite\b', r'\bdraft\b', r'\bessay\b', r'\bpost\b', r'\barticle\b', r'\bemail\b',
+                            r'\bexplain\b', r'\banalyze\b', r'\btranslate\b', r'\bcalculate\b', r'\bmath\b',
+                            r'\bgenerate\b', r'\bcreate\b', r'\bdebug\b', r'\bfix\b', r'\bsummarize\b'
+                        ]
+                        for kw in complex_keywords:
+                            if re.search(kw, text, re.I):
+                                is_complex = True
+                                route_reason = f"Complex keyword detected: '{kw.strip(r'\b')}'"
+                                break
 
                 route_to_local = self.use_local_llm and not is_complex
                 
@@ -471,11 +492,11 @@ class AIThread(QThread):
                                         self.notepad_insert.emit(safe_text)
                                     notepad_buffer = notepad_buffer[-10:]
                             continue
-                            
                         current_sentence += delta
                         if re.search(r'[.!?\n]\s*$', current_sentence) or delta.endswith('\n'):
                             text_to_emit = current_sentence.strip()
                             if text_to_emit and not self._interrupted:
+                                self.response_chunk.emit(text_to_emit)
                                 spoken_buffer += text_to_emit + " "
                             current_sentence = ""
                             
@@ -483,10 +504,9 @@ class AIThread(QThread):
                     self.notepad_insert.emit(notepad_buffer)
                             
                 if current_sentence.strip() and not self._interrupted and not in_notepad:
-                    spoken_buffer += current_sentence.strip() + " "
-
-                if spoken_buffer.strip() and not self._interrupted:
-                    self.response_chunk.emit(spoken_buffer.strip())
+                    text_to_emit = current_sentence.strip()
+                    self.response_chunk.emit(text_to_emit)
+                    spoken_buffer += text_to_emit + " "
 
                 # Post-process WHATSAPP_SEND
                 if "[WHATSAPP_SEND:" in full_response:

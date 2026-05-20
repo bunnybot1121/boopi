@@ -114,8 +114,14 @@ class SpeakerThread(QThread):
         from PyQt6.QtCore import QUrl, QEventLoop, QTimer
 
         def tts_generator_loop():
+            import asyncio
+            import edge_tts
             voice = "en-US-AnaNeural"
-            flags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+            
+            async def generate_tts(text_val, path_val):
+                communicate = edge_tts.Communicate(text_val, voice)
+                await communicate.save(path_val)
+
             while True:
                 item = self._text_queue.get()
                 if item is None:
@@ -128,12 +134,9 @@ class SpeakerThread(QThread):
                 self._chunk_counter += 1
                 out_path = f"temp_speech_{self._chunk_counter}.mp3"
                 try:
-                    # Fallback to pure module invocation to bypass some edge-tts script blocks
-                    subprocess.run(
-                        ["python", "-m", "edge_tts", "--text", text, "--voice", voice, "--write-media", out_path],
-                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                        creationflags=flags, check=True
-                    )
+                    # Native async generation inside python (extremely fast)
+                    asyncio.run(generate_tts(text, out_path))
+                    
                     if epoch == self._epoch and not self._exit_flag:
                         self._audio_queue.put((out_path, epoch))
                     else:

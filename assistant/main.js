@@ -32,12 +32,15 @@ let notepadPendingClear = false;
 let terminalWindow = null;
 
 function createTerminalWindow() {
+  console.log("[Main] createTerminalWindow called");
   if (terminalWindow) {
+    console.log("[Main] terminalWindow already exists, focusing");
     if (terminalWindow.isMinimized()) terminalWindow.restore();
     terminalWindow.focus();
     return;
   }
 
+  console.log("[Main] Creating new terminalWindow");
   terminalWindow = new BrowserWindow({
     width: 700,
     height: 500,
@@ -50,20 +53,43 @@ function createTerminalWindow() {
     }
   });
 
-  terminalWindow.loadFile('terminal.html');
+  const filePath = path.join(__dirname, 'terminal.html');
+  console.log("[Main] Loading terminal file:", filePath);
+  terminalWindow.loadFile(filePath);
+
+  terminalWindow.webContents.on('console-message', (event, ...args) => {
+    let message = '';
+    let line = 0;
+    let sourceId = '';
+    if (args.length === 1 && typeof args[0] === 'object') {
+      const details = args[0];
+      message = details.message;
+      line = details.line;
+      sourceId = details.sourceId;
+    } else {
+      message = args[1];
+      line = args[2];
+      sourceId = args[3];
+    }
+    console.log(`[Renderer Terminal] ${message} (at ${sourceId}:${line})`);
+  });
 
   terminalWindow.on('closed', () => {
+    console.log("[Main] terminalWindow closed");
     terminalWindow = null;
   });
 }
 
 function createNotepadWindow() {
+  console.log("[Main] createNotepadWindow called");
   if (notepadWindow) {
+    console.log("[Main] notepadWindow already exists, focusing");
     if (notepadWindow.isMinimized()) notepadWindow.restore();
     notepadWindow.focus();
     return;
   }
 
+  console.log("[Main] Creating new notepadWindow");
   notepadReady = false;
   notepadWindow = new BrowserWindow({
     width: 900,
@@ -77,7 +103,9 @@ function createNotepadWindow() {
     }
   });
 
-  notepadWindow.loadFile('notepad.html');
+  const filePath = path.join(__dirname, 'notepad.html');
+  console.log("[Main] Loading notepad file:", filePath);
+  notepadWindow.loadFile(filePath);
 
   notepadWindow.webContents.on('did-finish-load', () => {
     notepadReady = true;
@@ -107,6 +135,7 @@ function createNotepadWindow() {
 }
 
 function createWindow() {
+  console.log("[Main] createWindow called");
   mainWindow = new BrowserWindow({
     width: 250,
     height: 250,
@@ -130,7 +159,26 @@ function createWindow() {
   const { width, height } = primaryDisplay.workAreaSize;
   mainWindow.setPosition(width - 270, height - 270);
   
-  mainWindow.loadFile('index.html');
+  mainWindow.webContents.on('console-message', (event, ...args) => {
+    let message = '';
+    let line = 0;
+    let sourceId = '';
+    if (args.length === 1 && typeof args[0] === 'object') {
+      const details = args[0];
+      message = details.message;
+      line = details.line;
+      sourceId = details.sourceId;
+    } else {
+      message = args[1];
+      line = args[2];
+      sourceId = args[3];
+    }
+    console.log(`[Renderer Main] ${message} (at ${sourceId}:${line})`);
+  });
+
+  const filePath = path.join(__dirname, 'index.html');
+  console.log("[Main] Loading index file:", filePath);
+  mainWindow.loadFile(filePath);
 }
 
 function spawnEngine() {
@@ -227,6 +275,7 @@ function sendCommand(cmd) {
   }
 }
 
+app.name = 'BupiMain';
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
@@ -243,6 +292,7 @@ if (!gotTheLock) {
   app.whenReady().then(() => {
     createWindow();
     spawnEngine();
+    createTerminalWindow(); // Auto-open logs on startup for easy debugging
 
     // Setup System Tray
     const { nativeImage } = require('electron');
@@ -253,6 +303,16 @@ if (!gotTheLock) {
     const contextMenu = Menu.buildFromTemplate([
       { label: 'Open Notepad', click: () => createNotepadWindow() },
       { label: 'Show Logs', click: () => createTerminalWindow() },
+      { label: 'Toggle DevTools', click: () => {
+          if (mainWindow) {
+            if (mainWindow.webContents.isDevToolsOpened()) {
+              mainWindow.webContents.closeDevTools();
+            } else {
+              mainWindow.webContents.openDevTools({ mode: 'detach' });
+            }
+          }
+        }
+      },
       { label: 'Toggle Conversation Mode', click: () => sendCommand('toggle_conversation') },
       { label: 'Clear Memory', click: () => sendCommand('clear_memory') },
       { label: 'Toggle Overlay', click: () => {

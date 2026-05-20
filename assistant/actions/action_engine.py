@@ -298,73 +298,64 @@ def send_whatsapp_message(recipient, message):
     recipient_text = f" to {recipient}" if recipient else ""
     
     import urllib.parse
-    if _find_and_focus_tab("WhatsApp"):
-        try:
-            import pygetwindow as gw
-            import pyautogui
-            import time
+    import time
+    
+    tab_found = _find_and_focus_tab("WhatsApp")
+    if not tab_found:
+        print("WhatsApp tab not found. Opening a new tab and waiting for it to load...", flush=True)
+        _open_in_chrome("https://web.whatsapp.com/")
+        # Wait 10 seconds for WhatsApp web to load completely
+        time.sleep(10.0)
+        # Try to focus the newly opened tab just to be safe
+        _find_and_focus_tab("WhatsApp")
+        
+    try:
+        import pygetwindow as gw
+        import pyautogui
+        
+        def check_focus():
+            aw = gw.getActiveWindow()
+            if not aw or ('whatsapp' not in aw.title.lower() and 'chrome' not in aw.title.lower() and 'edge' not in aw.title.lower()):
+                raise RuntimeError("Lost window focus")
+
+        # Ensure focus is clean
+        time.sleep(0.5)
+        check_focus()
+
+        # Press ESC 3 times to exit any open chat or menus
+        pyautogui.press('esc', presses=3, interval=0.1)
+        time.sleep(0.4)
+        
+        check_focus()
+        # Use the WhatsApp Web global search shortcut
+        pyautogui.hotkey('ctrl', 'alt', '/')
+        time.sleep(0.5)
+        
+        if recipient:
+            check_focus()
+            print(f"From Python: [DEBUG] Typing recipient exactly as: '{recipient}'", flush=True)
+            # Type the name to search
+            pyautogui.write(recipient, interval=0.02)
+            time.sleep(1.5) # wait for search results to filter
             
-            def check_focus():
-                aw = gw.getActiveWindow()
-                if not aw or ('whatsapp' not in aw.title.lower() and 'chrome' not in aw.title.lower() and 'edge' not in aw.title.lower()):
-                    raise RuntimeError("Lost window focus")
-
-            def slow_hotkey(*keys):
-                """Press keys with a slight delay to prevent Windows from dropping modifiers."""
-                check_focus()
-                for key in keys:
-                    pyautogui.keyDown(key)
-                    time.sleep(0.05)
-                for key in reversed(keys):
-                    pyautogui.keyUp(key)
-                    time.sleep(0.05)
-
-            # Ensure the web page DOM has actual keyboard focus by clicking the center of the screen.
-            # This clicks the chat background, which is safe.
-            screen_width, screen_height = pyautogui.size()
-            pyautogui.click(screen_width // 2, screen_height // 2)
+            check_focus()
+            pyautogui.press('enter')
+            time.sleep(1.0) # wait for the chat to open
+            
+        if message:
+            check_focus()
+            pyautogui.write(message, interval=0.01)
             time.sleep(0.2)
-
             check_focus()
-            # Press ESC repeatedly to close any active chat text boxes or emoji panels.
-            pyautogui.press('esc', presses=3, interval=0.1)
-            time.sleep(0.3)
+            pyautogui.press('enter')
+            return f"Sent '{message}'{recipient_text} on WhatsApp."
             
-            check_focus()
-            # Use the WhatsApp Web search shortcut
-            slow_hotkey('ctrl', 'alt', '/')
-            time.sleep(0.3)
+        return f"Opened WhatsApp chat for {recipient}."
+    except Exception as e:
+        print(f"WhatsApp sending error: {e}")
+        pass
             
-            check_focus()
-            # Press backspace to clear the '/' in case Windows drops the modifiers
-            pyautogui.press('backspace')
-            time.sleep(0.2)
-            
-            if recipient:
-                check_focus()
-                print(f"From Python: [DEBUG] Typing recipient exactly as: '{recipient}'", flush=True)
-                # Type the name to search
-                pyautogui.write(recipient, interval=0.02)
-                time.sleep(2.0) # wait for search results to filter
-                
-                check_focus()
-                pyautogui.press('enter')
-                time.sleep(1.0) # wait for the chat to open
-                
-            if message:
-                check_focus()
-                pyautogui.write(message, interval=0.01)
-                time.sleep(0.2)
-                check_focus()
-                pyautogui.press('enter')
-                return f"Sent '{message}'{recipient_text} on WhatsApp."
-                
-            return f"Opened WhatsApp chat for {recipient}."
-        except Exception as e:
-            print(f"WhatsApp sending error: {e}")
-            pass
-            
-    # Absolute Fallback if no WhatsApp tab exists at all, or if UI automation failed
+    # Absolute Fallback if UI automation failed
     encoded = urllib.parse.quote(message)
     url = f"https://web.whatsapp.com/send?text={encoded}"
     _open_in_chrome(url, force_new_tab=True)

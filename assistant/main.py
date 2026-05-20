@@ -44,7 +44,7 @@ listener = ListenerThread()
 ai = AIThread()
 speaker = SpeakerThread()
 
-conversation_mode = False
+conversation_mode = True
 
 # -------------------------------------------------------------
 # Init Hardware / ESP32 Bridge
@@ -154,7 +154,7 @@ def on_transcription(text: str):
 
     if not text:
         state_mgr.transition("idle")
-        QTimer.singleShot(1000, start_listening)
+        QTimer.singleShot(300, start_listening)
         return
 
     # Clear pending tasks if the user interrupts with a new command
@@ -191,7 +191,7 @@ def on_transcription(text: str):
             text = cleaned
         else:
             state_mgr.transition("idle")
-            QTimer.singleShot(1000, start_listening)
+            QTimer.singleShot(300, start_listening)
             return
 
     # Parse multiple instructions using common sequence words
@@ -310,7 +310,7 @@ def on_speech_finished():
         QTimer.singleShot(1500, process_next_instruction)
     else:
         state_mgr.transition("idle")
-        QTimer.singleShot(1000, start_listening)
+        QTimer.singleShot(300, start_listening)
 
 speaker.speech_finished.connect(on_speech_finished)
 speaker.error_occurred.connect(lambda e: (
@@ -413,8 +413,12 @@ def startup_sequence():
 
     welcome_speech = f"Hi {user_name}, I have some notifications and I have summarized what you have got. I also checked your LinkedIn and WhatsApp and gave you a quick summary of all the stuff."
     speaker.say(welcome_speech)
+    def on_startup_finished():
+        state_mgr.force("idle")
+        QTimer.singleShot(300, start_listening)
+
     speaker.speech_finished.connect(
-        lambda: state_mgr.force("idle"),
+        on_startup_finished,
         Qt.ConnectionType.SingleShotConnection if hasattr(Qt, 'ConnectionType') else 1
     )
 

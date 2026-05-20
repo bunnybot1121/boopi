@@ -19,21 +19,12 @@
         #video-container {
             width: 95vmin;
             height: 95vmin;
-            border-radius: 50%;
-            overflow: hidden;
             -webkit-app-region: drag; /* Restore native dragging */
             user-select: none;
             display: flex;
             justify-content: center;
             align-items: center;
             transition: transform 0.3s ease;
-        }
-
-        #state-image {
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            pointer-events: none; /* Make character unclickable for drag to work behind it */
         }
 
         /* Hover interaction */
@@ -159,19 +150,32 @@
             100% { transform: translateY(-100px) scale(0) rotate(360deg); opacity: 0; }
         }
     </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "./node_modules/three/build/three.module.js",
+                "three/addons/": "./node_modules/three/examples/jsm/"
+            }
+        }
+    </script>
 </head>
 <body>
     <div id="video-container">
-        <!-- Live-2D Native GIF Element -->
-        <img id="state-image" src="assets/animations/idle.gif" />
     </div>
     
     <div id="thought-bubble"></div>
 
 
     <script>
-        const { ipcRenderer } = require('electron');
-        const imageElement = document.getElementById('state-image');
+        // Expose ipcRenderer globally so ES Modules can access it
+        window.ipcRenderer = require('electron').ipcRenderer;
+    </script>
+    <script type="module">
+        import { init3D, set3DState } from './three_handler.js';
+        const ipcRenderer = window.ipcRenderer;
+
+        // Initialize the 3D scene using your GLB model
+        init3D('video-container', './cute_character.glb');
 
         // Allow user to resize by scrolling mouse wheel over the character
         document.addEventListener('wheel', (e) => {
@@ -179,33 +183,6 @@
             const step = e.deltaY > 0 ? -25 : 25; // Scroll down = shrink, Scroll up = grow
             ipcRenderer.send('resize-window', step);
         });
-
-        // Mapping states to user-supplied transparent GIFs
-        const stateImages = {
-            "idle": "assets/animations/Consola Zzz GIF - Consola Zzz Dormida - Discover & Share GIFs/lazy_sleepy.gif",
-            "listening": "assets/animations/Himouto Umaru Chan GIF - Himouto Umaru Chan Anime - Discover & Share GIFs/waiting for the command.gif",
-            "thinking": "assets/animations/Himouto Umaru Chan GIF - Himouto Umaru Chan Rodar - Discover & Share GIFs/loading.gif",
-            "talking": "assets/animations/100 GIF - 100 - Discover & Share GIFs/typing.gif",
-            "error": "assets/animations/Umaru Chan GIF - Umaru chan - Discover & Share GIFs/angry.gif",
-            "angry": "assets/animations/Umaru Chan GIF - Umaru chan - Discover & Share GIFs/angry.gif",
-            "happy": "assets/animations/Anime Umaru Chan GIF - Anime Umaru Chan Cute - Discover & Share GIFs/feels_happy.gif",
-            "startup": "assets/animations/Himouto Umaru Chan GIF - Himouto Umaru Chan Anime - Discover & Share GIFs/when i start her.gif",
-            "praise": "assets/animations/Himouto Umaruchan Umaru GIF - Himouto Umaruchan Umaru Pat - Discover & Share GIFs/when i praise her.gif",
-            "excited": "assets/animations/Himouto Umaru Chan Anime GIF - Himouto Umaru Chan Anime Umaru Doma - Discover & Share GIFs/excited.gif",
-            "booting": "assets/animations/Umaru Chan Anime GIF - Umaru Chan Anime Cute - Discover & Share GIFs/booting.gif",
-            "chilling": "assets/animations/Phone Chilling GIF - Phone Chilling Kawaii - Discover & Share GIFs/chilling.gif",
-            "waiting": "assets/animations/Ok Ent GIF - Ok Ent - Discover & Share GIFs/waiting.gif"
-        };
-        
-        // Mapping states to Live-2D CSS keyframes
-        const stateAnimations = {
-            "idle": "anim-idle",
-            "listening": "anim-listening",
-            "thinking": "anim-thinking",
-            "talking": "anim-talking",
-            "error": "anim-error"
-        };
-
 
         // Visual effect for happy states
         function spawnGlitters() {
@@ -254,34 +231,29 @@
 
         ipcRenderer.on('state-changed', (event, state) => {
             console.log("Updating UI state to: ", state);
-            if (stateImages[state]) {
-                imageElement.src = stateImages[state];
+            
+            // Route state change to Three.js renderer
+            set3DState(state);
+            
+            // Clear CSS animation classes (procedural 3D handles this now)
+            const container = document.getElementById('video-container');
+            container.className = ''; 
+            
+            // Update thought bubble
+            if (stateThoughts[state]) {
+                thoughtBubble.innerText = stateThoughts[state];
+                thoughtBubble.classList.add('visible');
                 
-                // Clear existing animation classes
-                const container = document.getElementById('video-container');
-                container.className = ''; 
-                
-                // Apply new animation class if it exists
-                if (stateAnimations[state]) {
-                    container.classList.add(stateAnimations[state]);
-                }
-                
-                // Update thought bubble
-                if (stateThoughts[state]) {
-                    thoughtBubble.innerText = stateThoughts[state];
-                    thoughtBubble.classList.add('visible');
-                    
-                    if (bubbleTimeout) clearTimeout(bubbleTimeout);
-                    bubbleTimeout = setTimeout(() => {
-                        thoughtBubble.classList.remove('visible');
-                    }, 4000);
-                } else {
+                if (bubbleTimeout) clearTimeout(bubbleTimeout);
+                bubbleTimeout = setTimeout(() => {
                     thoughtBubble.classList.remove('visible');
-                }
-                
-                if (['happy', 'excited', 'praise'].includes(state)) {
-                    spawnGlitters();
-                }
+                }, 4000);
+            } else {
+                thoughtBubble.classList.remove('visible');
+            }
+            
+            if (['happy', 'excited', 'praise'].includes(state)) {
+                spawnGlitters();
             }
         });
 
