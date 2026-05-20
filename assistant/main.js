@@ -29,56 +29,6 @@ let notepadQueue = [];
 let notepadReady = false;
 let notepadPendingTitle = null;
 let notepadPendingClear = false;
-let terminalWindow = null;
-
-function createTerminalWindow() {
-  console.log("[Main] createTerminalWindow called");
-  if (terminalWindow) {
-    console.log("[Main] terminalWindow already exists, focusing");
-    if (terminalWindow.isMinimized()) terminalWindow.restore();
-    terminalWindow.focus();
-    return;
-  }
-
-  console.log("[Main] Creating new terminalWindow");
-  terminalWindow = new BrowserWindow({
-    width: 700,
-    height: 500,
-    minWidth: 400,
-    minHeight: 300,
-    frame: false,
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false
-    }
-  });
-
-  const filePath = path.join(__dirname, 'terminal.html');
-  console.log("[Main] Loading terminal file:", filePath);
-  terminalWindow.loadFile(filePath);
-
-  terminalWindow.webContents.on('console-message', (event, ...args) => {
-    let message = '';
-    let line = 0;
-    let sourceId = '';
-    if (args.length === 1 && typeof args[0] === 'object') {
-      const details = args[0];
-      message = details.message;
-      line = details.line;
-      sourceId = details.sourceId;
-    } else {
-      message = args[1];
-      line = args[2];
-      sourceId = args[3];
-    }
-    console.log(`[Renderer Terminal] ${message} (at ${sourceId}:${line})`);
-  });
-
-  terminalWindow.on('closed', () => {
-    console.log("[Main] terminalWindow closed");
-    terminalWindow = null;
-  });
-}
 
 function createNotepadWindow() {
   console.log("[Main] createNotepadWindow called");
@@ -256,9 +206,6 @@ function spawnEngine() {
         }
       } catch (e) {
         console.log("From Python:", line);
-        if (terminalWindow) {
-          terminalWindow.webContents.send('terminal-log', line);
-        }
       }
     });
   });
@@ -292,7 +239,6 @@ if (!gotTheLock) {
   app.whenReady().then(() => {
     createWindow();
     spawnEngine();
-    createTerminalWindow(); // Auto-open logs on startup for easy debugging
 
     // Setup System Tray
     const { nativeImage } = require('electron');
@@ -302,7 +248,6 @@ if (!gotTheLock) {
 
     const contextMenu = Menu.buildFromTemplate([
       { label: 'Open Notepad', click: () => createNotepadWindow() },
-      { label: 'Show Logs', click: () => createTerminalWindow() },
       { label: 'Toggle DevTools', click: () => {
           if (mainWindow) {
             if (mainWindow.webContents.isDevToolsOpened()) {
@@ -371,15 +316,6 @@ if (!gotTheLock) {
 
     ipcMain.on('notepad-save', (event, data) => {
       console.log("Notepad saved:", data.title);
-    });
-
-    // Terminal IPC handlers
-    ipcMain.on('terminal-minimize', () => {
-      if (terminalWindow) terminalWindow.minimize();
-    });
-    
-    ipcMain.on('terminal-close', () => {
-      if (terminalWindow) terminalWindow.close();
     });
 
     app.on('activate', () => {

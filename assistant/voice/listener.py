@@ -124,8 +124,19 @@ class ListenerThread(QThread):
         
         # Give whisper context to heavily bias towards names and app functions we care about
         prompt = "Bupi, PDF, Document, WhatsApp, Notepad, OpenRouter, Claude, summarize, rewrite."
-        result = self._model.transcribe(audio_f32, language="en", fp16=False, initial_prompt=prompt)
+        result = self._model.transcribe(audio_f32, language="en", fp16=False, initial_prompt=prompt, condition_on_previous_text=False)
         text = result["text"].strip()
+        
+        # Filter out common Whisper hallucinations for silence
+        clean_text = text.replace(",", "").replace(".", "").strip().lower()
+        clean_prompt = prompt.replace(",", "").replace(".", "").strip().lower()
+        
+        hallucinations = ["thank you", "thanks for watching", "please subscribe"]
+        
+        if clean_text == clean_prompt or any(h in clean_text for h in hallucinations):
+            print("From Python: [Whisper] Filtered hallucination.", flush=True)
+            text = ""
+            
         self.transcription_ready.emit(text)
 
     def stop(self):

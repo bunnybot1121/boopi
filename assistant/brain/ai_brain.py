@@ -138,137 +138,108 @@ class AIThread(QThread):
                 print(f"From Python: [AI] Requesting from OpenRouter: {text}", flush=True)
 
                 import re
-                
-                # Check if we need to extract document text
-                summarize_doc = bool(re.search(r'\b(summarize|read|analyze|scan)\s+(this|the|my)?\s*(pdf|document|page|file|window|text|screen|video|it)?\b', text, re.I))
-                
-                if summarize_doc:
-                    try:
-                        import pyautogui
-                        import pyperclip
-                        import time
-                        
-                        # Backup clipboard
-                        old_clipboard = pyperclip.paste()
-                        pyperclip.copy("")
-                        
-                        # Simulate Ctrl+A, Ctrl+C to extract text
-                        pyautogui.hotkey('ctrl', 'a')
-                        time.sleep(0.3)
-                        pyautogui.hotkey('ctrl', 'c')
-                        time.sleep(0.3)
-                        pyautogui.press('right') # Deselect
-                        
-                        extracted_text = pyperclip.paste()
-                        
-                        # Restore clipboard
-                        if old_clipboard:
-                            pyperclip.copy(old_clipboard)
-                        
-                        if extracted_text and len(extracted_text.strip()) > 10:
-                            # Truncate if too huge, leaving enough for context
-                            if len(extracted_text) > 150000:
-                                extracted_text = extracted_text[:150000] + "\n...[Text Truncated]..."
-                                
-                            text += f"\n\n[System Note: The user asked you to summarize/read their document. I have automatically extracted the text from their active window. Here is the text:]\n\n{extracted_text}"
-                            print("From Python: [AI] Injected active document text into her brain!", flush=True)
-                            
-                            # Also update the message in the history buffer
-                            messages[-1]["content"] = text
-                        else:
-                            text += f"\n\n[System Note: I tried to extract the text from the active window, but nothing was found. Ask the user to click on the document or PDF they want you to read first!]"
-                            print("From Python: [AI] Failed to find text to extract.", flush=True)
-                            messages[-1]["content"] = text
-                            
-                    except Exception as e:
-                        print(f"From Python: [AI Error] Could not extract document text: {e}", flush=True)
-                        text += f"\n\n[System Note: I tried to extract the text from the active window, but an error occurred. Ask the user to click on the document or PDF they want you to read first!]"
-                        messages[-1]["content"] = text
+                route_to_local = self.use_local_llm
+                route_reason = "Default"
 
-                take_screenshot = bool(re.search(r'\b(look|see|read|screen|terminal|check|what is this|show me|what\'s on|what are you seeing|display)\b', text, re.I))
-                
-                if take_screenshot:
-                    try:
-                        from PIL import ImageGrab
-                        import base64
-                        from io import BytesIO
-                        
-                        screen = ImageGrab.grab(all_screens=True)
-                        screen.thumbnail((1280, 720))
-                        
-                        buffered = BytesIO()
-                        screen.save(buffered, format="JPEG", quality=70)
-                        img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-                        
-                        messages[-1] = {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": text},
-                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_str}"}}
-                            ]
-                        }
-                        print("From Python: [AI] Injected screenshot of your desktop into her brain!", flush=True)
-                    except Exception as e:
-                        print(f"From Python: [AI Error] Could not take screenshot: {e}", flush=True)
-
-                if self._interrupted: continue
-                
-                # --- HYBRID ROUTER LOGIC ---
-                is_complex = False
-                route_reason = ""
-                
-                if summarize_doc:
-                    is_complex = True
-                    route_reason = "Document summarization/reading requested"
-                elif take_screenshot:
-                    is_complex = True
-                    route_reason = "Screenshot/Vision analysis requested"
-                elif re.search(r'\bclaude\b', text, re.I):
-                    is_complex = True
-                    route_reason = "Explicit request for Claude"
-                else:
-                    # SMART HYBRID ROUTER
-                    words = text.split()
-                    
-                    # Feature 1: Length (Long prompts are usually complex)
-                    if len(words) > 12:
-                        is_complex = True
-                        route_reason = f"Query length ({len(words)} words) indicates complex instructions"
-                    
-                    # Feature 2: Analytical/Instructional phrasing
-                    analytical_phrases = [
-                        r'\bhow to\b', r'\bwhy is\b', r'\bwhy does\b', r'\bwhat is the difference\b',
-                        r'\bcan you explain\b', r'\bhelp me understand\b', r'\bfigure out\b'
-                    ]
-                    for phrase in analytical_phrases:
-                        if re.search(phrase, text, re.I):
-                            is_complex = True
-                            route_reason = f"Analytical structure detected: '{phrase}'"
-                            break
-                            
-                    # Feature 3: Complex Action Keywords
-                    if not is_complex:
-                        complex_keywords = [
-                            r'\bcode\b', r'\bscript\b', r'\bpython\b', r'\bjavascript\b', r'\bhtml\b', r'\bcss\b',
-                            r'\bwrite\b', r'\bdraft\b', r'\bessay\b', r'\bpost\b', r'\barticle\b', r'\bemail\b',
-                            r'\bexplain\b', r'\banalyze\b', r'\btranslate\b', r'\bcalculate\b', r'\bmath\b',
-                            r'\bgenerate\b', r'\bcreate\b', r'\bdebug\b', r'\bfix\b', r'\bsummarize\b'
-                        ]
-                        for kw in complex_keywords:
-                            if re.search(kw, text, re.I):
-                                is_complex = True
-                                route_reason = f"Complex keyword detected: '{kw.strip(r'\b')}'"
-                                break
-
-                route_to_local = self.use_local_llm and not is_complex
-                
                 if self.use_local_llm:
-                    if route_to_local:
-                        print(f"From Python: [Router] Routing to LOCAL ({self.local_llm_model}) for fast conversational response.", flush=True)
-                    else:
-                        print(f"From Python: [Router] Routing to CLOUD (OpenRouter) because: {route_reason}", flush=True)
+                    # Quick intelligent check with local LLM
+                    try:
+                        router_client = OpenAI(base_url=self.local_llm_url, api_key="ollama")
+                        router_prompt = "You are a routing agent. Does the following user request require advanced reasoning, coding, writing long drafts, analyzing documents, or looking at the screen? Reply with exactly 'CLOUD' if it does, or 'LOCAL' if it is just a simple greeting, basic chat, or simple command. User request: " + text
+                        
+                        r_resp = router_client.chat.completions.create(
+                            model=self.local_llm_model,
+                            messages=[{"role": "user", "content": router_prompt}],
+                            max_tokens=5,
+                            temperature=0.0,
+                            extra_body={"keep_alive": -1}
+                        )
+                        decision = r_resp.choices[0].message.content.strip().upper()
+                        if "CLOUD" in decision:
+                            route_to_local = False
+                            route_reason = "Smart Router detected complex intent"
+                        else:
+                            route_to_local = True
+                            route_reason = "Smart Router detected simple chat"
+                    except Exception as e:
+                        print(f"From Python: [Router Error] {e}. Defaulting to CLOUD.", flush=True)
+                        route_to_local = False
+                        route_reason = "Router failed, defaulting to CLOUD"
                 else:
-                    print(f"From Python: [Router] Routing to CLOUD (Local LLM is disabled in .env)", flush=True)
+                    route_to_local = False
+                    route_reason = "Local LLM disabled in .env"
+
+                if route_to_local:
+                    print(f"From Python: [Router] Routing to LOCAL ({self.local_llm_model}): {route_reason}", flush=True)
+                else:
+                    print(f"From Python: [Router] Routing to CLOUD (OpenRouter): {route_reason}", flush=True)
+
+                # Only perform heavy operations (Screenshots, Document reading) if we are routing to the CLOUD
+                if not route_to_local:
+                    summarize_doc = bool(re.search(r'\b(summarize|read|analyze|scan)\s+(this|the|my)?\s*(pdf|document|page|file|window|text|screen|video|it)?\b', text, re.I))
+                    
+                    if summarize_doc:
+                        try:
+                            import pyautogui
+                            import pyperclip
+                            import time
+                            
+                            old_clipboard = pyperclip.paste()
+                            pyperclip.copy("")
+                            
+                            pyautogui.hotkey('ctrl', 'a')
+                            time.sleep(0.3)
+                            pyautogui.hotkey('ctrl', 'c')
+                            time.sleep(0.3)
+                            pyautogui.press('right')
+                            
+                            extracted_text = pyperclip.paste()
+                            
+                            if old_clipboard:
+                                pyperclip.copy(old_clipboard)
+                            
+                            if extracted_text and len(extracted_text.strip()) > 10:
+                                if len(extracted_text) > 150000:
+                                    extracted_text = extracted_text[:150000] + "\n...[Text Truncated]..."
+                                    
+                                text += f"\n\n[System Note: The user asked you to summarize/read their document. I have automatically extracted the text from their active window. Here is the text:]\n\n{extracted_text}"
+                                print("From Python: [AI] Injected active document text into her brain!", flush=True)
+                                messages[-1]["content"] = text
+                            else:
+                                text += f"\n\n[System Note: I tried to extract the text from the active window, but nothing was found. Ask the user to click on the document or PDF they want you to read first!]"
+                                print("From Python: [AI] Failed to find text to extract.", flush=True)
+                                messages[-1]["content"] = text
+                                
+                        except Exception as e:
+                            print(f"From Python: [AI Error] Could not extract document text: {e}", flush=True)
+                            text += f"\n\n[System Note: I tried to extract the text from the active window, but an error occurred. Ask the user to click on the document or PDF they want you to read first!]"
+                            messages[-1]["content"] = text
+
+                    take_screenshot = bool(re.search(r'\b(look|see|read|screen|terminal|check|what is this|show me|what\'s on|what are you seeing|display)\b', text, re.I))
+                    
+                    if take_screenshot:
+                        try:
+                            from PIL import ImageGrab
+                            import base64
+                            from io import BytesIO
+                            
+                            screen = ImageGrab.grab(all_screens=True)
+                            screen.thumbnail((1280, 720))
+                            
+                            buffered = BytesIO()
+                            screen.save(buffered, format="JPEG", quality=70)
+                            img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+                            
+                            messages[-1] = {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": text},
+                                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_str}"}}
+                                ]
+                            }
+                            print("From Python: [AI] Injected screenshot of your desktop into her brain!", flush=True)
+                        except Exception as e:
+                            print(f"From Python: [AI Error] Could not take screenshot: {e}", flush=True)
 
                 response = None
                 spoken_buffer = ""

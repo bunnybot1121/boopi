@@ -22,6 +22,7 @@ let activeHearts = [];
 let blinkTimer = 0;
 let blinkDuration = 0;
 let isBlinking = false;
+let blinkFactor = 1.0;
 
 // Audio amplitude tracking (simulated for talking lip-sync)
 let talkAmplitude = 0;
@@ -36,9 +37,33 @@ let mouseX = 0;
 let mouseY = 0;
 let isMouseOver = false;
 
+// TARGET STATES FOR SMOOTH INTERPOLATION (LERPING)
+let targetModelPos = new THREE.Vector3(0, 0, 0);
+let targetModelRot = new THREE.Euler(0, 0, 0);
+let targetLeftEyeScale = new THREE.Vector3(1, 1, 1);
+let targetRightEyeScale = new THREE.Vector3(1, 1, 1);
+let targetLeftEyeRotZ = 0;
+let targetRightEyeRotZ = 0;
+let targetMouthScale = new THREE.Vector3(1, 1, 1);
+let targetMouthPosX = 0;
+let targetColorR = 1.0;
+let targetColorG = 1.0;
+let targetColorB = 1.0;
+
+let currentModelPos = new THREE.Vector3(0, 0, 0);
+let currentModelRot = new THREE.Euler(0, 0, 0);
+let currentLeftEyeScale = new THREE.Vector3(1, 1, 1);
+let currentRightEyeScale = new THREE.Vector3(1, 1, 1);
+let currentLeftEyeRotZ = 0;
+let currentRightEyeRotZ = 0;
+let currentMouthScale = new THREE.Vector3(1, 1, 1);
+let currentMouthPosX = 0;
+let currentColorR = 1.0;
+let currentColorG = 1.0;
+let currentColorB = 1.0;
+
 window.addEventListener('mousemove', (e) => {
   isMouseOver = true;
-  // Convert client coordinates to normalized coordinates relative to center (-0.5 to 0.5)
   mouseX = (e.clientX / window.innerWidth) - 0.5;
   mouseY = (e.clientY / window.innerHeight) - 0.5;
 });
@@ -51,7 +76,6 @@ export function init3D(containerId, modelPath) {
   const container = document.getElementById(containerId);
   if (!container) return;
 
-  // 1. Create Scene & Transparent Renderer
   scene = new THREE.Scene();
   
   renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
@@ -60,11 +84,9 @@ export function init3D(containerId, modelPath) {
   renderer.shadowMap.enabled = true;
   container.appendChild(renderer.domElement);
 
-  // 2. Setup Camera
   camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
   camera.position.set(0, 0, 4.5);
 
-  // 3. Lighting Setup
   const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
   scene.add(ambientLight);
 
@@ -76,17 +98,14 @@ export function init3D(containerId, modelPath) {
   pointLight.position.set(0, 1, 2);
   scene.add(pointLight);
 
-  // 4. Setup Thinking Particles (Invisible initially)
   setupThinkingParticles();
 
-  // 5. Load GLB Model
   const loader = new GLTFLoader();
   loader.load(
     modelPath,
     (gltf) => {
       model = gltf.scene;
 
-      // Automatically center and scale the model to fit a standard 2x2x2 bounding box
       const box = new THREE.Box3().setFromObject(model);
       const center = box.getCenter(new THREE.Vector3());
       const size = box.getSize(new THREE.Vector3());
@@ -95,13 +114,11 @@ export function init3D(containerId, modelPath) {
       model.scale.set(scale, scale, scale);
       model.position.sub(center.multiplyScalar(scale));
 
-      // Traverse meshes to bind animations to specific parts
       model.traverse((child) => {
         if (child.isMesh) {
           child.castShadow = true;
           child.receiveShadow = true;
           
-          // Store original materials to allow dynamic color shifting (for angry/error states)
           if (child.material) {
             originalMaterials.set(child, {
               color: child.material.color ? child.material.color.clone() : null,
@@ -109,7 +126,6 @@ export function init3D(containerId, modelPath) {
             });
           }
 
-          // Identify components based on node names
           const name = child.name.toLowerCase();
           if (name.includes('sphere')) {
             if (!leftEye) leftEye = child;
@@ -123,17 +139,6 @@ export function init3D(containerId, modelPath) {
       });
 
       scene.add(model);
-      const meshNames = [];
-      model.traverse((c) => { if (c.isMesh) meshNames.push(c.name); });
-      console.log('3D Model loaded successfully! Mesh names inside model:', JSON.stringify(meshNames));
-      console.log('Bound components:', JSON.stringify({
-        leftEye: leftEye ? leftEye.name : null,
-        rightEye: rightEye ? rightEye.name : null,
-        mouthParts: mouthParts.map(m => m.name),
-        body: body ? body.name : null
-      }));
-      
-      // Start the animation loop
       requestAnimationFrame(animate);
     },
     undefined,
@@ -142,7 +147,6 @@ export function init3D(containerId, modelPath) {
     }
   );
 
-  // Handle window resizing
   window.addEventListener('resize', onWindowResize);
 }
 
@@ -153,16 +157,12 @@ function onWindowResize() {
   renderer.setSize(container.clientWidth, container.clientHeight);
 }
 
-// -------------------------------------------------------------
-// Procedural Effects (Thinking Particles & Extruded Hearts)
-// -------------------------------------------------------------
 function setupThinkingParticles() {
   const particleCount = 40;
   const geometry = new THREE.BufferGeometry();
   const positions = new Float32Array(particleCount * 3);
 
   for (let i = 0; i < particleCount * 3; i += 3) {
-    // Generate initial orbital shell positions
     const angle = Math.random() * Math.PI * 2;
     const radius = 1.2 + Math.random() * 0.4;
     positions[i] = Math.cos(angle) * radius;
@@ -185,7 +185,6 @@ function setupThinkingParticles() {
 
 function spawn3DHeart() {
   const heartShape = new THREE.Shape();
-  // Drawing a smooth 2D heart path
   heartShape.moveTo(0, 0.3);
   heartShape.bezierCurveTo(0, 0.3, -0.2, 0.7, -0.6, 0.7);
   heartShape.bezierCurveTo(-1.0, 0.7, -1.1, 0.4, -1.1, 0.15);
@@ -194,7 +193,6 @@ function spawn3DHeart() {
   heartShape.bezierCurveTo(1.1, 0.4, 1.0, 0.7, 0.6, 0.7);
   heartShape.bezierCurveTo(0.2, 0.7, 0, 0.3, 0, 0.3);
 
-  // Extrude the 2D path into a 3D bubble heart
   const extrudeSettings = {
     depth: 0.1,
     bevelEnabled: true,
@@ -215,7 +213,6 @@ function spawn3DHeart() {
 
   const heart = new THREE.Mesh(geometry, material);
   
-  // Start position near the character with some random offset
   const scaleVal = 0.08 + Math.random() * 0.06;
   heart.scale.set(scaleVal, scaleVal, scaleVal);
   heart.position.set(
@@ -224,8 +221,7 @@ function spawn3DHeart() {
     (Math.random() - 0.5) * 0.4
   );
 
-  // Random rotation for variety
-  heart.rotation.z = Math.PI; // Face upright
+  heart.rotation.z = Math.PI;
   heart.rotation.y = (Math.random() - 0.5) * 0.5;
 
   scene.add(heart);
@@ -233,7 +229,7 @@ function spawn3DHeart() {
     mesh: heart,
     speedY: 0.02 + Math.random() * 0.02,
     speedRot: (Math.random() - 0.5) * 0.05,
-    life: 1.0 // opacity factor
+    life: 1.0
   });
 }
 
@@ -243,7 +239,7 @@ function updateHearts() {
     heart.mesh.position.y += heart.speedY;
     heart.mesh.position.x += Math.sin(stateTime * 5.0 + i) * 0.005;
     heart.mesh.rotation.y += heart.speedRot;
-    heart.life -= 0.015; // fade out life
+    heart.life -= 0.015;
 
     if (heart.life <= 0) {
       scene.remove(heart.mesh);
@@ -256,9 +252,6 @@ function updateHearts() {
   }
 }
 
-// -------------------------------------------------------------
-// Core Animation Loop & State Engine
-// -------------------------------------------------------------
 export function set3DState(state) {
   if (currentState === state) return;
   currentState = state;
@@ -266,35 +259,24 @@ export function set3DState(state) {
 
   console.log(`[3D Router] Activating state: ${state}`);
 
-  // 1. Reset mesh colors/scales from previous state transitions
-  if (model) {
-    model.position.set(0, 0, 0);
-    model.rotation.set(0, 0, 0);
-    
-    // Restore original materials (for angry/error red tints)
-    originalMaterials.forEach((original, mesh) => {
-      if (original.color) mesh.material.color.copy(original.color);
-      if (original.emissive) mesh.material.emissive.copy(original.emissive);
-    });
+  // Base state defaults
+  targetModelPos.set(0, 0, 0);
+  targetModelRot.set(0, 0, 0);
+  targetLeftEyeScale.set(1, 1, 1);
+  targetRightEyeScale.set(1, 1, 1);
+  targetLeftEyeRotZ = 0;
+  targetRightEyeRotZ = 0;
+  targetMouthScale.set(1, 1, 1);
+  targetMouthPosX = 0;
+  
+  targetColorR = 1.0;
+  targetColorG = 1.0;
+  targetColorB = 1.0;
 
-    // Reset eyes
-    if (leftEye) {
-      leftEye.scale.set(1, 1, 1);
-      leftEye.rotation.set(0, 0, 0);
-    }
-    if (rightEye) {
-      rightEye.scale.set(1, 1, 1);
-      rightEye.rotation.set(0, 0, 0);
-    }
-    mouthParts.forEach(part => {
-      part.scale.set(1, 1, 1);
-      part.position.set(0, 0, 0);
-    });
-  }
-
-  // 2. Adjust State-specific elements
-  if (thinkingParticles) {
-    thinkingParticles.material.opacity = (state === 'thinking') ? 0.8 : 0.0;
+  if (state === 'angry' || state === 'error') {
+     targetColorR = 0.85;
+     targetColorG = 0.1;
+     targetColorB = 0.1;
   }
 }
 
@@ -313,15 +295,13 @@ function handleBlinking(delta) {
     blinkDuration -= delta;
     if (blinkDuration <= 0) {
       isBlinking = false;
-      blinkTimer = 3.0 + Math.random() * 4.0; // blink again in 3-7s
-      leftEye.scale.y = 1.0;
-      rightEye.scale.y = 1.0;
+      blinkTimer = 3.0 + Math.random() * 4.0;
+      blinkFactor = 1.0;
     } else {
-      // Smooth close and open
-      const factor = Math.abs(Math.sin((blinkDuration / 0.15) * Math.PI));
-      leftEye.scale.y = factor * 0.9 + 0.1;
-      rightEye.scale.y = factor * 0.9 + 0.1;
+      blinkFactor = Math.abs(Math.sin((blinkDuration / 0.15) * Math.PI)) * 0.9 + 0.1;
     }
+  } else {
+    blinkFactor = 1.0;
   }
 }
 
@@ -334,17 +314,116 @@ function animate(timestamp) {
 
   if (!model) return;
 
-  // A. Gaze Tracking logic
+  // LERP FACTOR (smoothness)
+  const lerpSpeed = 12.0 * delta; // Adjust multiplier for transition speed
+
+  // 1. Process Thinking Particles
+  if (thinkingParticles) {
+    const targetParticleOpacity = (currentState === 'thinking') ? 0.8 : 0.0;
+    thinkingParticles.material.opacity += (targetParticleOpacity - thinkingParticles.material.opacity) * lerpSpeed;
+    if (thinkingParticles.material.opacity > 0.01) {
+      thinkingParticles.rotation.y = -stateTime * 0.3;
+      thinkingParticles.position.y = Math.sin(stateTime * 1.5) * 0.03;
+    }
+  }
+
+  // 2. State-Specific Overrides (Continuous procedural motions)
+  let extraPosY = 0;
+  let extraPosX = 0;
+  let extraPosZ = 0;
+  let extraRotX = 0;
+  let extraRotY = 0;
+  let extraRotZ = 0;
+  
+  // Fast-fluctuating overrides applied outside of the lerp
+  let extraMouthScaleX = 0;
+  let extraMouthScaleY = 0;
+  let extraEyeScale = 0;
+
+  switch (currentState) {
+    case 'idle':
+    case 'chilling':
+    case 'waiting':
+      extraPosY = Math.sin(stateTime * 1.5) * 0.04; // Gentle breathing/floating
+      extraRotY = Math.sin(stateTime * 0.8) * 0.05;
+      break;
+
+    case 'listening':
+      // Attentive tilt forward, subtle rapid pulse
+      targetModelPos.z = 0.12;
+      targetModelRot.x = 0.08;
+      extraPosY = Math.sin(stateTime * 3.0) * 0.02;
+      
+      const pulse = 1.15 + Math.sin(stateTime * 6.0) * 0.05;
+      targetLeftEyeScale.set(pulse, pulse, pulse);
+      targetRightEyeScale.set(pulse, pulse, pulse);
+      targetMouthScale.set(0.9, 0.9, 1.0);
+      break;
+
+    case 'thinking':
+      // Cute pondering look: Slight tilt, looking up
+      targetModelRot.z = 0.08; // Head tilt
+      targetModelRot.x = -0.05; // Look up slightly
+      targetModelRot.y = 0.1; // Turn slightly
+
+      extraPosY = Math.sin(stateTime * 2.0) * 0.03; // Gentle hover
+
+      // Squint one eye to look inquisitive
+      targetLeftEyeScale.set(1.0, 0.6, 1.0);
+      targetRightEyeScale.set(1.1, 1.1, 1.1);
+
+      // Smirk/thinking mouth shape offset to the side
+      targetMouthScale.set(0.8, 0.8, 1.0);
+      targetMouthPosX = 0.06;
+      break;
+
+    case 'talking':
+      extraPosY = Math.sin(stateTime * 12.0) * 0.04;
+      
+      talkAmplitude = Math.abs(Math.sin(stateTime * 18.0) * Math.cos(stateTime * 7.0));
+      
+      // Apply fast moving changes directly as extras so they don't get flattened by the smooth lerp
+      extraMouthScaleX = -talkAmplitude * 0.18;
+      extraMouthScaleY = talkAmplitude * 0.85;
+      extraEyeScale = talkAmplitude * 0.08;
+      break;
+
+    case 'happy':
+    case 'excited':
+    case 'praise':
+      extraPosY = Math.abs(Math.sin(stateTime * 7.0)) * 0.28;
+      extraRotY = Math.sin(stateTime * 10.0) * 0.15;
+
+      targetLeftEyeScale.set(1.25, 0.6, 1.25);
+      targetRightEyeScale.set(1.25, 0.6, 1.25);
+      targetMouthScale.set(1.35, 0.55, 1.0);
+
+      if (Math.random() < 0.08 && activeHearts.length < 15) {
+        spawn3DHeart();
+      }
+      break;
+
+    case 'angry':
+    case 'error':
+      extraPosX = (Math.random() - 0.5) * 0.015;
+      extraPosY = (Math.sin(stateTime * 8.0) * 0.03) + (Math.random() - 0.5) * 0.015;
+      
+      targetLeftEyeRotZ = -0.26;
+      targetRightEyeRotZ = 0.26;
+      targetLeftEyeScale.set(1.0, 0.5, 1.0);
+      targetRightEyeScale.set(1.0, 0.5, 1.0);
+      targetMouthScale.set(0.7, 1.35, 1.0);
+      break;
+  }
+
+  // 3. Update Targets with Gaze
   if (isMouseOver) {
-    // Follow mouse cursor (subtle limits to avoid extreme rotation)
     targetGazeX = mouseX * 0.45;
     targetGazeY = mouseY * 0.35;
   } else if (currentState === 'thinking') {
-    // Thinking: gaze drifts up and right
     targetGazeX = 0.16;
     targetGazeY = -0.14;
   } else {
-    // Natural look-around gaze drift when idle or waiting
     gazeTimer -= delta;
     if (gazeTimer <= 0) {
       gazeTimer = 2.0 + Math.random() * 3.5;
@@ -358,141 +437,85 @@ function animate(timestamp) {
     }
   }
 
-  // Smoothly interpolate gaze
   currentGazeX += (targetGazeX - currentGazeX) * 0.08;
   currentGazeY += (targetGazeY - currentGazeY) * 0.08;
 
-  // Apply gaze rotations to left and right eyes
-  if (leftEye && rightEye && currentState !== 'angry' && currentState !== 'error') {
-    leftEye.rotation.y = currentGazeX;
-    leftEye.rotation.x = -currentGazeY;
-    rightEye.rotation.y = currentGazeX;
-    rightEye.rotation.x = -currentGazeY;
-  }
-
-  // B. Process blinking
   if (currentState !== 'angry' && currentState !== 'error') {
     handleBlinking(delta);
   }
 
-  // C. Process Hearts
-  updateHearts();
+  // 4. Perform Lerping
+  currentModelPos.lerp(targetModelPos, lerpSpeed);
+  currentModelRot.x += (targetModelRot.x - currentModelRot.x) * lerpSpeed;
+  currentModelRot.y += (targetModelRot.y - currentModelRot.y) * lerpSpeed;
+  currentModelRot.z += (targetModelRot.z - currentModelRot.z) * lerpSpeed;
 
-  // D. Execute State-Specific Pose & Mesh Manipulations
-  switch (currentState) {
-    case 'idle':
-    case 'chilling':
-    case 'waiting':
-      // Gentle breathing/floating
-      model.position.y = Math.sin(stateTime * 1.5) * 0.04;
-      model.rotation.y = Math.sin(stateTime * 0.8) * 0.05;
-      mouthParts.forEach(part => part.scale.set(1.0, 1.0, 1.0));
-      break;
+  currentLeftEyeScale.lerp(targetLeftEyeScale, lerpSpeed);
+  currentRightEyeScale.lerp(targetRightEyeScale, lerpSpeed);
+  
+  currentLeftEyeRotZ += (targetLeftEyeRotZ - currentLeftEyeRotZ) * lerpSpeed;
+  currentRightEyeRotZ += (targetRightEyeRotZ - currentRightEyeRotZ) * lerpSpeed;
 
-    case 'listening':
-      // Attentive tilt forward, subtle rapid breathing pulse
-      model.position.z = 0.12;
-      model.rotation.x = 0.08;
-      model.position.y = Math.sin(stateTime * 3.0) * 0.02;
-      
-      // Make eyes slightly wider to look alert and attentive
-      if (leftEye && rightEye) {
-        const pulse = 1.15 + Math.sin(stateTime * 6.0) * 0.05;
-        leftEye.scale.set(pulse, pulse, pulse);
-        rightEye.scale.set(pulse, pulse, pulse);
-      }
-      mouthParts.forEach(part => part.scale.set(0.9, 0.9, 1.0));
-      break;
+  currentMouthScale.lerp(targetMouthScale, lerpSpeed);
+  currentMouthPosX += (targetMouthPosX - currentMouthPosX) * lerpSpeed;
 
-    case 'thinking':
-      // Hover and rotate body slowly, rotate thinking particles
-      model.position.y = Math.sin(stateTime * 2.0) * 0.03;
-      model.rotation.y = stateTime * 0.4;
+  currentColorR += (targetColorR - currentColorR) * lerpSpeed;
+  currentColorG += (targetColorG - currentColorG) * lerpSpeed;
+  currentColorB += (targetColorB - currentColorB) * lerpSpeed;
 
-      if (thinkingParticles) {
-        thinkingParticles.rotation.y = -stateTime * 0.6;
-        thinkingParticles.position.y = Math.sin(stateTime * 2.0) * 0.03;
-      }
-      
-      // Smirk/thinking mouth shape offset to the side
-      mouthParts.forEach(part => {
-        part.scale.set(0.9, 0.8, 1.0);
-        part.position.x = 0.05;
-      });
-      break;
+  // 5. Apply Values to Meshes
+  model.position.set(
+    currentModelPos.x + extraPosX, 
+    currentModelPos.y + extraPosY, 
+    currentModelPos.z + extraPosZ
+  );
+  model.rotation.set(
+    currentModelRot.x + extraRotX,
+    currentModelRot.y + extraRotY,
+    currentModelRot.z + extraRotZ
+  );
 
-    case 'talking':
-      // Bouncing in sync with talking
-      model.position.y = Math.sin(stateTime * 12.0) * 0.06;
-      
-      // Simulate mouth opening and closing (lip-sync)
-      if (mouthParts.length > 0) {
-        talkAmplitude = Math.abs(Math.sin(stateTime * 18.0) * Math.cos(stateTime * 7.0));
-        mouthParts.forEach(part => {
-          part.scale.y = 1.0 + talkAmplitude * 0.85;
-          part.scale.x = 1.0 - talkAmplitude * 0.18;
-        });
-
-        // Make eyes react to the speech amplitude for expressive talk
-        if (leftEye && rightEye) {
-          const eyePulse = 1.0 + talkAmplitude * 0.12;
-          leftEye.scale.set(eyePulse, eyePulse, eyePulse);
-          rightEye.scale.set(eyePulse, eyePulse, eyePulse);
-        }
-      }
-      break;
-
-    case 'happy':
-    case 'excited':
-    case 'praise':
-      // Bounce high
-      model.position.y = Math.abs(Math.sin(stateTime * 7.0)) * 0.28;
-      model.rotation.y = Math.sin(stateTime * 10.0) * 0.15;
-
-      // Squint/happy eyes
-      if (leftEye && rightEye) {
-        leftEye.scale.set(1.25, 0.6, 1.25);
-        rightEye.scale.set(1.25, 0.6, 1.25);
-      }
-
-      // Wide flat smile
-      mouthParts.forEach(part => part.scale.set(1.35, 0.55, 1.0));
-
-      // Spawning hearts on a timer
-      if (Math.random() < 0.08 && activeHearts.length < 15) {
-        spawn3DHeart();
-      }
-      break;
-
-    case 'angry':
-    case 'error':
-      // Glitchy shaking
-      model.position.x = (Math.random() - 0.5) * 0.015;
-      model.position.y = (Math.sin(stateTime * 8.0) * 0.03) + (Math.random() - 0.5) * 0.015;
-      
-      // Tilt eyes inward and narrow them for angry look
-      if (leftEye && rightEye) {
-        leftEye.rotation.z = -0.26;
-        rightEye.rotation.z = 0.26;
-        leftEye.scale.set(1.0, 0.5, 1.0);
-        rightEye.scale.set(1.0, 0.5, 1.0);
-      }
-
-      // Frowning shape
-      mouthParts.forEach(part => part.scale.set(0.7, 1.35, 1.0));
-
-      // Glow Red
-      originalMaterials.forEach((original, mesh) => {
-        if (mesh.material && mesh.material.color) {
-          mesh.material.color.setRGB(0.85, 0.1, 0.1);
-          if (mesh.material.emissive) {
-            mesh.material.emissive.setRGB(0.3, 0.0, 0.0);
-          }
-        }
-      });
-      break;
+  if (leftEye && rightEye) {
+    leftEye.scale.set(
+        currentLeftEyeScale.x + extraEyeScale, 
+        (currentLeftEyeScale.y + extraEyeScale) * blinkFactor, 
+        currentLeftEyeScale.z + extraEyeScale
+    );
+    rightEye.scale.set(
+        currentRightEyeScale.x + extraEyeScale, 
+        (currentRightEyeScale.y + extraEyeScale) * blinkFactor, 
+        currentRightEyeScale.z + extraEyeScale
+    );
+    leftEye.rotation.set(-currentGazeY, currentGazeX, currentLeftEyeRotZ);
+    rightEye.rotation.set(-currentGazeY, currentGazeX, currentRightEyeRotZ);
   }
 
-  // Render Scene
+  mouthParts.forEach(part => {
+    part.scale.set(
+        currentMouthScale.x + extraMouthScaleX,
+        currentMouthScale.y + extraMouthScaleY,
+        currentMouthScale.z
+    );
+    part.position.x = currentMouthPosX;
+  });
+
+  // Apply colors (with lerping for smooth red/angry transitions)
+  originalMaterials.forEach((original, mesh) => {
+    if (mesh.material && mesh.material.color && original.color) {
+      if (currentColorR === 1.0 && currentColorG === 1.0 && currentColorB === 1.0) {
+        mesh.material.color.copy(original.color);
+        if (mesh.material.emissive && original.emissive) mesh.material.emissive.copy(original.emissive);
+      } else {
+        // Simple blend towards target color (usually red)
+        mesh.material.color.setRGB(
+          original.color.r * currentColorR,
+          original.color.g * currentColorG,
+          original.color.b * currentColorB
+        );
+      }
+    }
+  });
+
+  updateHearts();
   renderer.render(scene, camera);
 }
