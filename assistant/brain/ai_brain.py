@@ -46,6 +46,9 @@ CRITICAL RULE for large data: If you are asked to summarize a large document, pu
 If you are writing a fresh draft or rewriting something entirely, you MUST first output [NOTEPAD_CLEAR] before [NOTEPAD].
 You can also set the title of the note by outputting [TITLE]Your Title Here[/TITLE] before the [NOTEPAD] tag.
 CRITICAL RULE for WhatsApp: If the user asks you to message someone on WhatsApp, DO NOT chain manual actions. The system already has smart automation to check for open tabs and send the message! You MUST first write the message in the [NOTEPAD] tags so they can see it, and then append the tag [WHATSAPP_SEND:ContactName] at the very end of your response.
+CRITICAL RULE for IoT Swarm (Hive Mind): You act as the central brain orchestrating dumb ESP32 devices over MQTT. If the user asks you to control a node or display something on the ESP32, you MUST output the exact tag [MQTT_SEND:topic:message] at the very end of your response. 
+IMPORTANT: The default topic for the ESP32 screen is ALWAYS "bupi/nodes/desk_display/cmd". Do not make up your own topics!
+Example: [MQTT_SEND:bupi/nodes/desk_display/cmd:The king of the forest is the Lion!]
 Everything inside these tags will be typed directly into the user's Notepad or executed in the background. Do not include these tags for short, normal conversation.
 Current user: {user_name}
 User's notes/memories:
@@ -142,29 +145,14 @@ class AIThread(QThread):
                 route_reason = "Default"
 
                 if self.use_local_llm:
-                    # Quick intelligent check with local LLM
-                    try:
-                        router_client = OpenAI(base_url=self.local_llm_url, api_key="ollama")
-                        router_prompt = "You are a routing agent. Does the following user request require advanced reasoning, coding, writing long drafts, analyzing documents, or looking at the screen? Reply with exactly 'CLOUD' if it does, or 'LOCAL' if it is just a simple greeting, basic chat, or simple command. User request: " + text
-                        
-                        r_resp = router_client.chat.completions.create(
-                            model=self.local_llm_model,
-                            messages=[{"role": "user", "content": router_prompt}],
-                            max_tokens=5,
-                            temperature=0.0,
-                            extra_body={"keep_alive": -1}
-                        )
-                        decision = r_resp.choices[0].message.content.strip().upper()
-                        if "CLOUD" in decision:
-                            route_to_local = False
-                            route_reason = "Smart Router detected complex intent"
-                        else:
-                            route_to_local = True
-                            route_reason = "Smart Router detected simple chat"
-                    except Exception as e:
-                        print(f"From Python: [Router Error] {e}. Defaulting to CLOUD.", flush=True)
+                    # Fast rule-based router to avoid LLM latency overhead
+                    complex_keywords = r'\b(code|write|draft|summarize|analyze|read|scan|look|see|screen|terminal|check|what is this|show me|what\'s on|what are you seeing|display|claude)\b'
+                    if re.search(complex_keywords, text, re.I) or len(text.split()) > 15:
                         route_to_local = False
-                        route_reason = "Router failed, defaulting to CLOUD"
+                        route_reason = "Rule Router detected complex intent"
+                    else:
+                        route_to_local = True
+                        route_reason = "Rule Router detected simple chat"
                 else:
                     route_to_local = False
                     route_reason = "Local LLM disabled in .env"
@@ -427,6 +415,21 @@ class AIThread(QThread):
                             else:
                                 current_sentence = combined
                             continue
+                            
+                        # Handle MQTT_SEND tag so it isn't spoken
+                        if "[MQTT_SEND:" in current_sentence + delta:
+                            idx = (current_sentence + delta).find("[MQTT_SEND:")
+                            before_tag = (current_sentence + delta)[:idx]
+                            if before_tag.strip() and not self._interrupted:
+                                spoken_buffer += before_tag.strip() + " "
+                                
+                            combined = (current_sentence + delta)[idx:]
+                            if "]" in combined:
+                                tag_end = combined.find("]")
+                                current_sentence = combined[tag_end+1:]
+                            else:
+                                current_sentence = combined
+                            continue
 
                         # Handle Notepad tags
                         if not in_notepad and "[NOTEPAD]" in current_sentence + delta:
@@ -505,6 +508,17 @@ class AIThread(QThread):
                     actions = re.findall(r"\[ACTION:(.*?)\]", full_response, flags=re.I)
                     if actions and not self._interrupted:
                         self.ai_action.emit([a.strip() for a in actions])
+
+                # Post-process MQTT tags (Hive Mind)
+                if "[MQTT_SEND:" in full_response:
+                    mqtt_commands = re.findall(r"\[MQTT_SEND:(.+?):(.*?)\]", full_response, flags=re.I)
+                    if mqtt_commands and not self._interrupted:
+                        try:
+                            from actions.iot_agent import handle_iot_command
+                            for topic, msg in mqtt_commands:
+                                handle_iot_command(topic.strip(), msg.strip())
+                        except Exception as e:
+                            print(f"From Python: [MQTT Error] {e}", flush=True)
 
                 if not full_response:
                     full_response = "I couldn't think of anything to say."

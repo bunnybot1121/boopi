@@ -1,0 +1,13 @@
+2026/05/22-16:51:04.587 6fb8 Reusing MANIFEST C:\Users\Sachin\boopi\assistant\actions\browser_data\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2026/05/22-16:51:04.589 6fb8 Recovering log #904
+2026/05/22-16:51:04.630 6fb8 Reusing old log C:\Users\Sachin\boopi\assistant\actions\browser_data\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/000904.log 
+2026/05/22-16:51:04.631 6fb8 Delete type=2 #905
+2026/05/22-16:51:05.545 27c0 Compacting 1@1 + 2@2 files
+2026/05/22-16:51:05.655 27c0 Generated table #910@1: 58867 keys, 2197263 bytes
+2026/05/22-16:51:05.713 27c0 Generated table #911@1: 83072 keys, 2257632 bytes
+2026/05/22-16:51:05.718 27c0 Generated table #912@1: 5512 keys, 210156 bytes
+2026/05/22-16:51:05.718 27c0 Compacted 1@1 + 2@2 files => 4665051 bytes
+2026/05/22-16:51:05.719 27c0 compacted to: files[ 0 1 30 0 0 0 0 ]
+2026/05/22-16:51:05.720 27c0 Delete type=2 #890
+2026/05/22-16:51:05.720 27c0 Delete type=2 #891
+2026/05/22-16:51:05.720 27c0 Delete type=2 #907

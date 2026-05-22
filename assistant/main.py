@@ -98,7 +98,10 @@ def start_listening():
         if not listener.isRunning():
             listener.start()
         else:
+            was_paused = getattr(listener, "_paused", False)
             listener.resume()
+            if not was_paused:
+                state_mgr.transition("listening")
 
 # -------------------------------------------------------------
 # Wiring Listener

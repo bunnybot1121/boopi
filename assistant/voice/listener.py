@@ -22,9 +22,9 @@ class ListenerThread(QThread):
         self._running = False
         self._paused = False
         self._energy_threshold = 800
-        import whisper
-        print("[Whisper] Loading advanced small model for superior accuracy...", flush=True)
-        self._model = whisper.load_model("small.en")  # Upgraded to small for much better NLP
+        from faster_whisper import WhisperModel
+        print("[Whisper] Loading faster-whisper small model for better accent recognition...", flush=True)
+        self._model = WhisperModel("small", device="cpu", compute_type="int8")
         print("[Whisper] Model loaded.")
 
     def run(self):
@@ -62,7 +62,7 @@ class ListenerThread(QThread):
                 if ambient_frames:
                     avg_ambient = sum(ambient_frames) / len(ambient_frames)
                     # Relaxed multiplier so normal conversational volume triggers the mic
-                    self._energy_threshold = max(150, avg_ambient * 1.15)
+                    self._energy_threshold = max(30, avg_ambient * 1.5)
                 print(f"From Python: [Listener] Calibration done. Noise: {avg_ambient:.0f}, Threshold: {self._energy_threshold:.0f}", flush=True)
 
                 ring_buffer = collections.deque(maxlen=PRE_ROLL_FRAMES)
@@ -79,6 +79,8 @@ class ListenerThread(QThread):
                     ring_buffer.clear()
                     
                     speech_detected = False
+                    frames_since_log = 0
+                    max_rms_log = 0
 
                     while self._running and not self._paused:
                         data, _ = stream.read(FRAME_SAMPLES)
@@ -86,6 +88,14 @@ class ListenerThread(QThread):
                         # Energy based VAD
                         rms = np.sqrt(np.mean(np.square(data, dtype=np.float32)))
                         is_speech = rms > self._energy_threshold
+                        
+                        max_rms_log = max(max_rms_log, rms)
+                        frames_since_log += 1
+                        if frames_since_log > int(2000 / FRAME_MS):
+                            if not triggered:
+                                print(f"From Python: [Listener Debug] Waiting for speech. Max RMS last 2s: {max_rms_log:.0f} (Threshold: {self._energy_threshold:.0f})", flush=True)
+                            max_rms_log = 0
+                            frames_since_log = 0
 
                         if not triggered:
                             ring_buffer.append((frame, is_speech))
@@ -99,11 +109,15 @@ class ListenerThread(QThread):
                             voiced_frames.append(frame)
                             if is_speech:
                                 silence_count = 0
-                            else:
+                            if not is_speech:
                                 silence_count += 1
                                 if silence_count > SILENCE_FRAMES:
                                     speech_detected = True
                                     break
+                            # Cap maximum recording length to ~15 seconds to prevent infinite noise loops
+                            if len(voiced_frames) > int(15000 / FRAME_MS):
+                                speech_detected = True
+                                break
                     
                     if speech_detected:
                         if len(voiced_frames) >= MIN_SPEECH_FRAMES:
@@ -123,9 +137,9 @@ class ListenerThread(QThread):
         audio_f32 = audio.astype(np.float32) / 32768.0
         
         # Give whisper context to heavily bias towards names and app functions we care about
-        prompt = "Bupi, PDF, Document, WhatsApp, Notepad, OpenRouter, Claude, summarize, rewrite."
-        result = self._model.transcribe(audio_f32, language="en", fp16=False, initial_prompt=prompt, condition_on_previous_text=False)
-        text = result["text"].strip()
+        prompt = "Bupi, message hi to Chintu on WhatsApp, send, email, PDF, Document, Notepad, YouTube, OpenRouter, Claude, summarize, rewrite."
+        segments, info = self._model.transcribe(audio_f32, language="en", initial_prompt=prompt, condition_on_previous_text=False)
+        text = "".join([segment.text for segment in segments]).strip()
         
         # Filter out common Whisper hallucinations for silence
         clean_text = text.replace(",", "").replace(".", "").strip().lower()

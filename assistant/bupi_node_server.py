@@ -50,6 +50,19 @@ def send_to_esp32(title, message, duration=0):
         _message_override_until = time.time() + duration
 
     """Thread-safe way for Bupi's main engine to send messages to the LCD"""
+    
+    # 1. Send via MQTT to the new Hive Display
+    try:
+        from actions.iot_agent import handle_iot_command
+        # If there's a specific title, we can send it, otherwise just the message
+        payload = f"{title} {message}".strip()
+        if title == "Bupi Status:":
+            payload = message # Keep it short for the LCD
+        handle_iot_command("bupi/nodes/desk_display/cmd", payload)
+    except Exception as e:
+        print(f"From Python: [MQTT Error] Could not send to display: {e}", flush=True)
+        
+    # 2. Send via WebSockets to legacy displays
     if _loop is not None and _loop.is_running():
         asyncio.run_coroutine_threadsafe(_send_to_esp32_async(title, message), _loop)
 

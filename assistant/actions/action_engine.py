@@ -1,6 +1,7 @@
 import re, subprocess, webbrowser, platform, os
 from datetime import datetime
 from memory import user_memory
+from .iot_agent import handle_iot_command
 
 def _run_detached(cmd_list, use_shell=False):
     kwargs = {
@@ -199,172 +200,51 @@ def _open_whatsapp(match=None):
 
 def _open_email(match):
     text = match.string
-    
-    # Try to extract recipient email
-    recipient = ""
-    rec_match = re.search(r"to\s+([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,})", text, re.I)
-    if rec_match:
-        recipient = rec_match.group(1)
-    else:
-        # Check if they just provided a name
-        name_match = re.search(r"to\s+([a-zA-Z]+)", text, re.I)
-        if name_match and name_match.group(1).lower() not in ["send", "write", "draft", "open", "an", "email"]:
-            recipient = name_match.group(1)
-            
-    # Try to extract subject
-    subject = ""
-    sub_match = re.search(r"(?:about|regarding|subject|saying)\s+(.+)", text, re.I)
-    if sub_match:
-        subject = sub_match.group(1).strip()
-        
-    import urllib.parse
-    
-    if _find_and_focus_tab("Gmail") or _find_and_focus_tab("Mail"):
-        try:
-            import pygetwindow as gw
-            import pyautogui
-            import time
-            
-            def check_focus():
-                aw = gw.getActiveWindow()
-                if not aw or ('mail' not in aw.title.lower() and 'chrome' not in aw.title.lower() and 'edge' not in aw.title.lower()):
-                    raise RuntimeError("Lost window focus")
+    print(f"[Action Engine] Routing Email command to Automation Agent: {text}", flush=True)
+    try:
+        from actions.automation_agent import run_automation_agent
+        return run_automation_agent(text)
+    except ImportError:
+        return "Automation Agent is not properly installed or imported."
+    except Exception as e:
+        print(f"Automation agent failed: {e}")
+        return f"Failed to run the automation agent: {e}"
 
-            check_focus()
-            pyautogui.press('c') # Gmail shortcut for compose
-            time.sleep(1.0)
-            if recipient:
-                check_focus()
-                pyautogui.write(recipient)
-                time.sleep(0.5)
-                check_focus()
-                pyautogui.press('enter')
-                time.sleep(0.2)
-                check_focus()
-                pyautogui.press('tab')
-                if subject:
-                    check_focus()
-                    pyautogui.write(subject)
-                check_focus()
-                pyautogui.press('tab')
-            return "Opened email compose window."
-        except Exception as e:
-            print(f"Gmail automation error: {e}")
-            pass
-            
-    url = f"mailto:{recipient}"
-    if subject:
-        url += f"?subject={urllib.parse.quote(subject)}"
-        
-    _open_in_chrome(url)
+def _send_linkedin(match):
+    text = match.string
+    print(f"[Action Engine] Routing LinkedIn command to Automation Agent: {text}", flush=True)
+    try:
+        from actions.automation_agent import run_automation_agent
+        return run_automation_agent(text)
+    except ImportError:
+        return "Automation Agent is not properly installed or imported."
+    except Exception as e:
+        print(f"Automation agent failed: {e}")
+        return f"Failed to run the automation agent: {e}"
     return "Opening your email client to draft the mail as a fallback."
 
 def _send_whatsapp(match):
-    # Depending on the regex that hit, the groups might be different.
-    # We will pass the full text and parse it inside the function for robustness.
     text = match.string
-    
-    recipient = ""
-    message = ""
-    
-    # Try: "whatsapp <name> saying <message>"
-    m1 = re.search(r"whatsapp\s+(.+?)(?:\s+saying\s+|\s+that\s+)(.+)", text, re.I)
-    if m1:
-        recipient = m1.group(1)
-        message = m1.group(2)
-    else:
-        # Try: "send a (whatsapp) message to <name> saying <message>"
-        m2 = re.search(r"(?:send|write|message|text)\s+(?:a\s+)?(?:whatsapp\s+)?message\s+to\s+(.+?)(?:\s+saying\s+|\s+that\s+)(.+)", text, re.I)
-        if m2:
-            recipient = m2.group(1)
-            message = m2.group(2)
-        else:
-            # Try: "send <message> to <name> (on whatsapp)"
-            m3 = re.search(r"(?:send|write|message|text)\s+(.+?)\s+to\s+(.+?)(?:\s+on\s+whatsapp)?$", text, re.I)
-            if m3 and m3.group(1).lower() not in ["a message", "a whatsapp message", "message"]:
-                message = m3.group(1)
-                recipient = m3.group(2)
-            else:
-                # Just "send a message to <name>"
-                m4 = re.search(r"(?:send|write|message|text)\s+(?:a\s+)?(?:whatsapp\s+)?message\s+to\s+(.+?)(?:\s+on\s+whatsapp)?$", text, re.I)
-                if m4:
-                    recipient = m4.group(1)
-    
-    recipient = recipient.strip()
-    message = message.strip()
-    return send_whatsapp_message(recipient, message)
+    print(f"[Action Engine] Routing WhatsApp command to Automation Agent: {text}", flush=True)
+    try:
+        from actions.automation_agent import run_automation_agent
+        return run_automation_agent(text)
+    except ImportError:
+        return "Automation Agent is not properly installed or imported."
+    except Exception as e:
+        print(f"Automation agent failed: {e}")
+        return f"Failed to run the automation agent: {e}"
 
 def send_whatsapp_message(recipient, message):
-    recipient_text = f" to {recipient}" if recipient else ""
-    
-    import urllib.parse
-    import time
-    
-    tab_found = _find_and_focus_tab("WhatsApp")
-    if not tab_found:
-        print("WhatsApp tab not found. Opening a new tab and waiting for it to load...", flush=True)
-        _open_in_chrome("https://web.whatsapp.com/")
-        # Wait 10 seconds for WhatsApp web to load completely
-        time.sleep(10.0)
-        # Try to focus the newly opened tab just to be safe
-        _find_and_focus_tab("WhatsApp")
-        
+    print(f"[Action Engine] AI Triggered WhatsApp routing to Automation Agent: to {recipient}", flush=True)
     try:
-        import pygetwindow as gw
-        import pyautogui
-        
-        def check_focus():
-            aw = gw.getActiveWindow()
-            if not aw or ('whatsapp' not in aw.title.lower() and 'chrome' not in aw.title.lower() and 'edge' not in aw.title.lower()):
-                raise RuntimeError("Lost window focus")
-
-        # Ensure focus is clean
-        time.sleep(0.5)
-        check_focus()
-
-        # Press ESC 3 times to exit any open chat or menus
-        pyautogui.press('esc', presses=3, interval=0.1)
-        time.sleep(0.4)
-        
-        check_focus()
-        # Use the WhatsApp Web global search shortcut
-        pyautogui.hotkey('ctrl', 'alt', '/')
-        time.sleep(0.5)
-        
-        if recipient:
-            check_focus()
-            print(f"From Python: [DEBUG] Typing recipient exactly as: '{recipient}'", flush=True)
-            # Type the name to search
-            pyautogui.write(recipient, interval=0.02)
-            time.sleep(1.5) # wait for search results to filter
-            
-            check_focus()
-            pyautogui.press('enter')
-            time.sleep(1.0) # wait for the chat to open
-            
-        if message:
-            check_focus()
-            pyautogui.write(message, interval=0.01)
-            time.sleep(0.2)
-            check_focus()
-            pyautogui.press('enter')
-            return f"Sent '{message}'{recipient_text} on WhatsApp."
-            
-        return f"Opened WhatsApp chat for {recipient}."
+        from actions.automation_agent import send_whatsapp_playwright
+        return send_whatsapp_playwright(recipient, message)
+    except ImportError:
+        return "Automation Agent is not properly installed or imported."
     except Exception as e:
-        print(f"WhatsApp sending error: {e}")
-        pass
-            
-    # Absolute Fallback if UI automation failed
-    encoded = urllib.parse.quote(message)
-    url = f"https://web.whatsapp.com/send?text={encoded}"
-    _open_in_chrome(url, force_new_tab=True)
-    
-    # We avoid blindly typing in the fallback since it's prone to errors if focus shifts
-    if recipient and message:
-        return f"Opened WhatsApp Web fallback. Please select the contact '{recipient}' and press Enter to send your message."
-        
-    return f"Opening WhatsApp Web fallback. Please select the contact to send '{message}'{recipient_text}."
+        print(f"Automation agent failed: {e}")
+        return f"Failed to run the automation agent: {e}"
 
 def _take_screenshot(match=None):
     try:
@@ -518,7 +398,13 @@ def _print_on_esp_alt(match):
     except Exception as e:
         return f"Error printing to ESP: {e}"
 
+def _send_mqtt(match):
+    topic = match.group(1).strip()
+    message = match.group(2).strip()
+    return handle_iot_command(topic, message)
+
 PATTERNS = [
+    (re.compile(r"\[MQTT_SEND:(.+?):(.+)\]", re.I), _send_mqtt),
     (re.compile(r"(?:call me|my name is)\s+(.+)",     re.I), _set_name),
     (re.compile(r"(?:remember that|note that)\s+(.+)",             re.I), _remember_fact),
     (re.compile(r"(?:search|google)\s+(?:for\s+)?(.+)",         re.I), _google_search),
@@ -528,6 +414,10 @@ PATTERNS = [
     (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?spotify",                 re.I), _open_spotify),
     (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:calculator|calc)",       re.I), _open_calculator),
     (re.compile(r"(?:open|check)\s+(?:my\s+)?whatsapp",                re.I), _open_whatsapp),
+    (re.compile(r"(?:send|write|message|text)\s+.*whatsapp.*", re.I), _send_whatsapp),
+    (re.compile(r"(?:whatsapp)\s+(.+?)\s+(?:saying\s+|that\s+)", re.I), _send_whatsapp),
+    (re.compile(r"(?:send|write|message|text)\s+.*linkedin.*", re.I), _send_linkedin),
+    (re.compile(r"(?:linkedin)\s+(.+?)\s+(?:saying\s+|that\s+)", re.I), _send_linkedin),
     (re.compile(r"(?:play|listen\s+to|stream)\s+(.+)",                 re.I), _play_music),
     (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:youtube|yt)",                    re.I), _open_youtube),
     (re.compile(r"(?:open|draft|send|write)\s+(?:my\s+|an?\s+|the\s+)?(?:email|mail|emails)", re.I), _open_email),
@@ -536,8 +426,6 @@ PATTERNS = [
     (re.compile(r"(?:take a screenshot|take screenshot|take a picture of my screen)", re.I), _take_screenshot),
     (re.compile(r"^(?:type|write|enter)\s+(.+)", re.I), _keyboard_type),
     (re.compile(r"^(?:press|hit)\s+(?:the\s+)?([a-z0-9]+)\s+(?:key|button)?", re.I), _keyboard_press),
-    (re.compile(r"^(?:print|display|show)\s+on\s+(?:the\s+)?esp(?:32)?[^\w]*\s+(.+)", re.I), _print_on_esp_alt),
-    (re.compile(r"^(?:print|display|show)\s+(.+?)(?:\s+on\s+(?:the\s+)?esp(?:32)?[^\w]*)?$", re.I), _print_on_esp),
     (re.compile(r".*(?:birthday).*", re.I), lambda m: _birthday_surprise(m)),
 ]
 
