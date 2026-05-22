@@ -197,23 +197,6 @@ def on_transcription(text: str):
             QTimer.singleShot(300, start_listening)
             return
 
-    # Parse multiple instructions using common sequence words
-    parts = re.split(r'\b(?:and then|then)\b', text, flags=re.I)
-    parts = [p.strip() for p in parts if len(p.strip()) > 1]
-    
-    if len(parts) > 1:
-        print(f"From Python: [Task Queue] Queued {len(parts)} instructions.", flush=True)
-        instruction_queue.extend(parts)
-        process_next_instruction()
-        return
-
-    handled, response = detect_and_run(text)
-    if handled:
-        state_mgr.transition("talking")
-        if response:
-            speaker.say(response)
-        return
-
     ai.ask(text)
 
 listener.transcription_ready.connect(on_transcription)
@@ -265,8 +248,36 @@ def on_ai_whatsapp_send(recipient: str, message: str):
     print(f"From Python: [AI Triggered Action] Sending to {recipient}...", flush=True)
     result = send_whatsapp_message(recipient, message)
     if result:
-        state_mgr.force("talking")
-        speaker.say(result)
+        if result.startswith("Error:"):
+            print(f"From Python: [Automation Error] {result}", flush=True)
+            ai.ask(f"[System Error]: {result}")
+        else:
+            state_mgr.force("talking")
+            speaker.say(result)
+
+def on_ai_email_send(recipient: str, subject: str, message: str):
+    from actions.automation_agent import send_email_playwright
+    print(f"From Python: [AI Triggered Action] Sending Email to {recipient}...", flush=True)
+    result = send_email_playwright(recipient, subject, message)
+    if result:
+        if result.startswith("Error:"):
+            print(f"From Python: [Automation Error] {result}", flush=True)
+            ai.ask(f"[System Error]: {result}")
+        else:
+            state_mgr.force("talking")
+            speaker.say(result)
+
+def on_ai_linkedin_send(recipient: str, message: str):
+    from actions.automation_agent import send_linkedin_playwright
+    print(f"From Python: [AI Triggered Action] Sending LinkedIn to {recipient}...", flush=True)
+    result = send_linkedin_playwright(recipient, message)
+    if result:
+        if result.startswith("Error:"):
+            print(f"From Python: [Automation Error] {result}", flush=True)
+            ai.ask(f"[System Error]: {result}")
+        else:
+            state_mgr.force("talking")
+            speaker.say(result)
 
 def on_ai_draw(url: str):
     print(json.dumps({"type": "draw", "value": url}), flush=True)
@@ -296,6 +307,8 @@ ai.notepad_insert.connect(on_ai_notepad)
 ai.notepad_clear.connect(on_ai_notepad_clear)
 ai.notepad_title.connect(on_ai_notepad_title)
 ai.whatsapp_send.connect(on_ai_whatsapp_send)
+ai.email_send.connect(on_ai_email_send)
+ai.linkedin_send.connect(on_ai_linkedin_send)
 ai.ai_draw.connect(on_ai_draw)
 ai.ai_action.connect(on_ai_action)
 ai.error_occurred.connect(lambda e: (

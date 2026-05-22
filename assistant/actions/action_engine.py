@@ -238,8 +238,8 @@ def _send_whatsapp(match):
 def send_whatsapp_message(recipient, message):
     print(f"[Action Engine] AI Triggered WhatsApp routing to Automation Agent: to {recipient}", flush=True)
     try:
-        from actions.automation_agent import send_whatsapp_playwright
-        return send_whatsapp_playwright(recipient, message)
+        from actions.automation_agent import send_whatsapp_native
+        return send_whatsapp_native(recipient, message)
     except ImportError:
         return "Automation Agent is not properly installed or imported."
     except Exception as e:
@@ -278,7 +278,11 @@ def _play_music(match):
         return "Opening YouTube Music."
     
     # Strip out trailing words if present
-    clean_query = re.sub(r'(?i)\s+(on youtube|on youtube music)', '', query).strip()
+    clean_query = re.sub(r'(?i)\s*(on youtube|on yt|on youtube music)\s*', '', query).strip()
+    
+    # If they just said "play yt song", strip 'yt'
+    if clean_query.lower().startswith('yt '):
+        clean_query = clean_query[3:].strip()
     
     import urllib.parse
     import urllib.request
@@ -287,13 +291,20 @@ def _play_music(match):
     try:
         req = urllib.request.Request(f"https://www.youtube.com/results?search_query={encoded}", headers={"User-Agent": "Mozilla/5.0"})
         html = urllib.request.urlopen(req).read().decode()
-        video_ids = re.findall(r"watch\?v=(\S{11})", html)
+        
+        # YouTube uses "videoId":"..." in ytInitialData now, which is much more reliable
+        video_ids = re.findall(r'"videoId":"([a-zA-Z0-9_-]{11})"', html)
+        if not video_ids:
+            # Fallback to old watch?v= format
+            video_ids = re.findall(r'watch\?v=([a-zA-Z0-9_-]{11})', html)
+            
         if video_ids:
             url = f"https://www.youtube.com/watch?v={video_ids[0]}"
             _find_and_focus_tab("YouTube")
             _open_in_chrome(url)
             return f"Playing {clean_query} on YouTube."
     except Exception as e:
+        print(f"[Action Engine] YouTube fetch error: {e}")
         pass
         
     _find_and_focus_tab("YouTube")
@@ -414,13 +425,8 @@ PATTERNS = [
     (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?spotify",                 re.I), _open_spotify),
     (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:calculator|calc)",       re.I), _open_calculator),
     (re.compile(r"(?:open|check)\s+(?:my\s+)?whatsapp",                re.I), _open_whatsapp),
-    (re.compile(r"(?:send|write|message|text)\s+.*whatsapp.*", re.I), _send_whatsapp),
-    (re.compile(r"(?:whatsapp)\s+(.+?)\s+(?:saying\s+|that\s+)", re.I), _send_whatsapp),
-    (re.compile(r"(?:send|write|message|text)\s+.*linkedin.*", re.I), _send_linkedin),
-    (re.compile(r"(?:linkedin)\s+(.+?)\s+(?:saying\s+|that\s+)", re.I), _send_linkedin),
     (re.compile(r"(?:play|listen\s+to|stream)\s+(.+)",                 re.I), _play_music),
     (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:youtube|yt)",                    re.I), _open_youtube),
-    (re.compile(r"(?:open|draft|send|write)\s+(?:my\s+|an?\s+|the\s+)?(?:email|mail|emails)", re.I), _open_email),
     (re.compile(r"(?:what.?s the time|current time|time now|what time)", re.I), _get_time),
     (re.compile(r"(?:what.?s today|what day|today.?s date)", re.I), _get_date),
     (re.compile(r"(?:take a screenshot|take screenshot|take a picture of my screen)", re.I), _take_screenshot),

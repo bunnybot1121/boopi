@@ -151,6 +151,13 @@ class ListenerThread(QThread):
             print("From Python: [Whisper] Filtered hallucination.", flush=True)
             text = ""
             
+        # Filter out if the text is just a few words from the prompt (hallucination)
+        prompt_words = set(clean_prompt.split())
+        text_words = set(clean_text.split())
+        if len(text_words) > 0 and len(text_words) <= 5 and text_words.issubset(prompt_words):
+            print(f"From Python: [Whisper] Filtered prompt hallucination: {text}", flush=True)
+            text = ""
+            
         self.transcription_ready.emit(text)
 
     def stop(self):

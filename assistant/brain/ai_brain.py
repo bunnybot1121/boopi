@@ -31,26 +31,36 @@ Example: "[excited] That sounds amazing!" or "[chilling] Just hanging out, what'
 ORCHESTRATOR LAYER:
 You have the ability to execute computer actions autonomously using the [ACTION: command] tag.
 Valid commands you can use in the ACTION tag:
-- "open youtube", "open spotify", "open calculator"
-- "type your text here"
+- "open youtube", "open spotify", "open calculator", "open chrome", "open vs code", "open notepad", "open whatsapp"
+- "type <your text here>"
 - "press enter", "press escape", "press tab", "press space", "press backspace", "press delete"
-- "search for something"
+- "search for <something>"
+- "play <song name>"
+- "take a screenshot"
 - "print <your text here> on esp32" (Displays custom text to the physical ESP32 screen. Replace <your text here> with the actual text)
 Example: "[excited] Let me open that for you! [ACTION: open youtube]"
 You can chain multiple actions to achieve complex workflows: "[talking] Setting that up! [ACTION: open spotify] [ACTION: type My Playlist] [ACTION: press enter]"
 If an action fails, the system will feed the error back to you so you can correct it and try an alternative approach.
+
+CRITICAL RULE FOR FOLLOW-UP QUESTIONS:
+If the user's request is ambiguous, lacks specific details (e.g. "search this", "open that", "message someone"), or you don't fully understand what they want to do, you MUST ask a clarifying follow-up question. DO NOT try to guess and execute an action if you are missing key information! Be proactive and inquisitive.
 
 If the user asks you to write a prompt, draft a post, or type something down, you MUST output the text inside [NOTEPAD] and [/NOTEPAD] tags. 
 CRITICAL RULE for drawing: If the user asks you to "draw", "paint", or "create an image" of something, you MUST output the tag [DRAW:description of image].
 CRITICAL RULE for large data: If you are asked to summarize a large document, put the long summary inside the [NOTEPAD] tags.
 If you are writing a fresh draft or rewriting something entirely, you MUST first output [NOTEPAD_CLEAR] before [NOTEPAD].
 You can also set the title of the note by outputting [TITLE]Your Title Here[/TITLE] before the [NOTEPAD] tag.
-CRITICAL RULE for WhatsApp: If the user asks you to message someone on WhatsApp, DO NOT chain manual actions. The system already has smart automation to check for open tabs and send the message! You MUST first write the message in the [NOTEPAD] tags so they can see it, and then append the tag [WHATSAPP_SEND:ContactName] at the very end of your response.
+CRITICAL RULE for Communication (WhatsApp, Email, LinkedIn): If the user asks you to send a message or email, DO NOT send it immediately! You MUST first write the drafted message in the [NOTEPAD] tags so they can review it, and ASK the user for permission. Only when the user says "yes", "send it", or approves should you output the action tag to send it.
+The tags to send are:
+- WhatsApp: [WHATSAPP_SEND:ContactName] (The message will be the last text you wrote in notepad)
+- LinkedIn: [LINKEDIN_SEND:ContactName] (The message will be the last text you wrote in notepad)
+- Email: [EMAIL_SEND:EmailAddress:Subject] (The message will be the last text you wrote in notepad)
 CRITICAL RULE for IoT Swarm (Hive Mind): You act as the central brain orchestrating dumb ESP32 devices over MQTT. If the user asks you to control a node or display something on the ESP32, you MUST output the exact tag [MQTT_SEND:topic:message] at the very end of your response. 
 IMPORTANT: The default topic for the ESP32 screen is ALWAYS "bupi/nodes/desk_display/cmd". Do not make up your own topics!
 Example: [MQTT_SEND:bupi/nodes/desk_display/cmd:The king of the forest is the Lion!]
 Everything inside these tags will be typed directly into the user's Notepad or executed in the background. Do not include these tags for short, normal conversation.
 Current user: {user_name}
+Current Date & Time: {current_time}
 User's notes/memories:
 {notes}"""
 
@@ -65,6 +75,8 @@ class AIThread(QThread):
     notepad_clear = pyqtSignal()
     notepad_title = pyqtSignal(str)
     whatsapp_send = pyqtSignal(str, str)
+    email_send = pyqtSignal(str, str, str)
+    linkedin_send = pyqtSignal(str, str)
     ai_draw = pyqtSignal(str)
     ai_action = pyqtSignal(list)
 
@@ -122,7 +134,10 @@ class AIThread(QThread):
                 notes = mem_data.get("notes", [])
                 notes_str = "\\n".join([f"- {n}" for n in notes]) if notes else "None"
                 
-                messages = [{"role": "system", "content": SYSTEM_PROMPT.format(user_name=user_name, notes=notes_str)}]
+                import datetime
+                current_time = datetime.datetime.now().strftime("%A, %B %d, %Y - %I:%M %p")
+                
+                messages = [{"role": "system", "content": SYSTEM_PROMPT.format(user_name=user_name, current_time=current_time, notes=notes_str)}]
                 
                 import re
                 if re.search(r'\blinkedin\b', text, re.I):
@@ -146,7 +161,7 @@ class AIThread(QThread):
 
                 if self.use_local_llm:
                     # Fast rule-based router to avoid LLM latency overhead
-                    complex_keywords = r'\b(code|write|draft|summarize|analyze|read|scan|look|see|screen|terminal|check|what is this|show me|what\'s on|what are you seeing|display|claude)\b'
+                    complex_keywords = r'\b(code|write|draft|summarize|analyze|read|scan|look|see|screen|terminal|check|what is this|show me|what\'s on|what are you seeing|display|claude|whatsapp|email|linkedin|message|send|text|youtube|spotify|chrome|calculator|notepad)\b'
                     if re.search(complex_keywords, text, re.I) or len(text.split()) > 15:
                         route_to_local = False
                         route_reason = "Rule Router detected complex intent"
@@ -164,7 +179,7 @@ class AIThread(QThread):
 
                 # Only perform heavy operations (Screenshots, Document reading) if we are routing to the CLOUD
                 if not route_to_local:
-                    summarize_doc = bool(re.search(r'\b(summarize|read|analyze|scan)\s+(this|the|my)?\s*(pdf|document|page|file|window|text|screen|video|it)?\b', text, re.I))
+                    summarize_doc = bool(re.search(r'\b(summarize|analyze|scan)\s+(this|the|my)\s+(pdf|document|page|file|window|text|screen)\b', text, re.I))
                     
                     if summarize_doc:
                         try:
@@ -203,7 +218,7 @@ class AIThread(QThread):
                             text += f"\n\n[System Note: I tried to extract the text from the active window, but an error occurred. Ask the user to click on the document or PDF they want you to read first!]"
                             messages[-1]["content"] = text
 
-                    take_screenshot = bool(re.search(r'\b(look|see|read|screen|terminal|check|what is this|show me|what\'s on|what are you seeing|display)\b', text, re.I))
+                    take_screenshot = bool(re.search(r'\b(look at my screen|what.?s on my screen|read my screen|what am i looking at|what is this on my screen|screenshot|what are you seeing|take a look at my screen)\b', text, re.I))
                     
                     if take_screenshot:
                         try:
@@ -385,6 +400,36 @@ class AIThread(QThread):
                             else:
                                 current_sentence = combined
                             continue
+                            
+                        # Handle EMAIL_SEND tag so it isn't spoken
+                        if "[EMAIL_SEND:" in current_sentence + delta:
+                            idx = (current_sentence + delta).find("[EMAIL_SEND:")
+                            before_tag = (current_sentence + delta)[:idx]
+                            if before_tag.strip() and not self._interrupted:
+                                spoken_buffer += before_tag.strip() + " "
+                                
+                            combined = (current_sentence + delta)[idx:]
+                            if "]" in combined:
+                                tag_end = combined.find("]")
+                                current_sentence = combined[tag_end+1:]
+                            else:
+                                current_sentence = combined
+                            continue
+                            
+                        # Handle LINKEDIN_SEND tag so it isn't spoken
+                        if "[LINKEDIN_SEND:" in current_sentence + delta:
+                            idx = (current_sentence + delta).find("[LINKEDIN_SEND:")
+                            before_tag = (current_sentence + delta)[:idx]
+                            if before_tag.strip() and not self._interrupted:
+                                spoken_buffer += before_tag.strip() + " "
+                                
+                            combined = (current_sentence + delta)[idx:]
+                            if "]" in combined:
+                                tag_end = combined.find("]")
+                                current_sentence = combined[tag_end+1:]
+                            else:
+                                current_sentence = combined
+                            continue
 
                         # Handle DRAW tag so it isn't spoken
                         if "[DRAW:" in current_sentence + delta:
@@ -487,10 +532,67 @@ class AIThread(QThread):
                     w_match = re.search(r"\[WHATSAPP_SEND:(.*?)\]", full_response)
                     if w_match:
                         recipient = w_match.group(1).strip()
+                        message_text = ""
                         n_match = re.search(r"\[NOTEPAD\](.*?)\[/NOTEPAD\]", full_response, re.DOTALL)
-                        message_text = n_match.group(1).strip() if n_match else ""
+                        if n_match:
+                            message_text = n_match.group(1).strip()
+                        else:
+                            for item in reversed(self._history):
+                                if item["role"] == "assistant":
+                                    n_match_hist = re.search(r"\[NOTEPAD\](.*?)\[/NOTEPAD\]", item["content"], re.DOTALL)
+                                    if n_match_hist:
+                                        message_text = n_match_hist.group(1).strip()
+                                        break
+                                        
                         if message_text and not self._interrupted:
                             self.whatsapp_send.emit(recipient, message_text)
+                        elif not message_text:
+                            print("From Python: [AI Error] Could not find message text in history for WhatsApp!", flush=True)
+
+                # Post-process EMAIL_SEND
+                if "[EMAIL_SEND:" in full_response:
+                    e_match = re.search(r"\[EMAIL_SEND:(.*?):(.*?)\]", full_response)
+                    if e_match:
+                        recipient = e_match.group(1).strip()
+                        subject = e_match.group(2).strip()
+                        message_text = ""
+                        n_match = re.search(r"\[NOTEPAD\](.*?)\[/NOTEPAD\]", full_response, re.DOTALL)
+                        if n_match:
+                            message_text = n_match.group(1).strip()
+                        else:
+                            for item in reversed(self._history):
+                                if item["role"] == "assistant":
+                                    n_match_hist = re.search(r"\[NOTEPAD\](.*?)\[/NOTEPAD\]", item["content"], re.DOTALL)
+                                    if n_match_hist:
+                                        message_text = n_match_hist.group(1).strip()
+                                        break
+                                        
+                        if message_text and not self._interrupted:
+                            self.email_send.emit(recipient, subject, message_text)
+                        elif not message_text:
+                            print("From Python: [AI Error] Could not find message text in history for Email!", flush=True)
+
+                # Post-process LINKEDIN_SEND
+                if "[LINKEDIN_SEND:" in full_response:
+                    l_match = re.search(r"\[LINKEDIN_SEND:(.*?)\]", full_response)
+                    if l_match:
+                        recipient = l_match.group(1).strip()
+                        message_text = ""
+                        n_match = re.search(r"\[NOTEPAD\](.*?)\[/NOTEPAD\]", full_response, re.DOTALL)
+                        if n_match:
+                            message_text = n_match.group(1).strip()
+                        else:
+                            for item in reversed(self._history):
+                                if item["role"] == "assistant":
+                                    n_match_hist = re.search(r"\[NOTEPAD\](.*?)\[/NOTEPAD\]", item["content"], re.DOTALL)
+                                    if n_match_hist:
+                                        message_text = n_match_hist.group(1).strip()
+                                        break
+                                        
+                        if message_text and not self._interrupted:
+                            self.linkedin_send.emit(recipient, message_text)
+                        elif not message_text:
+                            print("From Python: [AI Error] Could not find message text in history for LinkedIn!", flush=True)
 
                 # Post-process DRAW tag
                 if "[DRAW:" in full_response:

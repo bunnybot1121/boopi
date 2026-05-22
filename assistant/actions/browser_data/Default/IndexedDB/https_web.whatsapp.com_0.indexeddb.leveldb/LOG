@@ -1,13 +1,40 @@
-2026/05/22-16:51:04.587 6fb8 Reusing MANIFEST C:\Users\Sachin\boopi\assistant\actions\browser_data\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
-2026/05/22-16:51:04.589 6fb8 Recovering log #904
-2026/05/22-16:51:04.630 6fb8 Reusing old log C:\Users\Sachin\boopi\assistant\actions\browser_data\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/000904.log 
-2026/05/22-16:51:04.631 6fb8 Delete type=2 #905
-2026/05/22-16:51:05.545 27c0 Compacting 1@1 + 2@2 files
-2026/05/22-16:51:05.655 27c0 Generated table #910@1: 58867 keys, 2197263 bytes
-2026/05/22-16:51:05.713 27c0 Generated table #911@1: 83072 keys, 2257632 bytes
-2026/05/22-16:51:05.718 27c0 Generated table #912@1: 5512 keys, 210156 bytes
-2026/05/22-16:51:05.718 27c0 Compacted 1@1 + 2@2 files => 4665051 bytes
-2026/05/22-16:51:05.719 27c0 compacted to: files[ 0 1 30 0 0 0 0 ]
-2026/05/22-16:51:05.720 27c0 Delete type=2 #890
-2026/05/22-16:51:05.720 27c0 Delete type=2 #891
-2026/05/22-16:51:05.720 27c0 Delete type=2 #907
+2026/05/22-22:04:15.105 6288 Reusing MANIFEST C:\Users\Sachin\boopi\assistant\actions\browser_data\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2026/05/22-22:04:15.106 6288 Recovering log #1148
+2026/05/22-22:04:15.106 6288 Reusing old log C:\Users\Sachin\boopi\assistant\actions\browser_data\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/001148.log 
+2026/05/22-22:04:15.106 6288 Delete type=2 #1076
+2026/05/22-22:04:15.106 6288 Delete type=2 #1127
+2026/05/22-22:04:15.106 6288 Delete type=2 #1129
+2026/05/22-22:04:15.106 6288 Delete type=2 #1130
+2026/05/22-22:04:15.107 6288 Delete type=2 #1131
+2026/05/22-22:04:15.107 6288 Delete type=2 #1132
+2026/05/22-22:04:15.107 6288 Delete type=2 #1133
+2026/05/22-22:04:15.107 6288 Delete type=2 #1134
+2026/05/22-22:04:15.107 6288 Delete type=2 #1135
+2026/05/22-22:04:15.107 6288 Delete type=2 #1136
+2026/05/22-22:04:15.107 6288 Delete type=2 #1137
+2026/05/22-22:04:15.107 6288 Delete type=2 #1139
+2026/05/22-22:04:15.107 6288 Delete type=2 #1140
+2026/05/22-22:04:15.107 6288 Delete type=2 #1141
+2026/05/22-22:04:15.107 6288 Delete type=2 #1142
+2026/05/22-22:04:15.107 6288 Delete type=2 #1143
+2026/05/22-22:04:15.326 6f64 Compacting 1@1 + 11@2 files
+2026/05/22-22:04:15.363 6f64 Generated table #1169@1: 61843 keys, 2199856 bytes
+2026/05/22-22:04:15.412 6f64 Generated table #1170@1: 84495 keys, 2232323 bytes
+2026/05/22-22:04:15.447 6f64 Generated table #1171@1: 40137 keys, 2216329 bytes
+2026/05/22-22:04:15.494 6f64 Generated table #1172@1: 68341 keys, 2234727 bytes
+2026/05/22-22:04:15.532 6f64 Generated table #1173@1: 48883 keys, 2217047 bytes
+2026/05/22-22:04:15.563 6f64 Generated table #1174@1: 46277 keys, 1914001 bytes
+2026/05/22-22:04:15.563 6f64 Compacted 1@1 + 11@2 files => 13014283 bytes
+2026/05/22-22:04:15.563 6f64 compacted to: files[ 0 1 25 0 0 0 0 ]
+2026/05/22-22:04:15.564 6f64 Delete type=2 #1033
+2026/05/22-22:04:15.564 6f64 Delete type=2 #1051
+2026/05/22-22:04:15.564 6f64 Delete type=2 #1052
+2026/05/22-22:04:15.564 6f64 Delete type=2 #1053
+2026/05/22-22:04:15.564 6f64 Delete type=2 #1054
+2026/05/22-22:04:15.564 6f64 Delete type=2 #1055
+2026/05/22-22:04:15.564 6f64 Delete type=2 #1056
+2026/05/22-22:04:15.564 6f64 Delete type=2 #1144
+2026/05/22-22:04:15.564 6f64 Delete type=2 #1155
+2026/05/22-22:04:15.564 6f64 Delete type=2 #1156
+2026/05/22-22:04:15.564 6f64 Delete type=2 #1157
+2026/05/22-22:04:15.564 6f64 Delete type=2 #1158
