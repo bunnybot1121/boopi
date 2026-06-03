@@ -1,6 +1,6 @@
 from event_bus import bus
 
-STATES = ["idle", "listening", "thinking", "talking", "error", "happy", "angry"]
+STATES = ["idle", "listening", "thinking", "talking", "error", "happy", "angry", "startup", "praise", "excited", "booting", "chilling", "waiting", "typing", "sleeping", "confused", "surprised", "writing", "reading", "recording", "drinking_coffee", "concerned", "cautious", "celebrating"]
 
 class StateManager:
     def __init__(self):

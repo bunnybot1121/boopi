@@ -2,6 +2,8 @@ import os
 import json
 import time
 from openai import OpenAI
+from google import genai
+from google.genai import types
 from playwright.sync_api import sync_playwright
 
 SYSTEM_PROMPT = """You are an Intelligent Automation Agent for Bupi.
@@ -21,54 +23,71 @@ Output ONLY valid JSON in this exact format:
 """
 
 def parse_intent(task_text: str) -> dict:
-    # Use OpenRouter to intelligently parse the request
-    api_key = os.environ.get("OPENROUTER_API_KEY", "")
-    if not api_key:
-        print("[Automation Agent] Error: No OpenRouter API Key found.")
-        return {}
-
-    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+    use_local_llm = os.environ.get("USE_LOCAL_LLM", "false").lower() == "true"
     
-    try:
-        response = client.chat.completions.create(
-            model="openai/gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": task_text}
-            ],
-            response_format={"type": "json_object"},
-            max_tokens=150
-        )
-        content = response.choices[0].message.content
-        return json.loads(content)
-    except Exception as e:
-        print(f"[Automation Agent] Parsing error: {e}")
-        return {}
+    if use_local_llm:
+        # Use local LLM (Ollama)
+        local_llm_url = os.environ.get("LOCAL_LLM_URL", "http://localhost:11434/v1")
+        local_model = os.environ.get("LOCAL_LLM_MODEL", "llama3.2")
+        client = OpenAI(base_url=local_llm_url, api_key="ollama")
+        try:
+            response = client.chat.completions.create(
+                model=local_model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": task_text}
+                ],
+                response_format={"type": "json_object"},
+                max_tokens=150
+            )
+            content = response.choices[0].message.content
+            return json.loads(content)
+        except Exception as e:
+            print(f"[Automation Agent] Parsing error with local LLM: {e}")
+            return {}
+    else:
+        # Use Google GenAI Native SDK
+        google_key = os.environ.get("GOOGLE_AI_STUDIO_KEY")
+        if not google_key:
+            print("[Automation Agent] Error: No GOOGLE_AI_STUDIO_KEY found.")
+            return {}
+        try:
+            client = genai.Client(api_key=google_key)
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=task_text,
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT,
+                    response_mime_type="application/json",
+                )
+            )
+            return json.loads(response.text)
+        except Exception as e:
+            print(f"[Automation Agent] Parsing error with Google native SDK: {e}")
+            return {}
 
 def verify_contact_with_vision(recipient: str) -> bool:
     print("[Automation Agent] Taking screenshot for vision verification...")
     try:
         from PIL import ImageGrab
-        import base64
-        from io import BytesIO
         import os
-        from openai import OpenAI
 
         # Take screenshot
         screen = ImageGrab.grab(all_screens=True)
         # Resize to save bandwidth but keep UI text readable
         screen.thumbnail((1280, 720))
-        buffered = BytesIO()
-        screen.save(buffered, format="JPEG", quality=70)
-        img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-        api_key = os.environ.get("OPENROUTER_API_KEY", "")
         use_local_llm = os.environ.get("USE_LOCAL_LLM", "false").lower() == "true"
         local_llm_url = os.environ.get("LOCAL_LLM_URL", "http://localhost:11434/v1")
         
         prompt = f"I searched for '{recipient}' on WhatsApp. Look at the UI in the screenshot. Are there valid search results for a contact with this name to click on, or does it say 'No results found' / display an empty list? Reply with exactly 'FOUND' if a valid chat is available to be opened, or 'NOT_FOUND' if there are no results."
         
         if use_local_llm:
+            from io import BytesIO
+            import base64
+            buffered = BytesIO()
+            screen.save(buffered, format="JPEG", quality=70)
+            img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
             print("[Automation Agent] Using Local Vision Model (Llava) for verification...")
             client = OpenAI(base_url=local_llm_url, api_key="ollama")
             response = client.chat.completions.create(
@@ -84,28 +103,21 @@ def verify_contact_with_vision(recipient: str) -> bool:
                 ],
                 max_tokens=10
             )
+            content = response.choices[0].message.content.strip().upper()
         else:
-            if not api_key:
-                print("[Automation Agent] No API key and Local LLM is disabled. Assuming contact found.")
+            google_key = os.environ.get("GOOGLE_AI_STUDIO_KEY")
+            if not google_key:
+                print("[Automation Agent] No Google API key found. Assuming contact found.")
                 return True
                 
-            print("[Automation Agent] Using Cloud Vision Model (OpenRouter) for verification...")
-            client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
-            response = client.chat.completions.create(
-                model="openai/gpt-4o-mini",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_str}"}}
-                        ]
-                    }
-                ],
-                max_tokens=10
+            print("[Automation Agent] Using Cloud Vision Model (Google GenAI Native) for verification...")
+            client = genai.Client(api_key=google_key)
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[screen, prompt]
             )
+            content = response.text.strip().upper()
         
-        content = response.choices[0].message.content.strip().upper()
         print(f"[Automation Agent] Vision Agent response: {content}")
         if "NOT_FOUND" in content:
             return False
@@ -130,15 +142,22 @@ def send_whatsapp_native(recipient: str, message: str):
             time.sleep(0.5) # Wait for focus
             
         # We are now focused on WhatsApp.
+        
+        # 0. Crucial Fix: Back out of any currently open chats, text boxes, or popups
+        # If a chat is open and the text box is focused, the search hotkey gets swallowed.
+        for _ in range(3):
+            pyautogui.press('escape')
+            time.sleep(0.2)
+            
         # 1. Focus search bar
         # Ctrl+Alt+/ focuses the search bar on WhatsApp Web and Desktop.
         pyautogui.hotkey('ctrl', 'alt', '/')
         time.sleep(0.5)
         
-        # Clear anything existing
+        # Clear anything existing in the search bar
         pyautogui.hotkey('ctrl', 'a')
         pyautogui.press('backspace')
-        time.sleep(0.1)
+        time.sleep(0.2)
         
         # 2. Type recipient name
         pyautogui.write(recipient, interval=0.01)

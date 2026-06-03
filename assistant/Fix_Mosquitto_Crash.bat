@@ -8,15 +8,20 @@ if %errorLevel% neq 0 (
 )
 
 echo Fixing Mosquitto configuration...
-findstr /v /c:"listener 1883" /c:"allow_anonymous true" "C:\Program Files\mosquitto\mosquitto.conf" > "%temp%\mosquitto.conf.tmp"
+findstr /v /c:"listener 1883" /c:"allow_anonymous true" /c:"listener 9001" /c:"protocol websockets" "C:\Program Files\mosquitto\mosquitto.conf" > "%temp%\mosquitto.conf.tmp"
 echo listener 1883 >> "%temp%\mosquitto.conf.tmp"
+echo allow_anonymous true >> "%temp%\mosquitto.conf.tmp"
+echo. >> "%temp%\mosquitto.conf.tmp"
+echo listener 9001 >> "%temp%\mosquitto.conf.tmp"
+echo protocol websockets >> "%temp%\mosquitto.conf.tmp"
 echo allow_anonymous true >> "%temp%\mosquitto.conf.tmp"
 
 move /y "%temp%\mosquitto.conf.tmp" "C:\Program Files\mosquitto\mosquitto.conf"
 
 echo Restarting Mosquitto Service...
+net stop mosquitto
 net start mosquitto
 
 echo.
-echo Fix applied! The broker should be running now.
+echo Fix applied! The broker should be running with Websocket support on port 9001.
 pause

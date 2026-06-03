@@ -5,6 +5,8 @@ import json
 import threading
 import faulthandler
 
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -24,7 +26,7 @@ def _safe_print(*args, **kwargs):
 import builtins
 builtins.print = _safe_print
 
-from PyQt6.QtCore import QCoreApplication, QTimer, Qt
+from PyQt6.QtCore import QCoreApplication, QTimer, Qt, QObject, pyqtSignal
 
 from state_manager import state_mgr
 from voice.listener import ListenerThread
@@ -45,11 +47,110 @@ ai = AIThread()
 speaker = SpeakerThread()
 
 conversation_mode = True
+mode2_active = False
+
+# -------------------------------------------------------------
+# Mode 2 MQTT Bridge
+# -------------------------------------------------------------
+import paho.mqtt.client as mqtt
+
+class Mode2Bridge(QObject):
+    do_speak = pyqtSignal(str)
+
+m2_bridge = Mode2Bridge()
+m2_bridge.do_speak.connect(lambda t: (state_mgr.transition("talking"), speaker.say(t)))
+
+mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="Mode1_App")
+
+def on_mqtt_connect(client, userdata, flags, reason_code, properties):
+    print(f"[Mode 1] Connected to Mode 2 MQTT Bridge with result code {reason_code}", flush=True)
+    client.subscribe("bupi/internal/tts")
+    client.subscribe("bupi/nodes/announce")
+    client.subscribe("bupi/nodes/heartbeat")
+
+def on_mqtt_message(client, userdata, msg):
+    if msg.topic == "bupi/internal/tts":
+        try:
+            payload = json.loads(msg.payload.decode())
+            text = payload.get("text", "")
+            if text:
+                print(f"[Mode 1] Received TTS from Mode 2: {text}", flush=True)
+                m2_bridge.do_speak.emit(text)
+        except Exception as e:
+            print(f"[Mode 1] Error parsing Mode 2 TTS: {e}")
+    elif msg.topic in ["bupi/nodes/announce", "bupi/nodes/heartbeat"]:
+        try:
+            payload = json.loads(msg.payload.decode())
+            node_id = payload.get("client_id", "MQTT_Unknown")
+            device = payload.get("device", "MQTT Node")
+            ip = payload.get("ip", "N/A")
+            capabilities = payload.get("capabilities", ["MQTT"])
+            tasks = payload.get("tasks", ["General MQTT Client"])
+            
+            from bupi_node_server import register_node, update_node_heartbeat
+            if msg.topic == "bupi/nodes/announce":
+                register_node(node_id, ip, "MQTT", device, capabilities, tasks)
+            else:
+                update_node_heartbeat(node_id)
+        except Exception as e:
+            print(f"[Mode 1] Error parsing MQTT Node status/heartbeat: {e}", flush=True)
+
+try:
+    mqtt_client.on_connect = on_mqtt_connect
+    mqtt_client.on_message = on_mqtt_message
+    mqtt_client.connect("localhost", 1883, 60)
+    mqtt_client.loop_start()
+except Exception as e:
+    print(f"[Mode 1] Failed to start MQTT: {e}", flush=True)
+
+def publish_to_mode2(text):
+    print(f"[Mode 1] Forwarding to Mode 2: '{text}'", flush=True)
+    mqtt_client.publish("bupi/internal/utterance", json.dumps({"text": text}))
 
 # -------------------------------------------------------------
 # Init Hardware / ESP32 Bridge
 # -------------------------------------------------------------
+import subprocess
+mode2_process = None
+
+def start_mode2_process():
+    global mode2_process
+    try:
+        from datetime import datetime
+        
+        # Clean up any previously orphaned run_mode2.py processes to avoid MQTT client conflicts on Windows
+        if sys.platform == "win32":
+            try:
+                subprocess.run(
+                    'powershell -Command "Get-CimInstance Win32_Process -Filter \\"Name = \'python.exe\' AND CommandLine LIKE \'%run_mode2.py%\'\\" | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"',
+                    shell=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+            except Exception:
+                pass
+
+        venv_py = os.path.join(os.path.dirname(__file__), "venv312", "Scripts", "python.exe")
+        py_exe = venv_py if os.path.exists(venv_py) else sys.executable
+        script_path = os.path.join(os.path.dirname(__file__), "run_mode2.py")
+        print(f"[Mode 1] Spawning Mode 2 background process: {py_exe} {script_path}", flush=True)
+        log_path = os.path.join(os.path.dirname(__file__), "mode2_log.txt")
+        log_file = open(log_path, "a", encoding="utf-8")
+        log_file.write(f"\n--- Spawned at {datetime.now()} ---\n")
+        log_file.flush()
+        mode2_process = subprocess.Popen([py_exe, "-u", script_path], stdout=log_file, stderr=subprocess.STDOUT, close_fds=True)
+    except Exception as e:
+        print(f"[Mode 1] Failed to spawn Mode 2 process: {e}", flush=True)
+
 start_node_server()
+start_mode2_process()
+
+# Periodic check for offline ESP32 nodes
+from bupi_node_server import check_node_timeouts
+node_timeout_timer = QTimer()
+node_timeout_timer.setInterval(5000) # Every 5 seconds
+node_timeout_timer.timeout.connect(check_node_timeouts)
+node_timeout_timer.start()
 
 # Setup a 12-minute Water Reminder
 def remind_water():
@@ -80,16 +181,10 @@ inactivity_timer.start()
 # IPC state observer
 def on_global_state_changed(state: str):
     print(json.dumps({"type": "state", "value": state}), flush=True)
-    
-    # Send state updates to the ESP32 LCD!
-    if state == "listening":
-        send_to_esp32("Bupi Status:", "Listening...")
-    elif state == "thinking":
-        send_to_esp32("Bupi Status:", "Thinking...")
-    elif state == "talking":
-        send_to_esp32("Bupi Status:", "Talking...")
-    elif state == "idle":
-        send_to_esp32("Bupi Status:", "Idling (Zzz)")
+    if state == "idle":
+        inactivity_timer.start()
+    else:
+        inactivity_timer.stop()
 
 bus.state_changed.connect(on_global_state_changed)
 
@@ -144,8 +239,14 @@ def process_next_instruction():
 def on_transcription(text: str):
     global conversation_mode
     global instruction_queue
+    global mode2_active
     
-    safe_text = text.encode('ascii', 'ignore').decode('ascii')
+    if text:
+        text = text.strip()
+        # Send what we heard to the thought cloud so the user gets instant visual confirmation of the STT
+        print(json.dumps({"type": "speech_text", "value": f"Heard: \"{text}\""}), flush=True)
+        
+    safe_text = text.encode('ascii', 'ignore').decode('ascii') if text else ""
     print(f"From Python: [Heard] '{safe_text}'", flush=True)
 
     inactivity_timer.start()
@@ -176,7 +277,19 @@ def on_transcription(text: str):
             speaker.say("Okay, I'll be here if you need me.")
             return
 
-    text = text.strip()
+    # Mode 2 explicit toggles
+    if re.search(r"\b(?:shift|switch|change|enable|toggle|open|go)\s*(?:to|2|two)?\s*mode\s*(?:2|two|to|too)\b", text, re.I) or re.search(r"\bmode\s*(?:2|two|to|too)\b", text, re.I):
+        mode2_active = True
+        state_mgr.transition("talking")
+        speaker.say("Shifting to Mode 2. Robotic orchestration enabled.")
+        return
+
+    if re.search(r"\b(?:shift|switch|change|enable|toggle|open|go)\s*(?:to|2|two)?\s*mode\s*(?:1|one|won)\b", text, re.I) or re.search(r"\bmode\s*(?:1|one|won)\b", text, re.I):
+        mode2_active = False
+        state_mgr.transition("talking")
+        speaker.say("Shifting to Mode 1. Conversation mode enabled.")
+        return
+
     
     wake_words = r"\b(boopy|boopie|puppy|poopy|bupi|boupi|boby|booby)\b"
     
@@ -197,14 +310,23 @@ def on_transcription(text: str):
             QTimer.singleShot(300, start_listening)
             return
 
-    ai.ask(text)
+    if mode2_active:
+        # Route to Mode 2 completely
+        publish_to_mode2(text)
+    else:
+        # Route to Mode 1
+        ai.ask(text)
 
 listener.transcription_ready.connect(on_transcription)
 
 # -------------------------------------------------------------
 # Wiring AI
 # -------------------------------------------------------------
+last_ai_response = ""
+
 def on_ai_started(tag: str):
+    global last_ai_response
+    last_ai_response = ""
     emotion = "talking"
     
     if tag in ["sad", "error"]:
@@ -223,7 +345,9 @@ def on_ai_started(tag: str):
     valid_emotions = [
         "idle", "happy", "angry", "error", "thinking", "listening", 
         "talking", "startup", "praise", "excited", "booting", 
-        "chilling", "waiting", "typing"
+        "chilling", "waiting", "typing", "concerned", "confused",
+        "writing", "reading", "recording", "drinking_coffee",
+        "cautious", "celebrating", "surprised"
     ]
     if tag in valid_emotions:
         emotion = tag
@@ -231,7 +355,8 @@ def on_ai_started(tag: str):
     state_mgr.transition(emotion)
     
 def on_ai_chunk(text: str):
-    print(json.dumps({"type": "speech_text", "value": text}), flush=True)
+    global last_ai_response
+    last_ai_response += " " + text
     speaker.say(text, interrupt=False)
 
 def on_ai_notepad(text: str):
@@ -311,6 +436,12 @@ ai.email_send.connect(on_ai_email_send)
 ai.linkedin_send.connect(on_ai_linkedin_send)
 ai.ai_draw.connect(on_ai_draw)
 ai.ai_action.connect(on_ai_action)
+
+def on_hardware_result(result: str):
+    print(json.dumps({"type": "hardware_result", "value": result}), flush=True)
+
+ai.hardware_result.connect(on_hardware_result)
+
 ai.error_occurred.connect(lambda e: (
     print(json.dumps({"type": "log", "message": f"[AI Error] {e}"}), flush=True),
     state_mgr.force("error"),
@@ -320,13 +451,58 @@ ai.error_occurred.connect(lambda e: (
 # -------------------------------------------------------------
 # Wiring Speaker
 # -------------------------------------------------------------
+def analyze_sentiment(text: str) -> str:
+    if not text:
+        return "idle"
+    text_lower = text.lower()
+    
+    # Check celebrating
+    if any(w in text_lower for w in ["celebrate", "party", "hooray", "hurray", "cheers", "woohoo", "birthday"]) or any(e in text for e in ["🎉", "🥳", "🎈", "🎊", "✨"]):
+        return "celebrating"
+        
+    # Check dancing (excited)
+    if any(w in text_lower for w in ["dance", "excited", "thrilled", "ecstatic", "yay", "yippee", "cannot wait", "groove"]) or any(e in text for e in ["💃", "🕺", "🎶", "🎵"]):
+        return "excited"
+        
+    # Check proud
+    if any(w in text_lower for w in ["proud", "congrats", "congratulations", "achievement", "success", "bravo", "genius", "smart", "accomplished", "winner"]) or any(e in text for e in ["🏆", "🥇", "👑"]):
+        return "praise"
+        
+    # Check waving
+    if any(w in text_lower for w in ["wave", "hello", "hi", "hey", "welcome", "goodbye", "bye", "see ya"]) or "👋" in text:
+        return "startup"
+        
+    # Check curious
+    if any(w in text_lower for w in ["curious", "wonder", "question", "interesting", "fascinating", "hmm", "tell me more", "explore"]) or any(e in text for e in ["🔍", "🔎", "❓", "❔"]):
+        return "surprised"
+        
+    # Check cautious
+    if any(w in text_lower for w in ["careful", "caution", "warning", "unsafe", "watch out", "danger", "risk"]) or any(e in text for e in ["⚠️", "🚨"]):
+        return "cautious"
+        
+    # Check happy
+    if any(w in text_lower for w in ["smile", "happy", "laugh", "joy", "great", "wonderful", "awesome", "good", "glad", "pleasure"]) or any(e in text for e in [":)", ":-)", "😀", "😃", "😄", "😁", "😆", "😊"]):
+        return "happy"
+        
+    return "idle"
+
 def on_speech_finished():
     if instruction_queue:
         # Give a slight delay before triggering the next task so it feels natural
         QTimer.singleShot(1500, process_next_instruction)
     else:
-        state_mgr.transition("idle")
-        QTimer.singleShot(300, start_listening)
+        global last_ai_response
+        sentiment_state = analyze_sentiment(last_ai_response)
+        if sentiment_state and sentiment_state != "idle":
+            state_mgr.transition(sentiment_state)
+            # Hold the sentiment face for 2.5 seconds before returning to idle
+            QTimer.singleShot(2500, lambda: (
+                state_mgr.transition("idle"),
+                QTimer.singleShot(300, start_listening)
+            ))
+        else:
+            state_mgr.transition("idle")
+            QTimer.singleShot(300, start_listening)
 
 speaker.speech_finished.connect(on_speech_finished)
 speaker.error_occurred.connect(lambda e: (
@@ -344,6 +520,9 @@ class StdinBridge(QObject):
     do_clear_memory = pyqtSignal()
     do_toggle_conversation = pyqtSignal()
     do_quit = pyqtSignal()
+    do_process_hardware = pyqtSignal(str)
+    do_flash_hardware = pyqtSignal(str)
+    do_refresh_keys = pyqtSignal()
 
 bridge = StdinBridge()
 
@@ -373,6 +552,9 @@ def _on_toggle_conv():
 
 bridge.do_toggle_conversation.connect(_on_toggle_conv)
 bridge.do_quit.connect(app.quit)
+bridge.do_process_hardware.connect(ai.process_hardware)
+bridge.do_flash_hardware.connect(ai.flash_hardware)
+bridge.do_refresh_keys.connect(ai.check_api_keys)
 
 def stdin_listener():
     for line in sys.stdin:
@@ -387,11 +569,39 @@ def stdin_listener():
                 bridge.do_toggle_conversation.emit()
             elif cmd == "quit":
                 bridge.do_quit.emit()
+            elif cmd == "refresh_keys":
+                bridge.do_refresh_keys.emit()
+            elif cmd == "refresh_nodes":
+                from bupi_node_server import broadcast_nodes
+                broadcast_nodes()
             elif cmd == "test_ask":
                 text = req.get("text", "")
                 if listener.isRunning():
                     listener.pause()
                 ai.ask(text)
+            elif cmd == "pause_listener":
+                if listener.isRunning():
+                    listener.pause()
+            elif cmd == "resume_listener":
+                if listener.isRunning():
+                    listener.resume()
+            elif cmd == "process_hardware":
+                code = req.get("code", "")
+                bridge.do_process_hardware.emit(code)
+            elif cmd == "flash_hardware":
+                code = req.get("code", "")
+                bridge.do_flash_hardware.emit(code)
+            elif cmd == "search_components":
+                query = req.get("query", "")
+                def run_search():
+                    try:
+                        from services.knowledge_super_agent import KnowledgeSuperAgent
+                        agent = KnowledgeSuperAgent()
+                        results = agent.search_online_components(query)
+                        print(json.dumps({"type": "online_search_results", "query": query, "results": results}), flush=True)
+                    except Exception as e:
+                        print(json.dumps({"type": "online_search_results", "query": query, "results": [], "error": str(e)}), flush=True)
+                threading.Thread(target=run_search, daemon=True).start()
         except Exception:
             pass
 
@@ -412,6 +622,9 @@ def startup_sequence():
     print(json.dumps({"type": "command", "value": "open_notepad"}), flush=True)
     on_ai_notepad_title("Notifications Summary")
     on_ai_notepad_clear()
+    
+    # Run key check asynchronously 5 seconds after boot
+    QTimer.singleShot(5000, ai.check_api_keys)
     
     mock_notes = (
         "📧 Emails (3 Unread)\n"
@@ -441,6 +654,17 @@ def startup_sequence():
 QTimer.singleShot(800, startup_sequence)
 
 def shutdown():
+    global mode2_process
+    if mode2_process:
+        print("[Mode 1] Terminating Mode 2 background process...", flush=True)
+        try:
+            mode2_process.terminate()
+            mode2_process.wait(1000)
+        except Exception:
+            try:
+                mode2_process.kill()
+            except Exception:
+                pass
     listener.stop()
     listener.wait(2000)
     speaker.quit()

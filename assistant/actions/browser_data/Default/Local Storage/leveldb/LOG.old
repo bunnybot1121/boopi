@@ -1,6 +1,0 @@
-2026/05/22-21:47:57.997 28c0 Reusing MANIFEST C:\Users\Sachin\boopi\assistant\actions\browser_data\Default\Local Storage\leveldb/MANIFEST-000001
-2026/05/22-21:47:58.005 28c0 Recovering log #4
-2026/05/22-21:47:58.009 28c0 Reusing old log C:\Users\Sachin\boopi\assistant\actions\browser_data\Default\Local Storage\leveldb/000004.log 
-2026/05/22-21:48:58.109 28c0 Level-0 table #8: started
-2026/05/22-21:48:58.117 28c0 Level-0 table #8: 17244 bytes OK
-2026/05/22-21:48:58.119 28c0 Delete type=0 #4

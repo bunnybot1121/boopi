@@ -6,8 +6,8 @@ warnings.filterwarnings("ignore", message=".*FP16 is not supported on CPU.*")
 SAMPLE_RATE = 16000
 FRAME_MS = 30
 FRAME_SAMPLES = int(SAMPLE_RATE * FRAME_MS / 1000)
-VAD_AGGRESSIVENESS = 2
-SILENCE_FRAMES = 30 # Reduced to ~0.9 seconds to vastly improve response time
+VAD_AGGRESSIVENESS = 3
+SILENCE_FRAMES = 25 # Wait 750ms to prevent cutting the user off mid-sentence
 MIN_SPEECH_FRAMES = 10
 PRE_ROLL_FRAMES = 10
 
@@ -21,9 +21,9 @@ class ListenerThread(QThread):
         super().__init__()
         self._running = False
         self._paused = False
-        self._energy_threshold = 800
         from faster_whisper import WhisperModel
-        print("[Whisper] Loading faster-whisper small model for better accent recognition...", flush=True)
+        # Using "small" model size (~244M params) for significantly higher accuracy while maintaining low CPU latency!
+        print("[Whisper] Loading local faster-whisper small model for high-accuracy local transcription...", flush=True)
         self._model = WhisperModel("small", device="cpu", compute_type="int8")
         print("[Whisper] Model loaded.")
 
@@ -34,7 +34,8 @@ class ListenerThread(QThread):
             try:
                 stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype='int16', blocksize=FRAME_SAMPLES)
             except Exception as e:
-                print(f"From Python: [Listener Warning] Default device failed: {e}. Trying fallbacks...", flush=True)
+                safe_e = str(e).encode('ascii', 'ignore').decode('ascii')
+                print(f"From Python: [Listener Warning] Default device failed: {safe_e}. Trying fallbacks...", flush=True)
                 for i, dev in enumerate(sd.query_devices()):
                     if dev['max_input_channels'] > 0:
                         try:
@@ -50,6 +51,11 @@ class ListenerThread(QThread):
 
             with stream:
                 
+                import webrtcvad
+                vad = webrtcvad.Vad(VAD_AGGRESSIVENESS)
+                
+                print("From Python: [Listener] WebRTC VAD Initialized. Background noise will be actively cancelled.", flush=True)
+
                 # Dynamic microphone calibration (1 second) to handle loud laptop fans/AC
                 ambient_frames = []
                 print("From Python: [Listener] Calibrating microphone for 1 second...", flush=True)
@@ -79,34 +85,36 @@ class ListenerThread(QThread):
                     ring_buffer.clear()
                     
                     speech_detected = False
-                    frames_since_log = 0
-                    max_rms_log = 0
 
                     while self._running and not self._paused:
                         data, _ = stream.read(FRAME_SAMPLES)
-                        frame = data.flatten().tobytes()
-                        # Energy based VAD
-                        rms = np.sqrt(np.mean(np.square(data, dtype=np.float32)))
-                        is_speech = rms > self._energy_threshold
                         
-                        max_rms_log = max(max_rms_log, rms)
-                        frames_since_log += 1
-                        if frames_since_log > int(2000 / FRAME_MS):
-                            if not triggered:
-                                print(f"From Python: [Listener Debug] Waiting for speech. Max RMS last 2s: {max_rms_log:.0f} (Threshold: {self._energy_threshold:.0f})", flush=True)
-                            max_rms_log = 0
-                            frames_since_log = 0
-
+                        # Energy based filtering before running heavy checks
+                        rms = np.sqrt(np.mean(np.square(data, dtype=np.float32)))
+                        is_speech = False
+                        
+                        if rms > self._energy_threshold:
+                            # Apply moderate software gain
+                            data_float = data.astype(np.float32) * 10.0
+                            np.clip(data_float, -32768, 32767, out=data_float)
+                            amplified_data = data_float.astype(np.int16)
+                            frame = amplified_data.flatten().tobytes()
+                            
+                            # WebRTC VAD voice activity check
+                            try:
+                                is_speech = vad.is_speech(frame, SAMPLE_RATE)
+                            except Exception:
+                                is_speech = False
+                        
                         if not triggered:
-                            ring_buffer.append((frame, is_speech))
+                            ring_buffer.append((data.flatten().tobytes(), is_speech))
                             num_voiced = sum(1 for _, s in ring_buffer if s)
-                            # Relaxed sensitivity so it triggers much faster and doesn't require sustained loud audio
-                            if num_voiced >= 0.3 * ring_buffer.maxlen:
+                            if num_voiced >= 0.4 * ring_buffer.maxlen:
                                 triggered = True
                                 voiced_frames.extend([f for f, _ in ring_buffer])
                                 ring_buffer.clear()
                         else:
-                            voiced_frames.append(frame)
+                            voiced_frames.append(data.flatten().tobytes())
                             if is_speech:
                                 silence_count = 0
                             if not is_speech:
@@ -114,7 +122,6 @@ class ListenerThread(QThread):
                                 if silence_count > SILENCE_FRAMES:
                                     speech_detected = True
                                     break
-                            # Cap maximum recording length to ~15 seconds to prevent infinite noise loops
                             if len(voiced_frames) > int(15000 / FRAME_MS):
                                 speech_detected = True
                                 break
@@ -127,17 +134,29 @@ class ListenerThread(QThread):
                     else:
                         if not self._running:
                             break
-                        # If we broke out due to _paused, continue loop
 
         except Exception as e:
             self.error_occurred.emit(str(e))
 
     def _transcribe(self, audio: np.ndarray):
-        self._paused = True # Auto-pause while transcribing and processing
+        self._paused = True
+        
+        # Apply software gain boost of 8.0 to handle quiet/low-gain microphones on Windows
+        audio_boosted = audio.astype(np.float32) * 8.0
+        np.clip(audio_boosted, -32768, 32767, out=audio_boosted)
+        audio = audio_boosted.astype(np.int16)
+        
+        # Local peak energy check with relaxed threshold (300 with 8x gain means unamplified peak >= 37.5)
+        max_val = np.max(np.abs(audio)) if len(audio) > 0 else 0
+        if max_val < 300:
+            print(f"From Python: [Listener] Discarded silent audio (peak: {max_val} is below threshold 300)", flush=True)
+            self.transcription_ready.emit("")
+            return
+
         audio_f32 = audio.astype(np.float32) / 32768.0
         
-        # Give whisper context to heavily bias towards names and app functions we care about
-        prompt = "Bupi, message hi to Chintu on WhatsApp, send, email, PDF, Document, Notepad, YouTube, OpenRouter, Claude, summarize, rewrite."
+        # Give whisper context to heavily bias towards names, commands, and app functions we care about
+        prompt = "Bupi, shift to Mode 2, shift to Mode 1, Mode 2, Mode 1, display readings, show sensor values, highest reading, MQ2 gas sensor, LCD screen, relay, turn on, turn off, message Chintu on WhatsApp, send email, write draft in Notepad, YouTube, OpenRouter, Claude, summarize, rewrite."
         segments, info = self._model.transcribe(audio_f32, language="en", initial_prompt=prompt, condition_on_previous_text=False)
         text = "".join([segment.text for segment in segments]).strip()
         
@@ -145,19 +164,21 @@ class ListenerThread(QThread):
         clean_text = text.replace(",", "").replace(".", "").strip().lower()
         clean_prompt = prompt.replace(",", "").replace(".", "").strip().lower()
         
-        hallucinations = ["thank you", "thanks for watching", "please subscribe"]
+        hallucinations = ["thank you", "thanks for watching", "please subscribe", "thank you.", "thank you very much.", "screencast", "goodbye", "goodbye."]
         
-        if clean_text == clean_prompt or any(h in clean_text for h in hallucinations):
-            print("From Python: [Whisper] Filtered hallucination.", flush=True)
+        # Check if the transcription is just a hallucination repeating parts of the prompt
+        # CPU Whisper tends to regurgitate prompt items like 'Chintu on WhatsApp, send email, write draft in Notepad' when the room is silent
+        prompt_words = [w for w in clean_prompt.split() if len(w) > 3]
+        matched_words = sum(1 for w in prompt_words if w in clean_text)
+        prompt_density = (matched_words / len(prompt_words)) if prompt_words else 0
+        
+        is_exact_prompt = (clean_text == clean_prompt) or (prompt_density > 0.6 and len(clean_text) > 40)
+        is_hallucination = any(h in clean_text for h in hallucinations) or is_exact_prompt
+        
+        if is_hallucination or (len(clean_text) <= 2 and clean_text != "hi" and clean_text != "go"):
+            print(f"From Python: [Listener] Filtered silence/hallucination (prompt density: {prompt_density:.2f}, exact prompt: {is_exact_prompt})", flush=True)
             text = ""
-            
-        # Filter out if the text is just a few words from the prompt (hallucination)
-        prompt_words = set(clean_prompt.split())
-        text_words = set(clean_text.split())
-        if len(text_words) > 0 and len(text_words) <= 5 and text_words.issubset(prompt_words):
-            print(f"From Python: [Whisper] Filtered prompt hallucination: {text}", flush=True)
-            text = ""
-            
+
         self.transcription_ready.emit(text)
 
     def stop(self):

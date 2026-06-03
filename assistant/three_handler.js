@@ -346,12 +346,15 @@ function animate(timestamp) {
     case 'waiting':
       extraPosY = Math.sin(stateTime * 1.5) * 0.04; // Gentle breathing/floating
       extraRotY = Math.sin(stateTime * 0.8) * 0.05;
+      extraRotZ = Math.sin(stateTime * 0.5) * 0.02; // Subtle natural swaying
       break;
 
     case 'listening':
-      // Attentive tilt forward, subtle rapid pulse
-      targetModelPos.z = 0.12;
-      targetModelRot.x = 0.08;
+      // Attentive tilt forward, active listening movements
+      targetModelPos.z = 0.15; // Lean closer
+      targetModelRot.x = 0.1; // Look slightly down
+      targetModelRot.y = Math.sin(stateTime * 2.0) * 0.08; // Small shakes/nods of attention
+      
       extraPosY = Math.sin(stateTime * 3.0) * 0.02;
       
       const pulse = 1.15 + Math.sin(stateTime * 6.0) * 0.05;
@@ -361,28 +364,31 @@ function animate(timestamp) {
       break;
 
     case 'thinking':
-      // Cute pondering look: Slight tilt, looking up
-      targetModelRot.z = 0.08; // Head tilt
-      targetModelRot.x = -0.05; // Look up slightly
-      targetModelRot.y = 0.1; // Turn slightly
+      // Highly dynamic pondering animation
+      targetModelRot.z = Math.sin(stateTime * 3.0) * 0.12; // Head bobbing side to side
+      targetModelRot.x = -0.05 + Math.sin(stateTime * 2.0) * 0.05; // Nodding slightly while thinking
+      targetModelRot.y = Math.cos(stateTime * 2.5) * 0.15; // Looking around
 
-      extraPosY = Math.sin(stateTime * 2.0) * 0.03; // Gentle hover
+      extraPosY = Math.sin(stateTime * 4.0) * 0.04; // Faster hover to show mental activity
 
-      // Squint one eye to look inquisitive
-      targetLeftEyeScale.set(1.0, 0.6, 1.0);
+      // Squint eyes dynamically
+      const squint = 0.6 + Math.sin(stateTime * 5.0) * 0.2;
+      targetLeftEyeScale.set(1.0, squint, 1.0);
       targetRightEyeScale.set(1.1, 1.1, 1.1);
 
-      // Smirk/thinking mouth shape offset to the side
-      targetMouthScale.set(0.8, 0.8, 1.0);
-      targetMouthPosX = 0.06;
+      // Mouth moves slightly as if muttering
+      targetMouthScale.set(0.8, 0.8 + Math.sin(stateTime * 10.0) * 0.2, 1.0);
+      targetMouthPosX = 0.06 + Math.sin(stateTime * 4.0) * 0.03;
       break;
 
     case 'talking':
       extraPosY = Math.sin(stateTime * 12.0) * 0.04;
+      // Energetic head bobbing while speaking
+      extraRotX = Math.sin(stateTime * 8.0) * 0.05;
+      extraRotZ = Math.sin(stateTime * 5.0) * 0.03;
       
       talkAmplitude = Math.abs(Math.sin(stateTime * 18.0) * Math.cos(stateTime * 7.0));
       
-      // Apply fast moving changes directly as extras so they don't get flattened by the smooth lerp
       extraMouthScaleX = -talkAmplitude * 0.18;
       extraMouthScaleY = talkAmplitude * 0.85;
       extraEyeScale = talkAmplitude * 0.08;
@@ -391,12 +397,13 @@ function animate(timestamp) {
     case 'happy':
     case 'excited':
     case 'praise':
-      extraPosY = Math.abs(Math.sin(stateTime * 7.0)) * 0.28;
-      extraRotY = Math.sin(stateTime * 10.0) * 0.15;
+      extraPosY = Math.abs(Math.sin(stateTime * 8.0)) * 0.3; // Very bouncy
+      extraRotY = Math.sin(stateTime * 12.0) * 0.2; // Wiggling happily
+      extraRotZ = Math.sin(stateTime * 10.0) * 0.1; // Wiggle rotation
 
-      targetLeftEyeScale.set(1.25, 0.6, 1.25);
-      targetRightEyeScale.set(1.25, 0.6, 1.25);
-      targetMouthScale.set(1.35, 0.55, 1.0);
+      targetLeftEyeScale.set(1.3, 0.5, 1.25); // "Smiling" eyes
+      targetRightEyeScale.set(1.3, 0.5, 1.25);
+      targetMouthScale.set(1.4, 0.6, 1.0); // Big wide smile
 
       if (Math.random() < 0.08 && activeHearts.length < 15) {
         spawn3DHeart();
@@ -413,6 +420,44 @@ function animate(timestamp) {
       targetLeftEyeScale.set(1.0, 0.5, 1.0);
       targetRightEyeScale.set(1.0, 0.5, 1.0);
       targetMouthScale.set(0.7, 1.35, 1.0);
+      break;
+
+    case 'sleeping':
+      // Gentle, slow, deep breathing
+      extraPosY = Math.sin(stateTime * 0.8) * 0.06 - 0.05; // Lowered posture
+      targetModelRot.x = 0.15; // Head nodded forward
+      
+      // Eyes completely closed
+      targetLeftEyeScale.set(1.0, 0.1, 1.0);
+      targetRightEyeScale.set(1.0, 0.1, 1.0);
+      
+      // Tiny relaxed mouth
+      targetMouthScale.set(0.5, 0.5, 1.0);
+      break;
+
+    case 'confused':
+      // Tilted head, one eye big, one eye small
+      targetModelRot.z = 0.2; 
+      targetModelRot.x = -0.05;
+      extraPosY = Math.sin(stateTime * 2.0) * 0.02;
+
+      targetLeftEyeScale.set(1.3, 1.3, 1.3);
+      targetRightEyeScale.set(0.6, 0.6, 1.0);
+      
+      targetMouthScale.set(0.6, 0.6, 1.0);
+      targetMouthPosX = -0.05; // Mouth shifted to side
+      break;
+
+    case 'surprised':
+      // Jump back slightly, look up, wide eyes and mouth
+      targetModelPos.z = -0.2;
+      targetModelRot.x = -0.15;
+      extraPosY = Math.abs(Math.sin(stateTime * 15.0)) * 0.05 + 0.1; // Sudden jolt up
+      
+      targetLeftEyeScale.set(1.6, 1.6, 1.6);
+      targetRightEyeScale.set(1.6, 1.6, 1.6);
+      
+      targetMouthScale.set(0.4, 1.8, 1.0); // Tall narrow 'O' shape mouth
       break;
   }
 

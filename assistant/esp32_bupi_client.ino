@@ -4,11 +4,11 @@
 #include <LiquidCrystal_I2C.h>
 
 // 1. REPLACE THESE WITH YOUR EXACT WIFI CREDENTIALS (2.4GHz ONLY)
-const char* ssid = "YOUR_WIFI_NAME_HERE";
-const char* password = "YOUR_WIFI_PASSWORD_HERE";
+const char* ssid = "home";
+const char* password = "sachin1121";
 
 // 2. BUPI PC SERVER SETTINGS (Pre-filled with your current local IP)
-const char* websocket_server = "192.168.0.104";
+const char* websocket_server = "192.168.0.102";
 const uint16_t websocket_port = 8767;
 
 WebSocketsClient webSocket;
@@ -28,6 +28,8 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
       lcd.clear();
       lcd.setCursor(0, 0);
       lcd.print("Bupi Connected!");
+      // Send capability announcement to Bupi Hub
+      webSocket.sendTXT("{\"type\":\"announce\",\"device\":\"LCD Display (WS)\",\"capabilities\":[\"Display\"],\"tasks\":[\"Displaying Bupi Status/Reminders\"]}");
       break;
     case WStype_TEXT: {
       // Parse JSON from Python

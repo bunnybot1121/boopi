@@ -23,3 +23,46 @@ node_modules/
 # Executables
 *.exe
 ffmpeg.exe
+
+# Virtual environments
+venv312/
+venv/
+.venv/
+
+# IDE files
+.gemini/
+.idea/
+.vscode/
+
+# Archive files
+*.zip
+*.tar.gz
+
+# DB & Local Cache
+brain/chroma_db/
+brain/chroma_db_test/
+brain/library/
+brain/sensor_knowledge_cache.json
+brain/trained_agents.json
+brain/arduino_library_index.json
+hardware_memory.txt
+iris_ai_extracted/
+openhuman_extracted/
+
+# Local Scratch & Separate Projects
+scratch/
+footmo2-v2/
+
+# Electron local logs & text files
+electron_err.txt
+electron_out.txt
+electron_test.log
+test_launch.log
+test_out.txt
+
+# Rive backups
+tiny_mascot_backup_130k.riv
+tiny_mascot_simplified.riv
+
+# Browser data
+actions/browser_data/

@@ -96,10 +96,12 @@ class SpeakerThread(QThread):
                 break
         while not self._audio_queue.empty():
             try:
-                path, _ = self._audio_queue.get_nowait()
-                if path and os.path.exists(path):
-                    try: os.remove(path)
-                    except: pass
+                audio_item = self._audio_queue.get_nowait()
+                if audio_item:
+                    path = audio_item[0]
+                    if path and os.path.exists(path):
+                        try: os.remove(path)
+                        except: pass
             except queue.Empty:
                 break
 
@@ -138,7 +140,7 @@ class SpeakerThread(QThread):
                     asyncio.run(generate_tts(text, out_path))
                     
                     if epoch == self._epoch and not self._exit_flag:
-                        self._audio_queue.put((out_path, epoch))
+                        self._audio_queue.put((out_path, text, epoch))
                     else:
                         if os.path.exists(out_path):
                             try: os.remove(out_path)
@@ -155,7 +157,7 @@ class SpeakerThread(QThread):
                 if item is None:
                     break
                 
-                path, epoch = item
+                path, text, epoch = item
                 if epoch != self._epoch or self._exit_flag:
                     if os.path.exists(path):
                         try: os.remove(path)
@@ -163,6 +165,9 @@ class SpeakerThread(QThread):
                     continue
                 
                 self.speech_started.emit()
+                
+                import json
+                print(json.dumps({"type": "speech_text", "value": text}), flush=True)
                 
                 print(f"From Python: [TTS] Playing audio from {os.path.abspath(path)}...", flush=True)
                 

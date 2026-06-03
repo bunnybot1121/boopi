@@ -4,9 +4,9 @@
 #include <LiquidCrystal_I2C.h>
 
 // --- Configuration ---
-const char* ssid = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
-const char* mqtt_server = "192.168.0.101"; // IP of your PC running Mosquitto
+const char* ssid = "home";
+const char* password = "sachin1121";
+const char* mqtt_server = "192.168.0.102"; // IP of your PC running Mosquitto
 
 // Initialize the LCD display
 // The I2C address is usually 0x27 or 0x3F. 
@@ -106,6 +106,8 @@ void callback(char* topic, byte* payload, unsigned int length) {
   scrollPos = 0;
 }
 
+String clientId = "";
+
 void reconnect() {
   while (!client.connected()) {
     Serial.print("Attempting MQTT connection...");
@@ -116,20 +118,28 @@ void reconnect() {
     lcd.setCursor(0, 1);
     lcd.print("Bupi Hub...");
     
-    String clientId = "ESP32Client-";
-    clientId += String(random(0xffff), HEX);
+    if (clientId == "") {
+      String mac = WiFi.macAddress();
+      mac.replace(":", "");
+      clientId = "ESP32Client-" + mac;
+    }
     
     if (client.connect(clientId.c_str())) {
       Serial.println("connected");
       
-      // Subscribe to the specific topic for this Desk Display
+      // Subscribe to the specific topics for this Desk Display
       client.subscribe("bupi/nodes/desk_display/cmd");
+      client.subscribe("bupi/actuators/lcd/cmd");
       
       lcd.clear();
       lcd.setCursor(0, 0);
       lcd.print("Desk Display");
       lcd.setCursor(0, 1);
       lcd.print("Online & Ready");
+
+      // Send announcement
+      String announcePayload = "{\"device\":\"Desk Display (MQTT)\",\"client_id\":\"" + clientId + "\",\"ip\":\"" + WiFi.localIP().toString() + "\",\"capabilities\":[\"Display\"],\"tasks\":[\"Displaying Bupi Status/Reminders\"],\"status\":\"online\"}";
+      client.publish("bupi/nodes/announce", announcePayload.c_str());
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
@@ -159,6 +169,16 @@ void loop() {
     reconnect();
   }
   client.loop();
+  
+  // Periodic presence heartbeat every 5 seconds
+  static unsigned long lastHeartbeat = 0;
+  if (millis() - lastHeartbeat > 5000) {
+    lastHeartbeat = millis();
+    if (client.connected()) {
+      String heartbeatPayload = "{\"device\":\"Desk Display (MQTT)\",\"client_id\":\"" + clientId + "\",\"ip\":\"" + WiFi.localIP().toString() + "\",\"capabilities\":[\"Display\"],\"tasks\":[\"Displaying Bupi Status/Reminders\"],\"status\":\"online\"}";
+      client.publish("bupi/nodes/heartbeat", heartbeatPayload.c_str());
+    }
+  }
   
   // Non-blocking scroll logic
   if (displayMessage.length() > 0) {

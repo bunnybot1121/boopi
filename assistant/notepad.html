@@ -19,6 +19,24 @@
             --accent-green: #48bb78;
         }
 
+        @keyframes pulse-anim {
+            0% {
+                transform: scale(0.95);
+                box-shadow: 0 0 0 0 rgba(72, 187, 120, 0.7);
+            }
+            70% {
+                transform: scale(1);
+                box-shadow: 0 0 0 6px rgba(72, 187, 120, 0);
+            }
+            100% {
+                transform: scale(0.95);
+                box-shadow: 0 0 0 0 rgba(72, 187, 120, 0);
+            }
+        }
+        .pulse-active {
+            animation: pulse-anim 2s infinite;
+        }
+
         body {
             margin: 0;
             padding: 0;
@@ -167,6 +185,23 @@
         .win-btn.min { background-color: #ffbd2e; }
         .win-btn.max { background-color: #27c93f; }
 
+        /* Global custom scrollbars for a premium glassmorphic feel */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(142, 148, 242, 0.25);
+            border-radius: 4px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(142, 148, 242, 0.45);
+        }
+
         .content-panel {
             flex: 1;
             background: rgba(255, 255, 255, 0.7);
@@ -177,7 +212,7 @@
             display: none;
             flex-direction: column;
             padding: 30px;
-            overflow: hidden;
+            overflow-y: auto;
             margin-top: 20px;
         }
 
@@ -288,6 +323,253 @@
             margin: 0;
             font-size: 16px;
         }
+
+        /* Settings Dashboard Styles */
+        .settings-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 25px;
+            flex-shrink: 0;
+        }
+
+        .settings-title-section h2 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--text-dark);
+            letter-spacing: -0.5px;
+        }
+
+        .settings-title-section p {
+            margin: 5px 0 0 0;
+            font-size: 13px;
+            color: var(--text-light);
+        }
+
+        .key-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+            overflow-y: auto;
+            flex: 1;
+            padding-right: 5px;
+        }
+
+        .key-grid::-webkit-scrollbar {
+            width: 6px;
+        }
+        .key-grid::-webkit-scrollbar-thumb {
+            background-color: rgba(0,0,0,0.1);
+            border-radius: 3px;
+        }
+
+        .key-card {
+            background: rgba(255, 255, 255, 0.45);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.02);
+            border-radius: 18px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        .key-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--primary);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .key-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 24px rgba(31, 38, 135, 0.08);
+            border-color: rgba(142, 148, 242, 0.4);
+            background: rgba(255, 255, 255, 0.6);
+        }
+
+        .key-card:hover::before {
+            opacity: 1;
+        }
+
+        .key-card.status-active::before {
+            background: linear-gradient(90deg, #48bb78, #38a169);
+        }
+
+        .key-card.status-error::before {
+            background: linear-gradient(90deg, #f56565, #e53e3e);
+        }
+
+        .key-card.status-warning::before {
+            background: linear-gradient(90deg, #ecc94b, #dd6b20);
+        }
+
+        .card-header-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .provider-badge {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 4px 8px;
+            border-radius: 6px;
+            color: #fff;
+        }
+
+        .provider-badge.or {
+            background: linear-gradient(135deg, #ff7e5f, #feb47b);
+        }
+
+        .provider-badge.gemini {
+            background: linear-gradient(135deg, #1a73e8, #8ab4f8);
+        }
+
+        .provider-badge.nvidia {
+            background: linear-gradient(135deg, #76b900, #4ca600);
+        }
+
+        .provider-badge.groq {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+        }
+
+        .status-pill {
+            font-size: 11px;
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 20px;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .status-pill.active {
+            background: rgba(72, 187, 120, 0.15);
+            color: #2f855a;
+        }
+
+        .status-pill.error {
+            background: rgba(245, 101, 101, 0.15);
+            color: #c53030;
+        }
+
+        .key-name-label {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-dark);
+            margin: 0 0 4px 0;
+            word-break: break-all;
+        }
+
+        .key-mask-value {
+            font-family: monospace;
+            font-size: 12px;
+            color: var(--text-light);
+            background: rgba(0, 0, 0, 0.04);
+            padding: 4px 8px;
+            border-radius: 6px;
+            display: inline-block;
+            margin-bottom: 15px;
+            letter-spacing: 1px;
+            word-break: break-all;
+        }
+
+        .card-stats {
+            margin-top: auto;
+            border-top: 1px solid rgba(0, 0, 0, 0.05);
+            padding-top: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+        }
+
+        .stat-label {
+            color: var(--text-light);
+            font-weight: 500;
+        }
+
+        .stat-val {
+            color: var(--text-dark);
+            font-weight: 600;
+        }
+
+        /* Refresh button spinner */
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .spinning {
+            animation: spin 1s linear infinite;
+            display: inline-block;
+        }
+
+        /* Skeleton / Loading Animation */
+        .skeleton-card {
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 18px;
+            padding: 20px;
+            height: 180px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            position: relative;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .skeleton-card::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            left: 0;
+            transform: translateX(-100%);
+            background: linear-gradient(90deg, 
+                rgba(255, 255, 255, 0) 0%, 
+                rgba(255, 255, 255, 0.4) 20%, 
+                rgba(255, 255, 255, 0.6) 60%, 
+                rgba(255, 255, 255, 0) 100%
+            );
+            animation: shimmer 1.5s infinite;
+        }
+
+        @keyframes shimmer {
+            100% { transform: translateX(100%); }
+        }
+
+        .skeleton-line {
+            height: 12px;
+            background: rgba(0, 0, 0, 0.05);
+            border-radius: 4px;
+            margin-bottom: 8px;
+        }
+
+        .skeleton-line.short { width: 40%; }
+        .skeleton-line.medium { width: 70%; }
+        .skeleton-line.long { width: 90%; }
     </style>
 </head>
 <body>
@@ -306,14 +588,23 @@
                 <div class="nav-item active" data-target="panel-notes">
                     <i>📝</i> Notes & Ideas
                 </div>
+                <div class="nav-item" data-target="panel-hardware">
+                    <i>🤖</i> Hardware Setup
+                </div>
                 <div class="nav-item" data-target="panel-esp">
                     <i>🔌</i> ESP32 Control
+                </div>
+                <div class="nav-item" data-target="panel-trained">
+                    <i>🧪</i> Active Lab
                 </div>
                 <div class="nav-item" data-target="panel-chat">
                     <i>💬</i> Chat History
                 </div>
                 <div class="nav-item" data-target="panel-paint">
                     <i>🎨</i> Paint Canvas
+                </div>
+                <div class="nav-item" data-target="panel-footmo2">
+                    <i>🕹️</i> FootMo2 Cockpit
                 </div>
                 <div class="nav-item" data-target="panel-settings">
                     <i>⚙️</i> Settings
@@ -333,7 +624,7 @@
             </div>
 
             <!-- Notes Panel -->
-            <div class="content-panel active" id="panel-notes">
+            <div class="content-panel active" id="panel-notes" style="overflow: hidden;">
                 <div class="editor-header">
                     <input type="text" class="title-input" id="noteTitle" value="Untitled Note">
                     <button class="btn btn-primary" id="saveBtn">💾 Save</button>
@@ -347,23 +638,106 @@
                 </div>
             </div>
 
+            <!-- Hardware Setup Panel -->
+            <div class="content-panel" id="panel-hardware">
+                <div class="editor-header">
+                    <h2 style="margin:0;">Hardware Ingestion</h2>
+                    <div style="margin-left:auto; display:flex; gap:10px;">
+                        <button class="btn btn-primary" id="processHardwareBtn">⚡ Generate Integration</button>
+                        <button class="btn" id="flashHardwareBtn" style="background:linear-gradient(135deg, #4299e1, #3182ce); color:white; box-shadow: 0 4px 10px rgba(66, 153, 225, 0.3);" disabled>🚀 Flash to ESP32</button>
+                    </div>
+                </div>
+                
+                <div id="trainingStatusBanner" style="display:none; background: linear-gradient(135deg, var(--accent-green), #38a169); color: white; padding: 12px 20px; border-radius: 12px; margin-bottom: 15px; font-weight: 600; font-size: 14px; align-items: center; gap: 10px; box-shadow: 0 4px 15px rgba(72, 187, 120, 0.3); animation: fadeIn 0.3s ease;">
+                    <span style="font-size: 18px;">✅</span> 
+                    <span>Agent Successfully Trained! Mode 2 Orchestrator now knows how to use this hardware.</span>
+                </div>
+
+                <div id="flasherStatusBanner" style="display:none; flex-direction:column; background: linear-gradient(135deg, #3182ce, #2b6cb0); color: white; padding: 15px 20px; border-radius: 12px; margin-bottom: 15px; font-weight: 600; font-size: 14px; gap: 8px; box-shadow: 0 4px 15px rgba(49, 130, 206, 0.3); animation: fadeIn 0.3s ease;">
+                    <div style="display:flex; align-items:center; gap:10px; width:100%;">
+                        <span style="font-size: 18px;" id="flasherIcon">⏳</span> 
+                        <span id="flasherStatusText">Flashing to ESP32...</span>
+                    </div>
+                    <div id="flasherProgressContainer" style="width:100%; height:6px; background:rgba(255,255,255,0.25); border-radius:3px; overflow:hidden; display:none; margin-top:4px;">
+                        <div id="flasherProgressBar" style="width:0%; height:100%; background:#fff; border-radius:3px; transition:width 0.2s ease;"></div>
+                    </div>
+                </div>
+
+                <p style="color: var(--text-light); margin-top:0;">Select components from the autocompleting list below, OR paste your raw C++/Arduino code in the editor to generate a tailored integration client.</p>
+                
+                <!-- Quick Component Builder UI -->
+                <div style="background: rgba(255, 255, 255, 0.45); border: var(--glass-border); border-radius: 12px; padding: 15px; margin-bottom: 15px; display: flex; flex-direction: column; gap: 10px; position: relative;">
+                    <label style="font-weight: 700; font-size: 13px; color: var(--text-dark); display: flex; align-items: center; gap: 6px;">
+                        <span>🔌</span> Quick Component Builder
+                    </label>
+                    <div style="display: flex; gap: 10px; position: relative; align-items: center;">
+                        <input type="text" id="componentSearchInput" placeholder="Type a component (e.g. mq2, lcd16x2, relay...)" style="flex: 1; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-color); font-size: 13px; outline: none; background: rgba(255,255,255,0.85);" />
+                        <div id="autocompleteDropdown" style="display: none; position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); z-index: 100; max-height: 180px; overflow-y: auto;">
+                            <!-- Dropdown options injected dynamically -->
+                        </div>
+                    </div>
+                    
+                    <!-- Selected Components Tags Area -->
+                    <div id="selectedComponentsContainer" style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-height: 30px;">
+                        <span style="font-size: 11px; color: var(--text-light); font-style: italic;">No components selected yet. Start typing to build.</span>
+                    </div>
+
+                    <!-- Component Purpose / Application Description Input -->
+                    <div style="margin-top: 5px; display: flex; flex-direction: column; gap: 6px;">
+                        <label style="font-weight: 700; font-size: 12px; color: var(--text-dark); display: flex; align-items: center; gap: 4px;">
+                            <span>🎯</span> Application Purpose / Description (Optional)
+                        </label>
+                        <textarea id="componentPurposeInput" placeholder="Describe how these components are used (e.g., 'A mini robot car that steers using IR obstacle sensors and runs a motor')" style="width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border-color); font-size: 12.5px; outline: none; background: rgba(255,255,255,0.85); font-family: var(--font-family); resize: vertical; min-height: 55px;"></textarea>
+                    </div>
+                </div>
+                
+                <div style="display:flex; gap:20px; flex:1; min-height:330px; margin-top:10px;">
+                    <div style="flex:1; display:flex; flex-direction:column;">
+                        <label style="font-weight:600; margin-bottom:5px;">Original Robot Code</label>
+                        <textarea class="editor-area" id="hardwareInput" placeholder="Paste C++/Arduino code here..." style="border:1px solid var(--border-color); border-radius:10px; padding:10px; background:rgba(255,255,255,0.5);"></textarea>
+                    </div>
+                    <div style="flex:1; display:flex; flex-direction:column;">
+                        <label style="font-weight:600; margin-bottom:5px;">Generated Minimal Code</label>
+                        <textarea class="editor-area" id="hardwareOutput" placeholder="BUPI will output the clean code here..." style="border:1px solid var(--border-color); border-radius:10px; padding:10px; background:rgba(240,240,240,0.5);" readonly></textarea>
+                    </div>
+                </div>
+            </div>
+
             <!-- ESP32 Panel -->
             <div class="content-panel" id="panel-esp">
                 <h2 style="margin:0 0 10px 0;">ESP32 Controller</h2>
                 <p style="color: var(--text-light); margin:0 0 20px 0;">Manage your connected hardware directly from Bupi.</p>
                 
-                <div class="esp-grid">
-                    <div class="esp-card">
-                        <h3>Device Status</h3>
-                        <div style="display:flex; align-items:center; gap:8px;">
-                            <div style="width:10px; height:10px; border-radius:50%; background:var(--accent-green);"></div>
-                            <span>Online</span>
-                        </div>
+                <h3 style="margin: 20px 0 10px 0; font-size: 15px; font-weight:700; color: var(--text-dark); display: flex; align-items: center; gap: 8px;">
+                    <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--accent-green); box-shadow:0 0 8px var(--accent-green);" id="livePulse"></span>
+                    Live Connected Nodes
+                </h3>
+                <div class="esp-grid" id="liveNodesGrid" style="margin-bottom: 25px;">
+                    <!-- Live nodes will load here -->
+                    <div style="grid-column: 1 / -1; text-align: center; padding: 30px; color: var(--text-light); background: rgba(255,255,255,0.4); border-radius: 12px; border: var(--glass-border);">
+                        <span style="font-size: 18px;">📡</span>
+                        <p style="margin: 5px 0 0 0; font-size:12px;">Searching for active ESP32 nodes...</p>
                     </div>
-                    <div class="esp-card">
-                        <h3>Quick Actions</h3>
-                        <button class="btn btn-primary" id="pingEspBtn">Ping Device</button>
+                </div>
+                
+                <h3 style="margin: 0 0 12px 0; font-size: 15px; font-weight:700; color: var(--text-dark);">Registered Device Actions</h3>
+                <div class="esp-grid" id="espDeviceGrid">
+                    <!-- We will dynamically load cards here -->
+                </div>
+            </div>
+
+            <!-- Active Lab Panel -->
+            <div class="content-panel" id="panel-trained">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                    <div>
+                        <h2 style="margin:0 0 5px 0;">Active Lab 🧪</h2>
+                        <p style="color: var(--text-light); margin:0;">Displays only the devices Bupi was just trained on or used in your active session.</p>
                     </div>
+                    <button class="btn" style="padding:6px 12px; font-size:11px; border:1px solid var(--border-color); background:rgba(255,255,255,0.6);" id="clearTrainedBtn">🧹 Clear Session Cache</button>
+                </div>
+                
+                <div class="esp-grid" id="trainedDeviceGrid">
+                    <!-- Only trained devices will load here -->
                 </div>
             </div>
 
@@ -377,7 +751,7 @@
             </div>
 
             <!-- Paint Panel -->
-            <div class="content-panel" id="panel-paint">
+            <div class="content-panel" id="panel-paint" style="overflow: hidden;">
                 <h2 style="margin:0 0 10px 0;">Bupi's Canvas</h2>
                 <p style="color: var(--text-light);">Bupi will draw her masterpeices here!</p>
                 <div id="paintArea" style="flex:1; display:flex; justify-content:center; align-items:center; border-radius:15px; border: 2px dashed rgba(142, 148, 242, 0.5); overflow:hidden; background:rgba(255,255,255,0.8);">
@@ -385,12 +759,47 @@
                 </div>
             </div>
 
+            <!-- FootMo Cockpit Panel -->
+            <div class="content-panel" id="panel-footmo2" style="padding: 0; border: none; box-shadow: none; background: transparent; margin-top: 0 !important; margin-bottom: 0 !important; height: calc(100% - 20px); flex-direction: column; overflow: hidden;">
+                <iframe src="http://localhost:3000" style="border: none; width: 100%; height: 100%; border-radius: 20px; background: transparent;" id="footmo2-iframe"></iframe>
+            </div>
+
             <!-- Settings Panel -->
             <div class="content-panel" id="panel-settings">
-                <h2 style="margin:0 0 10px 0;">Settings</h2>
-                <p style="color: var(--text-light);">Configure Bupi preferences.</p>
-                <div style="flex:1; display:flex; justify-content:center; align-items:center; color: var(--text-light);">
-                    Settings coming soon.
+                <div class="settings-header">
+                    <div class="settings-title-section">
+                        <h2>API Key & Token Status</h2>
+                        <p>Real-time status, limits, and usages of your configured LLM API keys.</p>
+                    </div>
+                    <button class="btn btn-primary" id="refreshKeysBtn">
+                        <span id="refreshBtnIcon" style="display: inline-block;">🔄</span>
+                        <span id="refreshBtnText">Refresh Status</span>
+                    </button>
+                </div>
+                
+                <div class="key-grid" id="keyGridContainer">
+                    <!-- Cards will be dynamically injected here -->
+                    <div class="skeleton-card">
+                        <div>
+                            <div class="skeleton-line short"></div>
+                            <div class="skeleton-line medium"></div>
+                        </div>
+                        <div class="skeleton-line long"></div>
+                    </div>
+                    <div class="skeleton-card">
+                        <div>
+                            <div class="skeleton-line short"></div>
+                            <div class="skeleton-line medium"></div>
+                        </div>
+                        <div class="skeleton-line long"></div>
+                    </div>
+                    <div class="skeleton-card">
+                        <div>
+                            <div class="skeleton-line short"></div>
+                            <div class="skeleton-line medium"></div>
+                        </div>
+                        <div class="skeleton-line long"></div>
+                    </div>
                 </div>
             </div>
 

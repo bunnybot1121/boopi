@@ -23,6 +23,32 @@ let mainWindow;
 let tray;
 let pyEngine;
 let currentState = "idle";
+let footmoBackend = null;
+let footmoFrontend = null;
+
+function spawnFootMo2() {
+  const backendPath = path.join(__dirname, 'footmo2-v2', 'backend', 'server.js');
+  const frontendCwd = path.join(__dirname, 'footmo2-v2', 'frontend');
+  const viteJs = path.join(frontendCwd, 'node_modules', 'vite', 'bin', 'vite.js');
+
+  console.log("[Main] Spawning FootMo2 v2 Backend...");
+  footmoBackend = spawn('node', [backendPath], {
+    cwd: path.dirname(backendPath),
+    stdio: 'pipe'
+  });
+
+  footmoBackend.stdout.on('data', (d) => console.log(`[FootMo2 Backend] ${d.toString().trim()}`));
+  footmoBackend.stderr.on('data', (d) => console.error(`[FootMo2 Backend ERROR] ${d.toString().trim()}`));
+
+  console.log("[Main] Spawning FootMo2 v2 Frontend (Vite)...");
+  footmoFrontend = spawn('node', [viteJs], {
+    cwd: frontendCwd,
+    stdio: 'pipe'
+  });
+
+  footmoFrontend.stdout.on('data', (d) => console.log(`[FootMo2 Frontend] ${d.toString().trim()}`));
+  footmoFrontend.stderr.on('data', (d) => console.error(`[FootMo2 Frontend ERROR] ${d.toString().trim()}`));
+}
 let notepadWindow = null;
 let isDev = process.argv.includes('--dev');
 let notepadQueue = [];
@@ -57,6 +83,10 @@ function createNotepadWindow() {
   console.log("[Main] Loading notepad file:", filePath);
   notepadWindow.loadFile(filePath);
 
+  notepadWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    console.log(`[Renderer Notepad] ${message} (at ${sourceId}:${line})`);
+  });
+
   notepadWindow.webContents.on('did-finish-load', () => {
     notepadReady = true;
     
@@ -76,6 +106,10 @@ function createNotepadWindow() {
       let chunk = notepadQueue.shift();
       notepadWindow.webContents.send('notepad-insert', chunk);
     }
+    
+    // Request initial keys and nodes status
+    sendCommand('refresh_keys');
+    sendCommand('refresh_nodes');
   });
 
   notepadWindow.on('closed', () => {
@@ -99,7 +133,8 @@ function createWindow() {
     skipTaskbar: true,
     webPreferences: {
       nodeIntegration: true,
-      contextIsolation: false
+      contextIsolation: false,
+      webSecurity: false
     }
   });
 
@@ -132,14 +167,17 @@ function createWindow() {
 }
 
 function spawnEngine() {
+  const venvPython = path.join(__dirname, 'venv312', 'Scripts', 'python.exe');
+  const pyCmd = fs.existsSync(venvPython) ? venvPython : 'python';
+  console.log("[Main] Spawning Python engine using command:", pyCmd);
+  
   // Spawn Python engine
-  pyEngine = spawn('python', ['main.py'], {
+  pyEngine = spawn(pyCmd, ['main.py'], {
     cwd: __dirname,
     stdio: ['pipe', 'pipe', 'pipe'],
     shell: true
   });
 
-  const fs = require('fs');
   pyEngine.on('error', (err) => {
     try { fs.appendFileSync('debug_log.txt', "Failed to start python process: " + err + "\n"); } catch(e) {}
   });
@@ -203,6 +241,40 @@ function spawnEngine() {
           } else {
             notepadWindow.webContents.send('notepad-title', msg.value);
           }
+        } else if (msg.type === "hardware_result") {
+          if (notepadWindow && notepadReady) {
+            notepadWindow.webContents.send('hardware-result', msg.value);
+          }
+        } else if (msg.type === "token_status") {
+          // console.log("[Main] Received token_status update:", msg.value);
+          global.cachedTokenStatus = msg.value;
+          if (notepadWindow && notepadReady) {
+            notepadWindow.webContents.send('token-status', msg.value);
+          }
+        } else if (msg.type === "trained_device") {
+          // console.log("[Main] Received trained_device update:", msg.value);
+          if (notepadWindow && notepadReady) {
+            notepadWindow.webContents.send('trained-device', msg.value);
+          }
+        } else if (msg.type === "connected_nodes") {
+          // console.log("[Main] Received connected_nodes update:", msg.value);
+          if (notepadWindow && notepadReady) {
+            notepadWindow.webContents.send('connected-nodes', msg.value);
+          }
+        } else if (msg.type === "flash_progress") {
+          if (notepadWindow && notepadReady) {
+            notepadWindow.webContents.send('flash-progress', msg.value);
+          }
+        } else if (msg.type === "flash_status") {
+          if (notepadWindow && notepadReady) {
+            notepadWindow.webContents.send('flash-status', msg.value);
+          }
+        } else if (msg.type === "online_search_results") {
+          if (notepadWindow && notepadReady) {
+            notepadWindow.webContents.send('online-search-results', msg);
+          }
+        } else if (msg.type === "log") {
+          console.log("[Python Log]", msg.message);
         }
       } catch (e) {
         console.log("From Python:", line);
@@ -216,9 +288,9 @@ function spawnEngine() {
   });
 }
 
-function sendCommand(cmd) {
+function sendCommand(cmd, extraArgs = {}) {
   if (pyEngine && !pyEngine.killed) {
-    pyEngine.stdin.write(JSON.stringify({ command: cmd }) + "\n");
+    pyEngine.stdin.write(JSON.stringify({ command: cmd, ...extraArgs }) + "\n");
   }
 }
 
@@ -239,6 +311,7 @@ if (!gotTheLock) {
   app.whenReady().then(() => {
     createWindow();
     spawnEngine();
+    spawnFootMo2();
 
     // Setup System Tray
     const { nativeImage } = require('electron');
@@ -318,6 +391,84 @@ if (!gotTheLock) {
       console.log("Notepad saved:", data.title);
     });
 
+    ipcMain.on('notepad-process-hardware', (event, code) => {
+      console.log("Notepad: Hardware Ingestion Requested");
+      sendCommand('process_hardware', { code: code });
+    });
+
+    ipcMain.on('notepad-flash-hardware', (event, code) => {
+      console.log("Notepad: Flash Hardware Requested");
+      sendCommand('flash_hardware', { code: code });
+    });
+
+    ipcMain.on('search-components-online', (event, query) => {
+      sendCommand('search_components', { query: query });
+    });
+
+    // Zero-latency Gemini Live Voice secure key retrieval
+    ipcMain.handle('secure-get-gemini-key', async () => {
+      let key = process.env.GEMINI_API_KEY || '';
+      if (!key) {
+        try {
+          const fs = require('fs');
+          const path = require('path');
+          const envPath = path.join(__dirname, '.env');
+          if (fs.existsSync(envPath)) {
+            const data = fs.readFileSync(envPath, 'utf8');
+            const match = data.match(/GEMINI_API_KEY\s*=\s*(["']?)(.*?)\1(?:\s|$)/);
+            if (match) {
+              key = match[2];
+            }
+          }
+        } catch (e) {
+          console.error("[Main] Error reading GEMINI_API_KEY from .env:", e);
+        }
+      }
+      return key.trim();
+    });
+
+    // Voice triggers for automated tab switching and editor insertions
+    ipcMain.on('voice-trigger-tab', (event, tabId) => {
+      console.log("[Main] Voice triggered tab switch:", tabId);
+      if (notepadWindow && notepadReady) {
+        notepadWindow.webContents.send('notepad-switch-tab', tabId);
+        // Force slide open notepad if minimized or hidden
+        if (!notepadWindow.isVisible()) {
+          notepadWindow.show();
+        }
+      } else {
+        // Create notepad window and switch tab once ready
+        createNotepadWindow();
+        setTimeout(() => {
+          if (notepadWindow && notepadReady) {
+            notepadWindow.webContents.send('notepad-switch-tab', tabId);
+          }
+        }, 1200);
+      }
+    });
+
+    ipcMain.on('voice-trigger-insert', (event, content) => {
+      console.log("[Main] Voice triggered note insert:", content);
+      if (notepadWindow && notepadReady) {
+        notepadWindow.webContents.send('notepad-insert', content);
+      }
+    });
+
+
+
+    ipcMain.on('request-token-status', (event) => {
+      // console.log("[Main] Token status requested");
+      if (global.cachedTokenStatus && notepadWindow && notepadReady) {
+        notepadWindow.webContents.send('token-status', global.cachedTokenStatus);
+      }
+      sendCommand('refresh_keys');
+    });
+
+    ipcMain.on('request-connected-nodes', (event) => {
+      // console.log("[Main] Connected nodes status requested");
+      sendCommand('refresh_nodes');
+    });
+
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
@@ -332,6 +483,14 @@ if (!gotTheLock) {
     globalShortcut.unregisterAll();
     if (pyEngine) {
       pyEngine.kill();
+    }
+    if (footmoBackend) {
+      console.log("[Main] Killing FootMo2 v2 Backend...");
+      footmoBackend.kill();
+    }
+    if (footmoFrontend) {
+      console.log("[Main] Killing FootMo2 v2 Frontend...");
+      footmoFrontend.kill();
     }
   });
 }

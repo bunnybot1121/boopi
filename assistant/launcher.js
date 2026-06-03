@@ -119,7 +119,7 @@ function setStartupEnabled(enable) {
   try {
     if (enable) {
       // Register the launcher to run at startup
-      const cmd = `"${launcherExe}" --launcher "${launcherDir}"`;
+      const cmd = `"${launcherExe}" "${path.join(__dirname, 'launcher.js')}"`;
       execSync(
         `reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v ${appName} /t REG_SZ /d "${cmd}" /f`,
         { stdio: 'ignore' }

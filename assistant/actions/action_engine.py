@@ -15,15 +15,21 @@ def _run_detached(cmd_list, use_shell=False):
     subprocess.Popen(cmd_list, **kwargs)
 
 def _open_browser(match=None):
+    from state_manager import state_mgr
+    state_mgr.transition("thinking")
     webbrowser.open("https://www.google.com")
     return "Opening your browser."
 
 def _google_search(match):
     query = match.group(2).strip()
+    from state_manager import state_mgr
+    state_mgr.transition("reading")
     webbrowser.open(f"https://www.google.com/search?q={query.replace(' ', '+')}")
     return f"Searching for {query}."
 
 def _open_vscode(match=None):
+    from state_manager import state_mgr
+    state_mgr.transition("thinking")
     try:
         _run_detached(["code", "."], use_shell=(platform.system() == "Windows"))
     except FileNotFoundError:
@@ -32,10 +38,14 @@ def _open_vscode(match=None):
 
 def _open_notepad(match=None):
     import json
+    from state_manager import state_mgr
+    state_mgr.transition("thinking")
     print(json.dumps({"type": "command", "value": "open_notepad"}), flush=True)
     return "Opening my notepad for you."
 
 def _open_spotify(match=None):
+    from state_manager import state_mgr
+    state_mgr.transition("thinking")
     if platform.system() == "Windows":
         import os
         try:
@@ -47,6 +57,8 @@ def _open_spotify(match=None):
     return "Opening Spotify."
 
 def _open_calculator(match=None):
+    from state_manager import state_mgr
+    state_mgr.transition("thinking")
     if platform.system() == "Windows":
         import os
         try:
@@ -74,7 +86,7 @@ def _find_and_focus_tab(keyword):
         # 1. Direct match: If a window's title contains the keyword (e.g. WhatsApp PWA)
         for w in gw.getAllWindows():
             title_lower = w.title.lower()
-            if keyword_lower in title_lower and ('chrome' in title_lower or 'edge' in title_lower or keyword_lower == title_lower or 'whatsapp' in title_lower):
+            if keyword_lower in title_lower and ('chrome' in title_lower or 'edge' in title_lower or keyword_lower == title_lower or 'whatsapp' in title_lower or 'notepad' in title_lower or 'spotify' in title_lower or 'code' in title_lower or 'browser' in title_lower or 'explorer' in title_lower):
                 if w.isMinimized:
                     w.restore()
                 if not w.isMaximized:
@@ -187,18 +199,24 @@ def _open_in_chrome(url, force_new_tab=False):
         webbrowser.open(url)
 
 def _open_youtube(match=None):
+    from state_manager import state_mgr
+    state_mgr.transition("reading")
     if _find_and_focus_tab("YouTube"):
         return "Focused your open YouTube tab."
     _open_in_chrome("https://www.youtube.com/")
     return "Opening YouTube."
 
 def _open_whatsapp(match=None):
+    from state_manager import state_mgr
+    state_mgr.transition("reading")
     if _find_and_focus_tab("WhatsApp"):
         return "Focused your open WhatsApp tab."
     _open_in_chrome("https://web.whatsapp.com/")
     return "Opening WhatsApp Web."
 
 def _open_email(match):
+    from state_manager import state_mgr
+    state_mgr.transition("writing")
     text = match.string
     print(f"[Action Engine] Routing Email command to Automation Agent: {text}", flush=True)
     try:
@@ -211,6 +229,8 @@ def _open_email(match):
         return f"Failed to run the automation agent: {e}"
 
 def _send_linkedin(match):
+    from state_manager import state_mgr
+    state_mgr.transition("writing")
     text = match.string
     print(f"[Action Engine] Routing LinkedIn command to Automation Agent: {text}", flush=True)
     try:
@@ -224,6 +244,8 @@ def _send_linkedin(match):
     return "Opening your email client to draft the mail as a fallback."
 
 def _send_whatsapp(match):
+    from state_manager import state_mgr
+    state_mgr.transition("writing")
     text = match.string
     print(f"[Action Engine] Routing WhatsApp command to Automation Agent: {text}", flush=True)
     try:
@@ -236,6 +258,8 @@ def _send_whatsapp(match):
         return f"Failed to run the automation agent: {e}"
 
 def send_whatsapp_message(recipient, message):
+    from state_manager import state_mgr
+    state_mgr.transition("writing")
     print(f"[Action Engine] AI Triggered WhatsApp routing to Automation Agent: to {recipient}", flush=True)
     try:
         from actions.automation_agent import send_whatsapp_native
@@ -247,6 +271,8 @@ def send_whatsapp_message(recipient, message):
         return f"Failed to run the automation agent: {e}"
 
 def _take_screenshot(match=None):
+    from state_manager import state_mgr
+    state_mgr.transition("recording")
     try:
         import pyautogui
         path = f"screenshot_{datetime.now().strftime('%H%M%S')}.png"
@@ -269,7 +295,11 @@ def _remember_fact(match):
     return f"I'll remember that {fact}."
 
 def _play_music(match):
+    from state_manager import state_mgr
+    state_mgr.transition("reading")
     query = match.group(1).strip()
+    is_video = "video" in query.lower()
+    
     # Handle generic requests
     if query.lower() in ["music", "some music", "a song"]:
         if not _find_and_focus_tab("YouTube Music"):
@@ -278,7 +308,7 @@ def _play_music(match):
         return "Opening YouTube Music."
     
     # Strip out trailing words if present
-    clean_query = re.sub(r'(?i)\s*(on youtube|on yt|on youtube music)\s*', '', query).strip()
+    clean_query = re.sub(r'(?i)\s*(on youtube|on yt|on youtube music|video)\s*', '', query).strip()
     
     # If they just said "play yt song", strip 'yt'
     if clean_query.lower().startswith('yt '):
@@ -299,19 +329,34 @@ def _play_music(match):
             video_ids = re.findall(r'watch\?v=([a-zA-Z0-9_-]{11})', html)
             
         if video_ids:
-            url = f"https://www.youtube.com/watch?v={video_ids[0]}"
-            _find_and_focus_tab("YouTube")
-            _open_in_chrome(url)
-            return f"Playing {clean_query} on YouTube."
+            if is_video:
+                url = f"https://www.youtube.com/watch?v={video_ids[0]}"
+                _find_and_focus_tab("YouTube")
+                _open_in_chrome(url)
+                return f"Playing {clean_query} video on YouTube."
+            else:
+                url = f"https://music.youtube.com/watch?v={video_ids[0]}"
+                if not _find_and_focus_tab("YouTube Music"):
+                    _find_and_focus_tab("YouTube")
+                _open_in_chrome(url)
+                return f"Playing {clean_query} on YouTube Music."
     except Exception as e:
         print(f"[Action Engine] YouTube fetch error: {e}")
         pass
         
-    _find_and_focus_tab("YouTube")
-    _open_in_chrome(f"https://www.youtube.com/results?search_query={encoded}")
-    return f"Searching for {clean_query} on YouTube."
+    if is_video:
+        _find_and_focus_tab("YouTube")
+        _open_in_chrome(f"https://www.youtube.com/results?search_query={encoded}")
+        return f"Searching for {clean_query} video on YouTube."
+    else:
+        if not _find_and_focus_tab("YouTube Music"):
+            _find_and_focus_tab("YouTube")
+        _open_in_chrome(f"https://music.youtube.com/search?q={encoded}")
+        return f"Searching for {clean_query} on YouTube Music."
 
 def _keyboard_type(match):
+    from state_manager import state_mgr
+    state_mgr.transition("writing")
     text = match.group(1).strip()
     try:
         import pyautogui
@@ -324,7 +369,9 @@ def _keyboard_type(match):
         return f"Error typing: {e}"
 
 def _keyboard_press(match):
-    key = match.group(1).strip().lower()
+    from state_manager import state_mgr
+    state_mgr.transition("writing")
+    key_str = match.group(1).strip().lower()
     try:
         import pyautogui
         # Map common spoken keys to pyautogui keys
@@ -343,11 +390,22 @@ def _keyboard_press(match):
             "left": "left",
             "right": "right"
         }
-        target_key = key_map.get(key, key)
-        pyautogui.press(target_key)
+        if '+' in key_str:
+            parts = [key_map.get(k.strip(), k.strip()) for k in key_str.split('+')]
+            pyautogui.hotkey(*parts)
+        else:
+            target_key = key_map.get(key_str, key_str)
+            pyautogui.press(target_key)
         return "" # Do not speak
     except Exception as e:
         return f"Error pressing key: {e}"
+
+def _switch_window(match):
+    app_name = match.group(1).strip()
+    if _find_and_focus_tab(app_name):
+        return f"Focused {app_name}."
+    else:
+        return f"Error: Could not find window with name '{app_name}'"
 
 def _birthday_surprise(match=None):
     import json
@@ -385,53 +443,27 @@ def _birthday_surprise(match=None):
     
     return "Happy birthday to you! I prepared a little surprise with a cake, and I am putting on some music for you!"
 
-def _print_on_esp(match):
-    text = match.group(1).strip()
-    try:
-        from bupi_node_server import send_to_esp32
-        if len(text) > 16:
-            send_to_esp32(text[:16], text[16:32], duration=8)
-        else:
-            send_to_esp32(text, "", duration=8)
-        return f"Printed '{text}' on the screen."
-    except Exception as e:
-        return f"Error printing to ESP: {e}"
-
-def _print_on_esp_alt(match):
-    text = match.group(1).strip()
-    try:
-        from bupi_node_server import send_to_esp32
-        if len(text) > 16:
-            send_to_esp32(text[:16], text[16:32], duration=8)
-        else:
-            send_to_esp32(text, "", duration=8)
-        return f"Printed '{text}' on the screen."
-    except Exception as e:
-        return f"Error printing to ESP: {e}"
-
-def _send_mqtt(match):
-    topic = match.group(1).strip()
-    message = match.group(2).strip()
-    return handle_iot_command(topic, message)
-
 PATTERNS = [
-    (re.compile(r"\[MQTT_SEND:(.+?):(.+)\]", re.I), _send_mqtt),
     (re.compile(r"(?:call me|my name is)\s+(.+)",     re.I), _set_name),
     (re.compile(r"(?:remember that|note that)\s+(.+)",             re.I), _remember_fact),
     (re.compile(r"(?:search|google)\s+(?:for\s+)?(.+)",         re.I), _google_search),
-    (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:chrome|browser|firefox)",re.I), _open_browser),
-    (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:vs\s?code|code editor)", re.I), _open_vscode),
-    (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:my\s+)?(?:notepad|notes|text)", re.I), _open_notepad),
-    (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?spotify",                 re.I), _open_spotify),
-    (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:calculator|calc)",       re.I), _open_calculator),
-    (re.compile(r"(?:open|check)\s+(?:my\s+)?whatsapp",                re.I), _open_whatsapp),
+    (re.compile(r"(?:open|start|launch)\s+(?:up\s+|the\s+|google\s+)*(?:chrome|browser|firefox)",re.I), _open_browser),
+    (re.compile(r"(?:open|start|launch)\s+(?:up\s+|the\s+)*(?:vs\s?code|code editor)", re.I), _open_vscode),
+    (re.compile(r"(?:open|start|launch)\s+(?:up\s+|the\s+|my\s+)*(?:notepad|notes|text)", re.I), _open_notepad),
+    (re.compile(r"(?:open|start|launch)\s+(?:up\s+|the\s+)*spotify",                 re.I), _open_spotify),
+    (re.compile(r"(?:open|start|launch)\s+(?:up\s+|the\s+)*(?:calculator|calc)",       re.I), _open_calculator),
+    (re.compile(r"(?:open|check)\s+(?:the\s+|my\s+)*whatsapp",                re.I), _open_whatsapp),
+    (re.compile(r"(?:send|message|text|whatsapp).*(?:on whatsapp|to)", re.I), _send_whatsapp),
+    (re.compile(r"(?:send|email|mail).*(?:email|mail)", re.I), _open_email),
+    (re.compile(r"(?:send|message).*(?:on linkedin)", re.I), _send_linkedin),
     (re.compile(r"(?:play|listen\s+to|stream)\s+(.+)",                 re.I), _play_music),
-    (re.compile(r"(?:open|start|launch)\s+(?:up\s+)?(?:youtube|yt)",                    re.I), _open_youtube),
+    (re.compile(r"(?:open|start|launch)\s+(?:up\s+|the\s+)*(?:youtube|yt)",                    re.I), _open_youtube),
     (re.compile(r"(?:what.?s the time|current time|time now|what time)", re.I), _get_time),
     (re.compile(r"(?:what.?s today|what day|today.?s date)", re.I), _get_date),
     (re.compile(r"(?:take a screenshot|take screenshot|take a picture of my screen)", re.I), _take_screenshot),
     (re.compile(r"^(?:type|write|enter)\s+(.+)", re.I), _keyboard_type),
-    (re.compile(r"^(?:press|hit)\s+(?:the\s+)?([a-z0-9]+)\s+(?:key|button)?", re.I), _keyboard_press),
+    (re.compile(r"^(?:press|hit)\s+(?:the\s+)?([a-z0-9\+\s]+?)\s*(?:key|button)?$", re.I), _keyboard_press),
+    (re.compile(r"^(?:switch|focus)\s+(?:to\s+)?(?:the\s+)?(.+?)(?:\s+window)?$", re.I), _switch_window),
     (re.compile(r".*(?:birthday).*", re.I), lambda m: _birthday_surprise(m)),
 ]
 
