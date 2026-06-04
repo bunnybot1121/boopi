@@ -199,7 +199,10 @@ class AIThread(QThread):
             else:
                 self.or_clients.append(None)
 
-        self.local_client = OpenAI(base_url=self.local_llm_url, api_key="ollama")
+        self.weather_info = "Loading local weather..."
+        import datetime
+        self.last_weather_fetch_time = datetime.datetime.min
+        self._update_weather_async()
 
         self.start()
 
@@ -228,6 +231,33 @@ class AIThread(QThread):
 
     def clear_memory(self):
         self._history.clear()
+
+    def _update_weather_async(self):
+        import datetime
+        self.last_weather_fetch_time = datetime.datetime.now()
+        def fetch():
+            try:
+                import urllib.request
+                req = urllib.request.Request(
+                    "https://wttr.in/?format=%l:+%t+%c+%C",
+                    headers={"User-Agent": "curl/7.79.1"}
+                )
+                with urllib.request.urlopen(req, timeout=5.0) as response:
+                    info = response.read().decode('utf-8').strip()
+                    if info:
+                        self.weather_info = info
+                        try:
+                            safe_info = info.encode('ascii', 'ignore').decode('ascii')
+                            print(f"From Python: [Weather Cache] Updated weather: {safe_info}", flush=True)
+                        except Exception:
+                            pass
+            except Exception as e:
+                print(f"From Python: [Weather Warning] Failed to update weather: {e}", flush=True)
+                if not hasattr(self, "weather_info") or self.weather_info == "Loading local weather...":
+                    self.weather_info = "Unknown (Unable to fetch local weather)"
+
+        import threading
+        threading.Thread(target=fetch, daemon=True).start()
 
     def check_api_keys(self):
         def worker():
@@ -810,18 +840,10 @@ Generated Code:
                 import datetime
                 current_time = datetime.datetime.now().strftime("%A, %B %d, %Y - %I:%M %p")
                 
-                # Fetch current local weather/temperature from wttr.in (with a strict timeout)
-                weather_info = "Unknown (Unable to fetch local weather)"
-                try:
-                    import urllib.request
-                    req = urllib.request.Request(
-                        "https://wttr.in/?format=%l:+%t+%c+%C",
-                        headers={"User-Agent": "curl/7.79.1"}
-                    )
-                    with urllib.request.urlopen(req, timeout=1.5) as response:
-                        weather_info = response.read().decode('utf-8').strip()
-                except Exception as e:
-                    print(f"From Python: [Weather Warning] Failed to fetch weather: {e}", flush=True)
+                # Check if cached weather is older than 20 minutes
+                if not hasattr(self, "last_weather_fetch_time") or (datetime.datetime.now() - self.last_weather_fetch_time > datetime.timedelta(minutes=20)):
+                    self._update_weather_async()
+                weather_info = self.weather_info
 
                 sys_prompt = SYSTEM_PROMPT.format(user_name=user_name, current_time=current_time, weather_info=weather_info, notes=notes_str)
                 

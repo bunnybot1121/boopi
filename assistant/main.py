@@ -280,12 +280,14 @@ def on_transcription(text: str):
     # Mode 2 explicit toggles
     if re.search(r"\b(?:shift|switch|change|enable|toggle|open|go)\s*(?:to|2|two)?\s*mode\s*(?:2|two|to|too)\b", text, re.I) or re.search(r"\bmode\s*(?:2|two|to|too)\b", text, re.I):
         mode2_active = True
+        print(json.dumps({"type": "mode_changed", "value": 2}), flush=True)
         state_mgr.transition("talking")
         speaker.say("Shifting to Mode 2. Robotic orchestration enabled.")
         return
 
     if re.search(r"\b(?:shift|switch|change|enable|toggle|open|go)\s*(?:to|2|two)?\s*mode\s*(?:1|one|won)\b", text, re.I) or re.search(r"\bmode\s*(?:1|one|won)\b", text, re.I):
         mode2_active = False
+        print(json.dumps({"type": "mode_changed", "value": 1}), flush=True)
         state_mgr.transition("talking")
         speaker.say("Shifting to Mode 1. Conversation mode enabled.")
         return
@@ -619,6 +621,7 @@ def startup_sequence():
     state_mgr.force("startup")
     
     # Open notepad and provide summary
+    print(json.dumps({"type": "mode_changed", "value": 1}), flush=True)
     print(json.dumps({"type": "command", "value": "open_notepad"}), flush=True)
     on_ai_notepad_title("Notifications Summary")
     on_ai_notepad_clear()

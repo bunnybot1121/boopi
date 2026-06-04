@@ -201,6 +201,10 @@ function spawnEngine() {
           if (mainWindow) {
             mainWindow.webContents.send('speech-text', msg.value);
           }
+        } else if (msg.type === "mode_changed") {
+          if (mainWindow) {
+            mainWindow.webContents.send('mode-changed', msg.value);
+          }
         } else if (msg.type === "draw") {
           if (notepadWindow) {
             notepadWindow.webContents.send('notepad-draw', msg.value);
@@ -467,6 +471,35 @@ if (!gotTheLock) {
     ipcMain.on('request-connected-nodes', (event) => {
       // console.log("[Main] Connected nodes status requested");
       sendCommand('refresh_nodes');
+    });
+
+    let isDraggingWindow = false;
+    let dragStartBounds = null;
+
+    ipcMain.on('window-drag-start', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        isDraggingWindow = true;
+        dragStartBounds = mainWindow.getBounds();
+      }
+    });
+
+    ipcMain.on('window-drag', (event, { deltaX, deltaY }) => {
+      if (mainWindow && !mainWindow.isDestroyed() && isDraggingWindow && dragStartBounds) {
+        const bounds = mainWindow.getBounds();
+        mainWindow.setBounds({
+          x: bounds.x + deltaX,
+          y: bounds.y + deltaY,
+          width: dragStartBounds.width,
+          height: dragStartBounds.height
+        });
+      }
+    });
+
+    ipcMain.on('window-drag-end', () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        isDraggingWindow = false;
+        dragStartBounds = null;
+      }
     });
 
     app.on('activate', () => {

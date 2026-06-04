@@ -1,84 +1,78 @@
-// Rive-based mascot handler for Compy UI / boopi assistant.
-// Plays tiny_mascot.riv directly inside Electron using @rive-app/canvas.
-//
-// Ported behavioral layer from OpenHumans project:
-//   - Conversation-aware acknowledgment face picker (emoji + keyword analysis)
-//   - Hold-then-idle transition pattern
-//   - Tool-activity face mapping
-//   - Smooth viseme decay
-//   - Rich state transitions
+// SVG-based mascot handler for Compy UI / boopi assistant.
+// Plays native 2D SVG elements directly using requestAnimationFrame.
 
-const fs = require('fs');
-const path = require('path');
+let startTime = 0;
+let lastTimestamp = 0;
+let isAnimating = false;
 
-let container = null;
-let canvas = null;
-let riveInstance = null;
 let currentState = 'idle';
 let previousState = 'idle';
 let stateTime = 0;
-let lastTime = 0;
 
-// Rive view model properties
-let poseProp = null;
-let visemeProp = null;
-let primaryColorProp = null;
-let secondaryColorProp = null;
+let originalBobGroupHTML = '';
+let currentMascotSVGFile = '';
 
-// ──────────────────────────────────────────────────────────
-// Hold-then-idle transition system
-// ──────────────────────────────────────────────────────────
-const ACK_FACE_HOLD_MS = 700;    // How long to hold an ack face before returning to idle
+const MASCOT_STATE_SVGS = {
+  'drinking_boba': 'Boobateaholding.svg',
+  'reading': 'Bookreading.svg',
+  'writing': 'Bookreading.svg',
+  'drinking_coffee': 'Cupholding.svg',
+  'chilling': 'hatwithbag.svg',
+  'happy': 'celebrate.svg',
+  'excited': 'celebrate.svg',
+  'celebrating': 'celebrate.svg',
+  'praise': 'syicsmile.svg',
+  'concerned': 'Crying.svg',
+  'error': 'Crying.svg',
+  'angry': 'Crying.svg',
+  'confused': 'syicsmile.svg',
+  'laughing': 'Laughing.svg',
+  'wink': 'wink.svg',
+  'bigsmile': 'bigsmilewithblackcap.svg',
+  'idle_pose': 'idelMascot.svg'
+};
+
+// Conversation-aware acknowledgment face picker config
+const ACK_FACE_HOLD_MS = 1200;    // How long to hold an ack face before returning to idle
 const VISEME_DECAY_MS = 180;     // How long mouth takes to decay to silence after speech ends
 
 let ackTimer = null;
 let isHoldingAckFace = false;    // True while an ack face is being held
 
-function clearAckTimer() {
-  if (ackTimer !== null) {
-    clearTimeout(ackTimer);
-    ackTimer = null;
-  }
-  isHoldingAckFace = false;
-}
+// Target variables for smooth LERPing
+let targetThinkProgress = 0;
+let currentThinkProgress = 0;
 
-/**
- * Show an acknowledgment face briefly, then return to idle.
- * This creates the "emotional beat" after a completed turn.
- */
-function holdThenIdle(ackFace, holdMs = ACK_FACE_HOLD_MS) {
-  clearAckTimer();
-  isHoldingAckFace = true;
-  
-  const poseName = FACE_TO_POSE[ackFace] || 'idle';
-  console.log(`[Rive Ack] Holding face "${ackFace}" (pose: ${poseName}) for ${holdMs}ms before returning to idle`);
-  
-  if (poseProp) {
-    try {
-      setEnumProperty(poseProp, poseName);
-    } catch (e) {
-      console.error('[Rive Ack] Error setting ack pose:', e);
-    }
-  }
-  
-  ackTimer = setTimeout(() => {
-    ackTimer = null;
-    isHoldingAckFace = false;
-    console.log('[Rive Ack] Hold complete, returning to idle');
-    if (poseProp) {
-      try {
-        setEnumProperty(poseProp, 'idle');
-      } catch (e) {
-        console.error('[Rive Ack] Error returning to idle:', e);
-      }
-    }
-  }, holdMs);
-}
+let targetSleepProgress = 0;
+let currentSleepProgress = 0;
 
-// ──────────────────────────────────────────────────────────
-// Conversation acknowledgment face picker
-// (Ported from OpenHumans useHumanMascot.ts pickConversationAckFace)
-// ──────────────────────────────────────────────────────────
+let targetTalkingProgress = 0;
+let currentTalkingProgress = 0;
+
+let targetWavingProgress = 1; 
+let currentWavingProgress = 1;
+
+let targetSteadyProgress = 0; 
+let currentSteadyProgress = 0;
+
+let targetBookProgress = 0;
+let currentBookProgress = 0;
+
+let targetCoffeeProgress = 0;
+let currentCoffeeProgress = 0;
+
+let targetBobaProgress = 0;
+let currentBobaProgress = 0;
+
+// Viseme queue variables
+let visemeQueue = [];
+let speechTimer = 0;
+let lastVisemeSetTime = 0;
+let lastVisemeCode = 'sil';
+
+// Accumulated speech for ack-face analysis
+let accumulatedSpeechForAck = "";
+let thinkingRoundCount = 0;  // Track consecutive thinking rounds
 
 // Emoji reaction sets
 const HAPPY_REACTION_EMOJIS = new Set(['✅', '🎉', '🙌', '😊', '😄', '👍', '💪']);
@@ -101,101 +95,106 @@ const CAUTIOUS_TEXT_RE = /\b(be careful|warning|caution|heads? up|please note|ma
 const CELEBRATING_TEXT_RE = /\b(congrat(ulations|s)?|well done|bravo|hooray|woohoo|amazing|fantastic|incredible|awesome work)\b/i;
 const GREETING_TEXT_RE = /^(hello|hey|hi there|good (morning|afternoon|evening)|welcome back|greetings|howdy)[!.,]?(?:\s|$)/i;
 
-/**
- * Analyze speech text to pick an appropriate acknowledgment face.
- * Checks emojis first (explicit signal), then falls back to keyword matching.
- * @param {string} text - The speech/response text to analyze
- * @returns {string|null} A MascotFace string or null if no match
- */
-function pickConversationAckFace(text) {
-  if (!text || !text.trim()) return null;
-  
-  const trimmed = text.trim();
-  
-  // Check for emoji reactions first (strongest signal)
-  for (const ch of trimmed) {
-    if (CELEBRATING_REACTION_EMOJIS.has(ch)) return 'celebrating';
-    if (DANCING_REACTION_EMOJIS.has(ch)) return 'dancing';
-    if (WAVING_REACTION_EMOJIS.has(ch)) return 'waving';
-    if (PROUD_REACTION_EMOJIS.has(ch)) return 'proud';
-    if (HAPPY_REACTION_EMOJIS.has(ch)) return 'happy';
-    if (CURIOUS_REACTION_EMOJIS.has(ch)) return 'curious';
-    if (CONFUSED_REACTION_EMOJIS.has(ch)) return 'confused';
-    if (CAUTIOUS_REACTION_EMOJIS.has(ch)) return 'cautious';
-    if (CONCERNED_REACTION_EMOJIS.has(ch)) return 'concerned';
+// Color theme definitions
+const PALETTES = {
+  yellow: {
+    bodyFill: '#F7D145',
+    neckShadowColor: '#B23C05',
+    bodyHighlightMatrix: '0 0 0 0 0.962384 0 0 0 0 0.860378 0 0 0 0 0.484572 0 0 0 1 0',
+    bodyShadowMatrix: '0 0 0 0 0.797063 0 0 0 0 0.575703 0 0 0 0 0.0980312 0 0 0 1 0',
+    headHighlightMatrix: '0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1 0',
+    headShadowMatrix: '0 0 0 0 0.797063 0 0 0 0 0.575703 0 0 0 0 0.0980312 0 0 0 1 0',
+    armHighlightMatrix: '0 0 0 0 0.973501 0 0 0 0 0.909066 0 0 0 0 0.671677 0 0 0 1 0',
+    armShadowMatrix: '0 0 0 0 0.796078 0 0 0 0 0.576471 0 0 0 0 0.0980392 0 0 0 1 0'
+  },
+  burgundy: {
+    bodyFill: '#8A2647',
+    neckShadowColor: '#541128',
+    bodyHighlightMatrix: '0 0 0 0 0.607843 0 0 0 0 0.235294 0 0 0 0 0.313726 0 0 0 1 0',
+    bodyShadowMatrix: '0 0 0 0 0.27451 0 0 0 0 0.0745098 0 0 0 0 0.129412 0 0 0 1 0',
+    headHighlightMatrix: '0 0 0 0 0.854902 0 0 0 0 0.611765 0 0 0 0 0.690196 0 0 0 1 0',
+    headShadowMatrix: '0 0 0 0 0.27451 0 0 0 0 0.0745098 0 0 0 0 0.129412 0 0 0 1 0',
+    armHighlightMatrix: '0 0 0 0 0.607843 0 0 0 0 0.235294 0 0 0 0 0.313726 0 0 0 1 0',
+    armShadowMatrix: '0 0 0 0 0.27451 0 0 0 0 0.0745098 0 0 0 0 0.129412 0 0 0 1 0'
+  },
+  navy: {
+    bodyFill: '#234B74',
+    neckShadowColor: '#16324D',
+    bodyHighlightMatrix: '0 0 0 0 0.270588 0 0 0 0 0.447059 0 0 0 0 0.654902 0 0 0 1 0',
+    bodyShadowMatrix: '0 0 0 0 0.0705882 0 0 0 0 0.14902 0 0 0 0 0.270588 0 0 0 1 0',
+    headHighlightMatrix: '0 0 0 0 0.603922 0 0 0 0 0.760784 0 0 0 0 0.905882 0 0 0 1 0',
+    headShadowMatrix: '0 0 0 0 0.0705882 0 0 0 0 0.14902 0 0 0 0 0.270588 0 0 0 1 0',
+    armHighlightMatrix: '0 0 0 0 0.270588 0 0 0 0 0.447059 0 0 0 0 0.654902 0 0 0 1 0',
+    armShadowMatrix: '0 0 0 0 0.0705882 0 0 0 0 0.14902 0 0 0 0 0.270588 0 0 0 1 0'
+  },
+  green: {
+    bodyFill: '#5FA64F',
+    neckShadowColor: '#2E5A24',
+    bodyHighlightMatrix: '0 0 0 0 0.403922 0 0 0 0 0.654902 0 0 0 0 0.364706 0 0 0 1 0',
+    bodyShadowMatrix: '0 0 0 0 0.113725 0 0 0 0 0.270588 0 0 0 0 0.117647 0 0 0 1 0',
+    headHighlightMatrix: '0 0 0 0 0.780392 0 0 0 0 0.894118 0 0 0 0 0.733333 0 0 0 1 0',
+    headShadowMatrix: '0 0 0 0 0.113725 0 0 0 0 0.270588 0 0 0 0 0.117647 0 0 0 1 0',
+    armHighlightMatrix: '0 0 0 0 0.403922 0 0 0 0 0.654902 0 0 0 0 0.364706 0 0 0 1 0',
+    armShadowMatrix: '0 0 0 0 0.113725 0 0 0 0 0.270588 0 0 0 0 0.117647 0 0 0 1 0'
+  },
+  skyBlue: {
+    bodyFill: '#8ECAE6',
+    neckShadowColor: '#4C829B',
+    bodyHighlightMatrix: '0 0 0 0 0.81 0 0 0 0 0.92 0 0 0 0 0.97 0 0 0 1 0',
+    bodyShadowMatrix: '0 0 0 0 0.2 0 0 0 0 0.5 0 0 0 0 0.65 0 0 0 1 0',
+    headHighlightMatrix: '0 0 0 0 0.85 0 0 0 0 0.94 0 0 0 0 0.98 0 0 0 1 0',
+    headShadowMatrix: '0 0 0 0 0.2 0 0 0 0 0.5 0 0 0 0 0.65 0 0 0 1 0',
+    armHighlightMatrix: '0 0 0 0 0.81 0 0 0 0 0.92 0 0 0 0 0.97 0 0 0 1 0',
+    armShadowMatrix: '0 0 0 0 0.231 0 0 0 0 0.533 0 0 0 0 0.675 0 0 0 1 0'
   }
-  
-  // Text keyword analysis — priority: concerned > cautious > proud > confused > curious > happy
-  if (CONCERNED_TEXT_RE.test(trimmed)) return 'concerned';
-  if (CAUTIOUS_TEXT_RE.test(trimmed)) return 'cautious';
-  if (CELEBRATING_TEXT_RE.test(trimmed)) return 'celebrating';
-  if (PROUD_TEXT_RE.test(trimmed)) return 'proud';
-  if (CONFUSED_TEXT_RE.test(trimmed)) return 'confused';
-  if (CURIOUS_TEXT_RE.test(trimmed)) return 'curious';
-  if (GREETING_TEXT_RE.test(trimmed)) return 'waving';
-  if (HAPPY_TEXT_RE.test(trimmed)) return 'happy';
-  
-  return null;
+};
+
+let currentPalette = 'yellow';
+let currentMode = 1; // 1 = Mode 1 (Yellow), 2 = Mode 2 (Sky Blue)
+
+// Viseme shape scale mapping in X and Y
+const VISEME_SHAPES = {
+  'sil': { x: 0.9, y: 0.05 },
+  'PP': { x: 0.8, y: 0.05 },
+  'FF': { x: 0.85, y: 0.25 },
+  'SS': { x: 0.95, y: 0.28 },
+  'E': { x: 1.3, y: 0.5 },
+  'ih': { x: 1.25, y: 0.45 },
+  'aa': { x: 1.15, y: 1.05 },
+  'oh': { x: 0.85, y: 1.1 },
+  'ou': { x: 0.65, y: 0.85 }
+};
+
+let targetMouthScaleX = 1.0;
+let targetMouthScaleY = 0.05;
+let currentMouthScaleX = 1.0;
+let currentMouthScaleY = 0.05;
+
+// ──────────────────────────────────────────────────────────
+// Helpers
+// ──────────────────────────────────────────────────────────
+
+function lerp(start, end, amt) {
+  return (1 - amt) * start + amt * end;
 }
 
-// ──────────────────────────────────────────────────────────
-// Color Utilities
-// ──────────────────────────────────────────────────────────
-
-function hexToArgbInt(hex) {
-  const h = hex.replace('#', '');
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  return ((0xff << 24) | (r << 16) | (g << 8) | b) >>> 0;
+function easeInOutCubic(x) {
+  return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
 }
 
-// ──────────────────────────────────────────────────────────
-// Rive Property Helpers
-// ──────────────────────────────────────────────────────────
-
-function setEnumProperty(prop, stringValue) {
-  if (!prop) return;
-  try {
-    prop.value = stringValue; // String representation is expected by Rive Web assembly bindings
-  } catch (e) {
-    console.error(`[Rive VM Debug] Error setting property to ${stringValue}:`, e);
+function interpolateArray(val, input, output, easeFn) {
+  if (val <= input[0]) return output[0];
+  if (val >= input[input.length - 1]) return output[output.length - 1];
+  for (let i = 0; i < input.length - 1; i++) {
+    if (val >= input[i] && val <= input[i+1]) {
+      const t = (val - input[i]) / (input[i+1] - input[i]);
+      const easedT = easeFn ? easeFn(t) : t;
+      return output[i] + easedT * (output[i+1] - output[i]);
+    }
   }
+  return output[0];
 }
 
-// ──────────────────────────────────────────────────────────
-// Viseme System
-// ──────────────────────────────────────────────────────────
-
-// Pick Oculus 15-set viseme code from a character
-function pickVisemeCode(ch) {
-  switch (ch) {
-    case 'a': return 'aa';
-    case 'e': return 'E';
-    case 'i':
-    case 'y': return 'I';
-    case 'o': return 'O';
-    case 'u':
-    case 'w': return 'U';
-    case 'm':
-    case 'b':
-    case 'p': return 'PP';
-    case 'f':
-    case 'v': return 'FF';
-    case 's':
-    case 'z': return 'SS';
-    case 'n':
-    case 'l': return 'nn';
-    case 't':
-    case 'd': return 'DD';
-    case 'k':
-    case 'g': return 'kk';
-    case 'r': return 'RR';
-    default: return 'E';
-  }
-}
-
-// Map Oculus 15-set viseme codes to Rive asset's viseme vocabulary
 function toRiveVisemeCode(oculusCode) {
   const OCULUS_TO_RIVE_VISEME = {
     I: 'ih',
@@ -209,28 +208,260 @@ function toRiveVisemeCode(oculusCode) {
   return OCULUS_TO_RIVE_VISEME[oculusCode] || oculusCode;
 }
 
-let mouthTimer = 0;
-const talkingVisemes = ['aa', 'ih', 'E', 'oh', 'ou', 'PP', 'FF', 'SS', 'sil'];
+// ──────────────────────────────────────────────────────────
+// Color Controller
+// ──────────────────────────────────────────────────────────
 
-// Procedural syllable-based lipsync state
-let visemeQueue = [];
-let speechTimer = 0;
-let lastVisemeSetTime = 0;  // For decay tracking
-let lastVisemeCode = 'sil'; // Last viseme set, for decay
+function updatePaletteColors(paletteName) {
+  const p = PALETTES[paletteName];
+  if (!p) return;
 
-// Accumulated speech for ack-face analysis
-let accumulatedSpeechForAck = "";
-let thinkingRoundCount = 0;  // Track consecutive thinking rounds
+  const bodyPath = document.getElementById('body-path');
+  const headDot = document.getElementById('head-dot');
+  const leftArm = document.getElementById('left-arm');
+  const rightArmWave = document.getElementById('right-arm-wave');
+  const rightArmSteady = document.getElementById('right-arm-steady');
+  
+  if (bodyPath) bodyPath.setAttribute('fill', p.bodyFill);
+  if (headDot) headDot.setAttribute('fill', p.bodyFill);
+  if (leftArm) leftArm.setAttribute('fill', p.bodyFill);
+  if (rightArmWave) rightArmWave.setAttribute('fill', p.bodyFill);
+  if (rightArmSteady) rightArmSteady.setAttribute('fill', p.bodyFill);
+  
+  const bookLeftArm = document.getElementById('book-left-arm');
+  const bookRightArm = document.getElementById('book-right-arm');
+  const cupLeftArm = document.getElementById('cup-left-arm');
+  const cupRightArm = document.getElementById('cup-right-arm');
+  if (bookLeftArm) bookLeftArm.setAttribute('fill', p.bodyFill);
+  if (bookRightArm) bookRightArm.setAttribute('fill', p.bodyFill);
+  if (cupLeftArm) cupLeftArm.setAttribute('fill', p.bodyFill);
+  if (cupRightArm) cupRightArm.setAttribute('fill', p.bodyFill);
+  
+  const neckShadow1 = document.querySelector('#neck-shadow-1 path');
+  const neckShadow2 = document.querySelector('#neck-shadow-2 path');
+  if (neckShadow1) neckShadow1.setAttribute('fill', p.neckShadowColor);
+  if (neckShadow2) neckShadow2.setAttribute('fill', p.neckShadowColor);
 
-/**
- * Procedural syllable-based lip-sync parser.
- * Maps words to phoneme-like mouth shapes and schedules durations
- * based on word lengths, producing natural, flowing mouth movements.
- */
+  const f0Highlight = document.getElementById('f0-highlight-matrix');
+  const f0Shadow = document.getElementById('f0-shadow-matrix');
+  if (f0Highlight) f0Highlight.setAttribute('values', p.bodyHighlightMatrix);
+  if (f0Shadow) f0Shadow.setAttribute('values', p.bodyShadowMatrix);
+  
+  const f1Highlight = document.getElementById('f1-highlight-matrix');
+  const f1Shadow = document.getElementById('f1-shadow-matrix');
+  if (f1Highlight) f1Highlight.setAttribute('values', p.headHighlightMatrix);
+  if (f1Shadow) f1Shadow.setAttribute('values', p.headShadowMatrix);
+  
+  const f4Highlight = document.getElementById('f4-highlight-matrix');
+  const f4Shadow = document.getElementById('f4-shadow-matrix');
+  if (f4Highlight) f4Highlight.setAttribute('values', p.armHighlightMatrix);
+  if (f4Shadow) f4Shadow.setAttribute('values', p.armShadowMatrix);
+  
+  const f5Highlight = document.getElementById('f5-highlight-matrix');
+  const f5Shadow = document.getElementById('f5-shadow-matrix');
+  const leftArmShadow = p.armShadowMatrix.endsWith(" 1 0") 
+    ? p.armShadowMatrix.substring(0, p.armShadowMatrix.length - 4) + " 0.8 0"
+    : p.armShadowMatrix;
+  if (f5Highlight) f5Highlight.setAttribute('values', p.armHighlightMatrix);
+  if (f5Shadow) f5Shadow.setAttribute('values', leftArmShadow);
+
+  const f13Highlight = document.getElementById('f13-highlight-matrix');
+  const f13Shadow = document.getElementById('f13-shadow-matrix');
+  if (f13Highlight) f13Highlight.setAttribute('values', p.armHighlightMatrix);
+  if (f13Shadow) f13Shadow.setAttribute('values', leftArmShadow);
+
+  // Apply colors to dynamic custom SVG layers if active
+  if (currentMascotSVGFile !== '') {
+    const bobGroup = document.getElementById('bob-group');
+    if (bobGroup) {
+      const yellowElements = bobGroup.querySelectorAll('[fill="#F7D145"], [fill="#f7d145"], [fill="rgb(247, 209, 69)"]');
+      yellowElements.forEach(el => el.setAttribute('fill', p.bodyFill));
+
+      const shadowElements = bobGroup.querySelectorAll('[fill="#B23C05"], [fill="#b23c05"], [fill="rgb(178, 60, 5)"]');
+      shadowElements.forEach(el => el.setAttribute('fill', p.neckShadowColor));
+    }
+
+    const mainDefs = document.querySelector('#mascot-svg defs');
+    if (mainDefs) {
+      const customMatrices = mainDefs.querySelectorAll('.custom-def feColorMatrix');
+      customMatrices.forEach(matrix => {
+        const vals = matrix.getAttribute('values');
+        if (!vals) return;
+        if (vals.includes('0.962384') || vals.includes('0.860378')) {
+          matrix.setAttribute('values', p.bodyHighlightMatrix);
+        } else if (vals.includes('0.797063') && (vals.includes('0.575703') || vals.includes('0.0980312'))) {
+          matrix.setAttribute('values', p.bodyShadowMatrix);
+        } else if (vals.startsWith('0 0 0 0 1') || vals.includes('1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 0 0 0 1 0')) {
+          matrix.setAttribute('values', p.headHighlightMatrix);
+        } else if (vals.includes('0.973501') || vals.includes('0.909066')) {
+          matrix.setAttribute('values', p.armHighlightMatrix);
+        } else if (vals.includes('0.796078') || vals.includes('0.576471')) {
+          matrix.setAttribute('values', p.armShadowMatrix);
+        }
+      });
+    }
+  }
+}
+
+function updatePaletteMapping() {
+  let target = (currentMode === 2) ? 'skyBlue' : 'yellow';
+  
+  if (currentState === 'angry' || currentState === 'error') {
+    target = 'burgundy';
+  } else if (currentState === 'sleeping') {
+    target = 'navy';
+  } else if (currentState === 'chilling') {
+    const isSpeaking = visemeQueue.length > 0 || speechTimer > 0;
+    if (isSpeaking) {
+      target = (currentMode === 2) ? 'skyBlue' : 'yellow';
+    } else {
+      target = 'green';
+    }
+  }
+  
+  if (target !== currentPalette) {
+    currentPalette = target;
+    updatePaletteColors(currentPalette);
+  }
+}
+
+// ──────────────────────────────────────────────────────────
+// State Target Controller
+// ──────────────────────────────────────────────────────────
+
+function updateStateTargets() {
+  updatePaletteMapping();
+
+  // Load custom SVG or restore original based on current state
+  const customSvg = MASCOT_STATE_SVGS[currentState];
+  if (customSvg) {
+    loadCustomMascotSVG(customSvg);
+  } else {
+    restoreOriginalMascot();
+  }
+
+  // Talking
+  const isSpeaking = visemeQueue.length > 0 || speechTimer > 0;
+  targetTalkingProgress = (currentState === 'talking' || isSpeaking) ? 1 : 0;
+
+  // Sleeping
+  targetSleepProgress = (currentState === 'sleeping') ? 1 : 0;
+
+  // Thinking
+  if (currentState === 'thinking' || currentState === 'confused' || currentState === 'concerned' || currentState === 'reading' || currentState === 'writing') {
+    targetThinkProgress = 1;
+  } else {
+    targetThinkProgress = 0;
+  }
+
+  // Waving vs Steady arm
+  if (['idle', 'chilling', 'waiting', 'sleeping', 'thinking', 'confused', 'concerned', 'reading', 'writing', 'drinking_coffee', 'drinking_boba'].includes(currentState)) {
+    targetWavingProgress = 0;
+    targetSteadyProgress = 1;
+  } else {
+    targetWavingProgress = 1;
+    targetSteadyProgress = 0;
+  }
+
+  // Accessories progresses
+  targetBookProgress = (currentState === 'reading' || currentState === 'writing') ? 1 : 0;
+  targetCoffeeProgress = (currentState === 'drinking_coffee') ? 1 : 0;
+  targetBobaProgress = (currentState === 'drinking_boba') ? 1 : 0;
+}
+
+function clearAckTimer() {
+  if (ackTimer !== null) {
+    clearTimeout(ackTimer);
+    ackTimer = null;
+  }
+  isHoldingAckFace = false;
+}
+
+function holdThenIdle(ackFace, holdMs = ACK_FACE_HOLD_MS) {
+  clearAckTimer();
+  isHoldingAckFace = true;
+  
+  const tempState = mapFaceToState(ackFace);
+  console.log(`[SVG Mascot Ack] Holding state "${tempState}" (from face "${ackFace}") for ${holdMs}ms`);
+  
+  currentState = tempState;
+  stateTime = 0;
+  updateStateTargets();
+  
+  ackTimer = setTimeout(() => {
+    ackTimer = null;
+    isHoldingAckFace = false;
+    console.log('[SVG Mascot Ack] Hold complete, returning to idle');
+    currentState = 'idle';
+    stateTime = 0;
+    updateStateTargets();
+  }, holdMs);
+}
+
+function mapFaceToState(face) {
+  const FACE_TO_STATE = {
+    idle: 'idle',
+    normal: 'idle',
+    sleep: 'sleeping',
+    listening: 'listening',
+    thinking: 'thinking',
+    confused: 'confused',
+    speaking: 'talking',
+    happy: 'happy',
+    concerned: 'concerned',
+    curious: 'thinking',
+    proud: 'happy',
+    cautious: 'thinking',
+    celebrating: 'happy',
+    writing: 'writing',
+    reading: 'reading',
+    recording: 'recording',
+    waving: 'listening',
+    dancing: 'happy',
+    drinking_coffee: 'drinking_coffee',
+    drinking_boba: 'drinking_boba'
+  };
+  return FACE_TO_STATE[face] || 'idle';
+}
+
+function pickConversationAckFace(text) {
+  if (!text || !text.trim()) return null;
+  
+  const trimmed = text.trim();
+  
+  // Check for emoji reactions first
+  for (const ch of trimmed) {
+    if (CELEBRATING_REACTION_EMOJIS.has(ch)) return 'celebrating';
+    if (DANCING_REACTION_EMOJIS.has(ch)) return 'dancing';
+    if (WAVING_REACTION_EMOJIS.has(ch)) return 'waving';
+    if (PROUD_REACTION_EMOJIS.has(ch)) return 'proud';
+    if (HAPPY_REACTION_EMOJIS.has(ch)) return 'happy';
+    if (CURIOUS_REACTION_EMOJIS.has(ch)) return 'curious';
+    if (CONFUSED_REACTION_EMOJIS.has(ch)) return 'confused';
+    if (CAUTIOUS_REACTION_EMOJIS.has(ch)) return 'cautious';
+    if (CONCERNED_REACTION_EMOJIS.has(ch)) return 'concerned';
+  }
+  
+  // Text keyword analysis
+  if (CONCERNED_TEXT_RE.test(trimmed)) return 'concerned';
+  if (CAUTIOUS_TEXT_RE.test(trimmed)) return 'cautious';
+  if (CELEBRATING_TEXT_RE.test(trimmed)) return 'celebrating';
+  if (PROUD_TEXT_RE.test(trimmed)) return 'proud';
+  if (CONFUSED_TEXT_RE.test(trimmed)) return 'confused';
+  if (CURIOUS_TEXT_RE.test(trimmed)) return 'curious';
+  if (GREETING_TEXT_RE.test(trimmed)) return 'waving';
+  if (HAPPY_TEXT_RE.test(trimmed)) return 'happy';
+  
+  return null;
+}
+
+// ──────────────────────────────────────────────────────────
+// Viseme / Speech Controller
+// ──────────────────────────────────────────────────────────
+
 function generateVisemesFromText(text) {
   if (!text) return [];
   
-  // Split into words, removing punctuation
   const words = text.toLowerCase()
     .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "")
     .split(/\s+/)
@@ -239,23 +470,21 @@ function generateVisemesFromText(text) {
   const queue = [];
   
   for (const word of words) {
-    // Estimate word duration based on character length:
-    // 90ms per character, clamped between 200ms and 750ms
-    const wordDuration = Math.max(200, Math.min(750, word.length * 90)) / 1000; // in seconds
+    const wordDuration = Math.max(200, Math.min(750, word.length * 90)) / 1000;
     
-    // Extract key phonetic elements (vowels and mouth-closing consonants only)
     const keySounds = [];
     for (let i = 0; i < word.length; i++) {
       const ch = word[i];
       if (ch === 'a') keySounds.push('aa');
       else if (ch === 'o') keySounds.push('oh');
       else if (ch === 'u' || ch === 'w') keySounds.push('ou');
-      else if (ch === 'e' || ch === 'i' || ch === 'y') keySounds.push('ih');
+      else if (ch === 'e') keySounds.push('E');
+      else if (ch === 'i' || ch === 'y') keySounds.push('ih');
       else if (ch === 'p' || ch === 'b' || ch === 'm') keySounds.push('PP');
       else if (ch === 'f' || ch === 'v') keySounds.push('FF');
+      else if (['s', 'c', 'z', 'x', 't', 'd', 'n', 'l', 'g', 'k', 'j', 'q', 'r'].includes(ch)) keySounds.push('SS');
     }
     
-    // De-duplicate consecutive identical visemes
     const filteredSounds = [];
     for (const sound of keySounds) {
       if (filteredSounds.length === 0 || filteredSounds[filteredSounds.length - 1] !== sound) {
@@ -263,23 +492,19 @@ function generateVisemesFromText(text) {
       }
     }
     
-    // Limit to maximum of 3 mouth shapes per word to avoid rapid fluttering
-    const finalSounds = filteredSounds.slice(0, 3);
+    const finalSounds = filteredSounds.slice(0, 4);
     
-    // Default open-close if no key sounds
     if (finalSounds.length === 0) {
       queue.push({ code: 'ih', duration: wordDuration * 0.6 });
       queue.push({ code: 'sil', duration: wordDuration * 0.4 });
       continue;
     }
     
-    // Distribute duration
     const frameDuration = wordDuration / finalSounds.length;
     for (const sound of finalSounds) {
       queue.push({ code: sound, duration: frameDuration });
     }
     
-    // Short silence between words for visual phrasing
     queue.push({ code: 'sil', duration: 0.03 });
   }
   
@@ -288,452 +513,566 @@ function generateVisemesFromText(text) {
 
 export function setSpeechText(text) {
   visemeQueue = generateVisemesFromText(text);
-  speechTimer = 0; // Trigger immediate play of first frame
-  console.log('[Rive Lipsync] Generated syllable-based viseme queue. Length:', visemeQueue.length);
+  speechTimer = 0; 
+  console.log('[SVG lipsync] Viseme queue length:', visemeQueue.length);
   
-  // Accumulate raw text for ack-face analysis
   if (text && !text.startsWith("Heard: ")) {
     accumulatedSpeechForAck += " " + text;
   }
 }
 
-/**
- * Called when speech playback is done (talking → idle transition).
- * Analyzes accumulated speech text and shows an appropriate ack face.
- */
 export function onSpeechDone() {
   const ackFace = pickConversationAckFace(accumulatedSpeechForAck);
-  console.log(`[Rive Ack] Speech done. Accumulated text: "${accumulatedSpeechForAck.trim().substring(0, 80)}..." → ackFace: ${ackFace || 'happy (default)'}`);
+  console.log(`[SVG Ack] Speech done. Accumulated text: "${accumulatedSpeechForAck.trim().substring(0, 80)}..." -> ackFace: ${ackFace || 'happy (default)'}`);
   
-  // Reset viseme to silence smoothly
   lastVisemeSetTime = performance.now();
   lastVisemeCode = 'sil';
   
-  // Show ack face, defaulting to 'happy'
   holdThenIdle(ackFace || 'happy');
   
-  // Reset accumulated speech
   accumulatedSpeechForAck = "";
   thinkingRoundCount = 0;
 }
 
-/**
- * Called when an error transition occurs.
- * Shows concerned face briefly before idle.
- */
 export function onErrorOccurred() {
-  console.log('[Rive Ack] Error occurred, showing concerned face');
+  console.log('[SVG Ack] Error occurred, showing concerned face');
   holdThenIdle('concerned');
   accumulatedSpeechForAck = "";
-}
-
-// ──────────────────────────────────────────────────────────
-// Pose Mapping (matches OpenHumans RiveMascot.tsx FACE_TO_POSE)
-// ──────────────────────────────────────────────────────────
-
-const FACE_TO_POSE = {
-  idle: 'idle',
-  normal: 'idle',
-  sleep: 'idle',
-  listening: 'idle',
-  thinking: 'thinking',
-  confused: 'thinking',
-  speaking: 'idle',
-  happy: 'idle',
-  concerned: 'thinking',
-  curious: 'bookreading',
-  proud: 'celebration',
-  cautious: 'thinking',
-  celebrating: 'celebration',
-  writing: 'writing',
-  reading: 'bookreading',
-  recording: 'recording',
-  waving: 'hand_wave',
-  dancing: 'dancing',
-  drinking_coffee: 'coffeedrink',
-  drinking_boba: 'bobbateadrink',
-};
-
-// ──────────────────────────────────────────────────────────
-// State → Face Mapping (enriched with OpenHumans behaviors)
-// ──────────────────────────────────────────────────────────
-
-function mapStateToFace(state) {
-  switch (state) {
-    case 'idle': return 'idle';
-    case 'chilling': return 'drinking_boba';
-    case 'waiting': return 'reading';
-    case 'listening': return 'listening';
-    case 'thinking': return 'thinking';
-    case 'talking': return 'speaking';
-    case 'error': return 'concerned';
-    case 'angry': return 'concerned';
-    case 'concerned': return 'concerned';
-    case 'happy': return 'happy';
-    case 'startup': return 'waving';
-    case 'praise': return 'proud';
-    case 'excited': return 'dancing';
-    case 'booting': return 'thinking';
-    case 'sleeping': return 'sleep';
-    case 'surprised': return 'curious';
-    case 'confused': return 'confused';
-    case 'writing': return 'writing';
-    case 'reading': return 'reading';
-    case 'recording': return 'recording';
-    case 'drinking_coffee': return 'drinking_coffee';
-    case 'cautious': return 'cautious';
-    case 'celebrating': return 'celebrating';
-    case 'typing': return 'writing';
-    default: return 'idle';
-  }
-}
-
-// ──────────────────────────────────────────────────────────
-// Rive View Model Property Resolution
-// ──────────────────────────────────────────────────────────
-
-function resolveViewModelProperties(force = false) {
-  if (poseProp && visemeProp && !force) return;
-  if (!riveInstance) return;
-
-  try {
-    // Access the auto-bound ViewModelInstance if available
-    let vmInstance = riveInstance.viewModelInstance;
-    
-    // Fallback to manual resolution if auto-bind is pending
-    if (!vmInstance) {
-      const defaultVM = typeof riveInstance.defaultViewModel === 'function' ? riveInstance.defaultViewModel() : null;
-      if (defaultVM) {
-        vmInstance = defaultVM.defaultInstance() || defaultVM.instance();
-        if (vmInstance) {
-          riveInstance.bindViewModelInstance(vmInstance);
-          console.log('[Rive VM] Explicitly bound default ViewModelInstance to artboard.');
-        }
-      }
-    }
-
-    if (vmInstance) {
-      poseProp = vmInstance.string('pose') || vmInstance.enum('pose');
-      visemeProp = vmInstance.string('mouthVisemeCode') || vmInstance.enum('mouthVisemeCode') || vmInstance.string('viseme') || vmInstance.enum('viseme');
-      primaryColorProp = vmInstance.color('primaryColor');
-      secondaryColorProp = vmInstance.color('secondaryColor');
-
-      console.log('[Rive VM] poseProp resolved:', !!poseProp);
-      console.log('[Rive VM] visemeProp resolved:', !!visemeProp);
-      console.log('[Rive VM] primaryColorProp resolved:', !!primaryColorProp);
-      console.log('[Rive VM] secondaryColorProp resolved:', !!secondaryColorProp);
-
-      if (poseProp && poseProp.values) {
-        console.log('[Rive VM] poseProp valid values:', poseProp.values);
-      }
-      if (visemeProp && visemeProp.values) {
-        console.log('[Rive VM] visemeProp valid values:', visemeProp.values);
-      }
-    } else {
-      console.warn('[Rive VM] No ViewModelInstance found.');
-    }
-  } catch (err) {
-    console.error('[Rive VM] Error resolving View Model properties:', err);
-  }
 }
 
 // ──────────────────────────────────────────────────────────
 // Initialization
 // ──────────────────────────────────────────────────────────
 
-export function init3D(containerId, dummyModelPath) {
-  container = document.getElementById(containerId);
-  if (!container) return;
+export function initSVG(containerId) {
+  console.log('[SVG Mascot] Initializing SVG elements & loops...');
+  startTime = performance.now();
+  lastTimestamp = startTime;
 
-  container.innerHTML = '';
-
-  canvas = document.createElement('canvas');
-  canvas.id = 'mascot-canvas';
-  canvas.style.width = '100%';
-  canvas.style.height = '100%';
-  canvas.width = container.clientWidth || 250;
-  canvas.height = container.clientHeight || 250;
-  container.appendChild(canvas);
-
-  // Load the .riv file using Node's fs module
-  let arrayBuffer = null;
-  try {
-    const rivPath = path.join(__dirname, 'tiny_mascot.riv');
-    console.log('[Rive] Reading mascot file from:', rivPath);
-    const rivBuffer = fs.readFileSync(rivPath);
-    arrayBuffer = rivBuffer.buffer.slice(rivBuffer.byteOffset, rivBuffer.byteOffset + rivBuffer.byteLength);
-  } catch (err) {
-    console.error('[Rive] Failed to read tiny_mascot.riv using fs:', err);
+  // Cache original bob-group HTML for restoring
+  const bobGroup = document.getElementById('bob-group');
+  if (bobGroup) {
+    originalBobGroupHTML = bobGroup.innerHTML;
   }
 
-  const riveOptions = {
-    canvas: canvas,
-    autoplay: true,
-    autoBind: true,
-    stateMachines: ['MascotSM'],
-    layout: new rive.Layout({ fit: 'contain', alignment: 'center' }),
-    locateFile: (file, path) => {
-      if (file.endsWith('.wasm')) {
-        return './node_modules/@rive-app/canvas/' + file;
-      }
-      return path + file;
-    },
-    onLoad: () => {
-      console.log('[Rive] Mascot loaded successfully.');
-      console.log('[Rive] State Machine Names:', riveInstance.stateMachineNames);
-      console.log('[Rive] Animation Names:', riveInstance.animationNames);
-      
-      try {
-        const stateMachineName = riveInstance.stateMachineNames[0] || 'Main State Machine';
-        console.log('[Rive] Activating State Machine:', stateMachineName);
-        riveInstance.play(stateMachineName);
-        
-        try {
-          const inputs = riveInstance.stateMachineInputs(stateMachineName);
-          if (inputs) {
-            console.log('[Rive] State Machine Inputs count:', inputs.length);
-            inputs.forEach(input => {
-              console.log(`[Rive Input] Name: ${input.name}, Type: ${input.type}`);
-            });
-          } else {
-            console.log('[Rive] No state machine inputs found for:', stateMachineName);
-          }
-        } catch (e) {
-          console.error('[Rive] Error listing state machine inputs:', e);
-        }
-        
-        resolveViewModelProperties(true);
-        updateRiveState();
-      } catch (err) {
-        console.error('[Rive] Error accessing state machine/view model properties:', err);
-      }
-    },
-    onError: (err) => {
-      console.error('[Rive] Runtime error:', err);
-    }
-  };
+  // Set default color theme
+  updatePaletteColors('yellow');
 
-  if (arrayBuffer) {
-    riveOptions.buffer = arrayBuffer;
-  } else {
-    riveOptions.src = './tiny_mascot.riv';
-  }
-
-  riveInstance = new rive.Rive(riveOptions);
-
-  window.addEventListener('resize', onWindowResize);
+  // Start frame loop
+  isAnimating = true;
   requestAnimationFrame(animate);
 }
 
-// ──────────────────────────────────────────────────────────
-// Window Resize
-// ──────────────────────────────────────────────────────────
+async function loadCustomMascotSVG(fileName) {
+  if (currentMascotSVGFile === fileName) return;
+  currentMascotSVGFile = fileName;
 
-function onWindowResize() {
-  if (canvas && riveInstance) {
-    canvas.width = canvas.parentElement.clientWidth;
-    canvas.height = canvas.parentElement.clientHeight;
-    riveInstance.resizeDrawingSurfaceToCanvas();
+  console.log(`[SVG Mascot] Loading custom pose: ${fileName}`);
+  try {
+    const response = await fetch(`assets/mascot/${fileName}`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch SVG: ${response.statusText}`);
+    }
+    const svgText = await response.text();
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(svgText, 'image/svg+xml');
+    const customSvg = doc.querySelector('svg');
+
+    if (!customSvg) return;
+
+    // Get new defs
+    const defs = customSvg.querySelector('defs');
+    
+    // Clean up any previously added custom defs
+    const mainDefs = document.querySelector('#mascot-svg defs');
+    if (mainDefs) {
+      const oldCustomDefs = mainDefs.querySelectorAll('.custom-def');
+      oldCustomDefs.forEach(el => el.remove());
+
+      if (defs) {
+        // Mark them as custom so we can clean them up later
+        Array.from(defs.children).forEach(child => {
+          child.classList.add('custom-def');
+          mainDefs.appendChild(child);
+        });
+      }
+    }
+
+    // Replace content of bob-group with character paths
+    const bobGroup = document.getElementById('bob-group');
+    if (bobGroup) {
+      const characterElements = Array.from(customSvg.children).filter(el => {
+        return el.tagName !== 'defs' && !(el.tagName === 'rect' && el.getAttribute('width') === '1000');
+      });
+
+      bobGroup.innerHTML = '';
+      characterElements.forEach(el => {
+        bobGroup.appendChild(el.cloneNode(true));
+      });
+    }
+
+    // Re-apply palette colors to the newly loaded paths
+    updatePaletteColors(currentPalette);
+  } catch (err) {
+    console.error(`[SVG Mascot] Error loading custom pose ${fileName}:`, err);
   }
 }
 
-// ──────────────────────────────────────────────────────────
-// State Update (with OpenHumans-style transitions)
-// ──────────────────────────────────────────────────────────
+function restoreOriginalMascot() {
+  if (currentMascotSVGFile === '') return;
+  console.log('[SVG Mascot] Restoring original animated mascot...');
+  currentMascotSVGFile = '';
 
-function updateRiveState() {
-  if (!riveInstance) return;
-
-  resolveViewModelProperties();
-
-  // Don't override an ack face that's currently being held
-  if (isHoldingAckFace) {
-    console.log('[Rive Router] Skipping pose update — ack face is being held');
-    return;
+  const mainDefs = document.querySelector('#mascot-svg defs');
+  if (mainDefs) {
+    const oldCustomDefs = mainDefs.querySelectorAll('.custom-def');
+    oldCustomDefs.forEach(el => el.remove());
   }
 
-  const face = mapStateToFace(currentState);
-  const poseName = FACE_TO_POSE[face] || 'idle';
-
-  console.log(`[Rive Router] Updating pose to: ${poseName} (from state: ${currentState})`);
-
-  if (poseProp) {
-    try {
-      setEnumProperty(poseProp, poseName);
-    } catch (e) {
-      console.error('[Rive VM Debug] Error setting poseProp:', e);
-    }
+  const bobGroup = document.getElementById('bob-group');
+  if (bobGroup && originalBobGroupHTML) {
+    bobGroup.innerHTML = originalBobGroupHTML;
   }
 
-  // Set colors to match OpenHuman theme
-  if (primaryColorProp) {
-    try {
-      primaryColorProp.value = hexToArgbInt('#F7D145');
-    } catch (e) {
-      console.error('[Rive VM Debug] Error setting primaryColorProp:', e);
-    }
-  }
-  if (secondaryColorProp) {
-    try {
-      secondaryColorProp.value = hexToArgbInt('#B23C05');
-    } catch (e) {
-      console.error('[Rive VM Debug] Error setting secondaryColorProp:', e);
-    }
-  }
-
-  // Clear speech text on state changes that interrupt speech, and close mouth explicitly
-  if (currentState !== 'talking' && visemeProp) {
-    visemeQueue = []; 
-    try {
-      setEnumProperty(visemeProp, 'sil');
-      lastVisemeCode = 'sil';
-    } catch (e) {
-      console.error('[Rive VM Debug] Error resetting visemeProp:', e);
-    }
-  }
+  // Re-apply palette colors
+  updatePaletteColors(currentPalette);
 }
 
-// ──────────────────────────────────────────────────────────
-// State Setter (enhanced with transition intelligence)
-// ──────────────────────────────────────────────────────────
+export function setMascotMode(mode) {
+  currentMode = mode;
+  console.log(`[SVG Mascot Mode] Mode set to: ${currentMode}`);
+  updatePaletteMapping();
+}
 
-export function set3DState(state) {
+export function setMascotState(state) {
   if (currentState === state) return;
   
-  previousState = currentState;
-  const wasState = currentState;
-  currentState = state;
-  stateTime = 0;
-
-  console.log(`[Rive Transition] ${wasState} → ${state}`);
-
-  // ── Transition: talking → idle/thinking ──
-  // When speech ends, trigger the ack-face analysis instead of snapping to idle
-  if (wasState === 'talking' && (state === 'idle' || state === 'thinking')) {
-    onSpeechDone();
-    // If transitioning to thinking (another round), track it
-    if (state === 'thinking') {
-      thinkingRoundCount++;
-      console.log(`[Rive Transition] Thinking round: ${thinkingRoundCount}`);
-    }
-    return; // The ack face will handle the transition
+  // Clear ack state if we move to a new action explicitly
+  if (isHoldingAckFace && state !== 'idle') {
+    clearAckTimer();
   }
 
-  // ── Transition: error → idle ──
-  // Show concerned face briefly before going idle
-  if (wasState === 'error' && state === 'idle') {
+  previousState = currentState;
+  currentState = state;
+  stateTime = 0;
+  console.log(`[SVG State] ${previousState} -> ${currentState}`);
+  
+  // Reset speech states
+  if (currentState !== 'talking') {
+    visemeQueue = [];
+    lastVisemeCode = 'sil';
+    const talkingMouthGroup = document.getElementById('talking-mouth-group');
+    const normalMouthGroup = document.getElementById('normal-mouth-group');
+    if (talkingMouthGroup) talkingMouthGroup.style.display = 'none';
+    if (normalMouthGroup) {
+      normalMouthGroup.style.display = 'block';
+      normalMouthGroup.setAttribute('opacity', 1);
+    }
+  }
+
+  // Conversational ack face routing
+  if (previousState === 'talking' && (state === 'idle' || state === 'thinking')) {
+    onSpeechDone();
+    if (state === 'thinking') {
+      thinkingRoundCount++;
+    }
+    return; 
+  }
+
+  if (previousState === 'error' && state === 'idle') {
     onErrorOccurred();
     return;
   }
   
-  // ── Transition: → thinking (multiple rounds) ──
-  // After multiple thinking rounds, switch to drinking_coffee (processing)
   if (state === 'thinking') {
     thinkingRoundCount++;
     if (thinkingRoundCount > 2) {
-      console.log(`[Rive Transition] Multiple thinking rounds (${thinkingRoundCount}), switching to drinking_coffee`);
-      currentState = 'drinking_coffee';
+      currentState = 'drinking_coffee'; // Map to coffee drinking state when thinking too long
     }
   }
 
-  // ── Transition: → listening / idle ──
-  // Reset round count when user starts a new interaction
   if (state === 'listening' || state === 'idle') {
     thinkingRoundCount = 0;
   }
 
-  // ── Transition: → talking ──
-  // Clear ack state so the talking animation plays cleanly
-  if (state === 'talking') {
-    clearAckTimer();
-  }
-
-  // ── Transition: happy / excited / praise ──
-  // For positive emotions from Python, use hold-then-idle
   if (state === 'happy' || state === 'praise' || state === 'excited' || state === 'celebrating') {
     clearAckTimer();
-    const ackFace = mapStateToFace(state);
-    holdThenIdle(ackFace, 1200); // Hold celebration states a bit longer
+    holdThenIdle(state === 'celebrating' ? 'celebrating' : 'happy', 1500);
     return;
   }
 
-  // ── Transition: startup (greeting) ──
   if (state === 'startup') {
     clearAckTimer();
-    holdThenIdle('waving', 2000); // Wave for longer on startup
+    holdThenIdle('waving', 2000);
     return;
   }
 
-  updateRiveState();
+  updateStateTargets();
 }
 
 // ──────────────────────────────────────────────────────────
-// Animation Loop (with smooth viseme decay)
+// Render Loop
 // ──────────────────────────────────────────────────────────
 
 function animate(timestamp) {
+  if (!isAnimating) return;
   requestAnimationFrame(animate);
 
-  if (!riveInstance) return;
+  // Self-healing NaN sanity checks
+  if (isNaN(currentThinkProgress)) currentThinkProgress = 0;
+  if (isNaN(targetThinkProgress)) targetThinkProgress = 0;
+  if (isNaN(currentSleepProgress)) currentSleepProgress = 0;
+  if (isNaN(targetSleepProgress)) targetSleepProgress = 0;
+  if (isNaN(currentTalkingProgress)) currentTalkingProgress = 0;
+  if (isNaN(targetTalkingProgress)) targetTalkingProgress = 0;
+  if (isNaN(currentWavingProgress)) currentWavingProgress = 1;
+  if (isNaN(targetWavingProgress)) targetWavingProgress = 1;
+  if (isNaN(currentSteadyProgress)) currentSteadyProgress = 0;
+  if (isNaN(targetSteadyProgress)) targetSteadyProgress = 0;
+  if (isNaN(currentBookProgress)) currentBookProgress = 0;
+  if (isNaN(targetBookProgress)) targetBookProgress = 0;
+  if (isNaN(currentCoffeeProgress)) currentCoffeeProgress = 0;
+  if (isNaN(targetCoffeeProgress)) targetCoffeeProgress = 0;
+  if (isNaN(currentBobaProgress)) currentBobaProgress = 0;
+  if (isNaN(targetBobaProgress)) targetBobaProgress = 0;
 
-  resolveViewModelProperties();
+  if (isNaN(currentMouthScaleX)) currentMouthScaleX = 1.0;
+  if (isNaN(targetMouthScaleX)) targetMouthScaleX = 1.0;
+  if (isNaN(currentMouthScaleY)) currentMouthScaleY = 0.05;
+  if (isNaN(targetMouthScaleY)) targetMouthScaleY = 0.05;
 
-  const delta = (timestamp - lastTime) / 1000;
-  lastTime = timestamp;
-  stateTime += delta;
+  if (isNaN(startTime)) startTime = performance.now();
+  if (isNaN(lastTimestamp)) lastTimestamp = performance.now();
+  if (isNaN(stateTime)) stateTime = 0;
 
-  // Perform procedural lipsync talk animation
-  const isSpeaking = visemeQueue.length > 0;
-  if ((isSpeaking || currentState === 'talking') && visemeProp) {
-    if (isSpeaking) {
-      speechTimer -= delta;
-      if (speechTimer <= 0) {
-        const frame = visemeQueue.shift();
-        if (frame) {
-          const code = toRiveVisemeCode(frame.code);
-          speechTimer = frame.duration;
-          
-          try {
-            setEnumProperty(visemeProp, code);
+  const rawDt = (timestamp - lastTimestamp) / 1000;
+  const dt = (isNaN(rawDt) || rawDt < 0) ? 0 : rawDt;
+  lastTimestamp = (isNaN(timestamp) || !timestamp) ? performance.now() : timestamp;
+
+  // Clamp dt to avoid huge lag steps when window is minimized or out of focus
+  const clampedDt = Math.max(0, Math.min(dt, 0.1));
+  stateTime += clampedDt;
+
+  let t = (performance.now() - startTime) / 1000;
+  if (isNaN(t)) t = 0;
+
+  // Framerate independent LERP progress variables
+  const lerpSpeed = 10; 
+  let lerpFactor = 1 - Math.exp(-lerpSpeed * clampedDt);
+  if (isNaN(lerpFactor)) lerpFactor = 0.15;
+
+  currentThinkProgress += (targetThinkProgress - currentThinkProgress) * lerpFactor;
+  currentSleepProgress += (targetSleepProgress - currentSleepProgress) * lerpFactor;
+  currentTalkingProgress += (targetTalkingProgress - currentTalkingProgress) * lerpFactor;
+  currentWavingProgress += (targetWavingProgress - currentWavingProgress) * lerpFactor;
+  currentSteadyProgress += (targetSteadyProgress - currentSteadyProgress) * lerpFactor;
+  currentBookProgress += (targetBookProgress - currentBookProgress) * lerpFactor;
+  currentCoffeeProgress += (targetCoffeeProgress - currentCoffeeProgress) * lerpFactor;
+  currentBobaProgress += (targetBobaProgress - currentBobaProgress) * lerpFactor;
+
+  // DOM node lookups
+  const bobGroup = document.getElementById('bob-group');
+  const headDotGroup = document.getElementById('head-dot-group');
+  const leftArmGroup = document.getElementById('left-arm-group');
+  const rightArmWaveGroup = document.getElementById('right-arm-wave-group');
+  const rightArmSteadyGroup = document.getElementById('right-arm-steady-group');
+  const groundShadowGroup = document.getElementById('ground-shadow-group');
+  const faceGroup = document.getElementById('face-group');
+  const awakeEyesGroup = document.getElementById('awake-eyes-group');
+  const leftEyeScaleGroup = document.getElementById('left-eye-scale-group');
+  const rightEyeScaleGroup = document.getElementById('right-eye-scale-group');
+  const sleepEyesGroup = document.getElementById('sleep-eyes-group');
+  const normalMouthGroup = document.getElementById('normal-mouth-group');
+  const thinkingMouth = document.getElementById('thinking-mouth');
+  const talkingMouthGroup = document.getElementById('talking-mouth-group');
+  const tongue = document.getElementById('tongue');
+  const tongueHighlight = document.getElementById('tongue-highlight');
+  const zzzGroup = document.getElementById('zzz-group');
+  
+  const accessoryArmsGroup = document.getElementById('accessory-arms-group');
+  const bookArms = document.getElementById('book-arms');
+  const cupArms = document.getElementById('cup-arms');
+  const bookLeftArmRotateGroup = document.getElementById('book-left-arm-rotate-group');
+  const bookRightArmRotateGroup = document.getElementById('book-right-arm-rotate-group');
+  const cupLeftArmRotateGroup = document.getElementById('cup-left-arm-rotate-group');
+  const cupRightArmRotateGroup = document.getElementById('cup-right-arm-rotate-group');
+  
+  const bookAccessoryGroup = document.getElementById('book-accessory-group');
+  const bookRotateGroup = document.getElementById('book-rotate-group');
+  const coffeeCupAccessoryGroup = document.getElementById('coffee-cup-accessory-group');
+  const coffeeCupRotateGroup = document.getElementById('coffee-cup-rotate-group');
+  const bobaCupAccessoryGroup = document.getElementById('boba-cup-accessory-group');
+  const bobaCupRotateGroup = document.getElementById('boba-cup-rotate-group');
+
+  if (!bobGroup) return;
+
+  // 1. Vertical Bobbing
+  const bob = Math.sin(t * Math.PI * 1.2) * 14;
+  bobGroup.setAttribute('transform', `translate(0, ${bob})`);
+
+  // Ground shadow scaling
+  if (groundShadowGroup) {
+    const shadowScale = 1 - bob / 600;
+    groundShadowGroup.setAttribute('transform', `translate(500, 975) scale(${shadowScale}, 1)`);
+  }
+
+  // 2. Head Dot independent drift
+  if (headDotGroup) {
+    const dotPhase = t * Math.PI * 1.0;
+    const dotDx = Math.sin(dotPhase * 0.7) * 6;
+    const dotDy = Math.sin(dotPhase) * 9;
+    const press = Math.max(0, Math.sin(dotPhase));
+    const dotSquashY = 1 - 0.08 * press;
+    const dotSquashX = 1 + 0.05 * press;
+    headDotGroup.setAttribute('transform', `translate(${dotDx}, ${dotDy}) translate(493, 145) scale(${dotSquashX}, ${dotSquashY}) translate(-493, -145)`);
+  }
+
+  // 3. Eyelids Blinking & Sleep
+  const blinkPeriod = 2.6;
+  const blinkOffset = 1.3;
+  const inBlink = ((t + blinkOffset) % blinkPeriod) < 0.2; 
+  const blinkScale = inBlink ? 0.12 : 1.0;
+
+  const eyeScaleY = lerp(blinkScale, 0.0, currentSleepProgress);
+  const showSleepEyes = currentSleepProgress > 0.95;
+
+  if (showSleepEyes) {
+    if (awakeEyesGroup) awakeEyesGroup.style.display = 'none';
+    if (sleepEyesGroup) sleepEyesGroup.style.display = 'block';
+  } else {
+    if (awakeEyesGroup) awakeEyesGroup.style.display = 'block';
+    if (sleepEyesGroup) sleepEyesGroup.style.display = 'none';
+    if (leftEyeScaleGroup) leftEyeScaleGroup.setAttribute('transform', `translate(411, 465) scale(1, ${eyeScaleY}) translate(-411, -465)`);
+    if (rightEyeScaleGroup) rightEyeScaleGroup.setAttribute('transform', `translate(589, 465) scale(1, ${eyeScaleY}) translate(-589, -465)`);
+  }
+
+  // 4. Arm Swaying & waving
+  // Determine accessory blend
+  const anyAccessoryProgress = Math.min(1.0, currentBookProgress + currentCoffeeProgress + currentBobaProgress);
+  const normalArmsOpacity = 1.0 - anyAccessoryProgress;
+
+  // Left arm sway & Pondering hand near chin
+  if (leftArmGroup) {
+    const leftSway = Math.sin(t * Math.PI * 1.6) * 7;
+    const thinkArmOscillate = (currentThinkProgress > 0.95) ? Math.sin(t * Math.PI * 0.5) * 2 : 0;
+    const leftArmAngle = lerp(leftSway, -128 + thinkArmOscillate, currentThinkProgress);
+    leftArmGroup.setAttribute('transform', `rotate(${leftArmAngle}, 290, 700)`);
+    leftArmGroup.setAttribute('opacity', normalArmsOpacity);
+    leftArmGroup.style.display = normalArmsOpacity > 0.01 ? 'block' : 'none';
+  }
+
+  // Right arm waving
+  const wavePeriod = 2.4;
+  const waveTime = t % wavePeriod;
+  const waveInputTimes = [0, 2.4 * 0.12, 2.4 * 0.25, 2.4 * 0.38, 2.4 * 0.50, 2.4 * 0.62, 2.4 * 0.75, 2.4];
+  const waveOutputAngles = [0, -9, 0, -7, 0, -5, 0, 0];
+  const waveAngle = interpolateArray(waveTime, waveInputTimes, waveOutputAngles, easeInOutCubic);
+
+  // Right arm steady sway
+  const steadySway = Math.sin(t * Math.PI * 1.6 + 0.3) * 6;
+
+  if (rightArmWaveGroup) {
+    const opacity = currentWavingProgress * normalArmsOpacity;
+    if (opacity > 0.01) {
+      rightArmWaveGroup.style.display = 'block';
+      rightArmWaveGroup.setAttribute('transform', `rotate(${waveAngle}, 776, 568)`);
+      rightArmWaveGroup.setAttribute('opacity', opacity);
+    } else {
+      rightArmWaveGroup.style.display = 'none';
+    }
+  }
+
+  if (rightArmSteadyGroup) {
+    const opacity = currentSteadyProgress * normalArmsOpacity;
+    if (opacity > 0.01) {
+      rightArmSteadyGroup.style.display = 'block';
+      rightArmSteadyGroup.setAttribute('transform', `rotate(${steadySway}, 655, 709)`);
+      rightArmSteadyGroup.setAttribute('opacity', opacity);
+    } else {
+      rightArmSteadyGroup.style.display = 'none';
+    }
+  }
+
+  // 5. Head tilt & eye drift
+  if (faceGroup) {
+    const headTilt = lerp(0, -4.5 + Math.sin(t * Math.PI * 0.38) * 1.8, currentThinkProgress);
+    faceGroup.setAttribute('transform', `rotate(${headTilt}, 495, 375)`);
+  }
+  if (awakeEyesGroup) {
+    const thinkEyeX = currentThinkProgress * -6;
+    const thinkEyeY = currentThinkProgress * -9;
+    awakeEyesGroup.setAttribute('transform', `translate(${thinkEyeX}, ${thinkEyeY})`);
+  }
+
+  // Accessory Arms & Items Animations
+  if (accessoryArmsGroup) {
+    if (anyAccessoryProgress > 0.01) {
+      accessoryArmsGroup.style.display = 'block';
+      accessoryArmsGroup.setAttribute('opacity', anyAccessoryProgress);
+      
+      // Determine which sub-arms to show
+      if (currentBookProgress > 0.01) {
+        if (bookArms) bookArms.style.display = 'block';
+        if (cupArms) cupArms.style.display = 'none';
+        
+        // Sway book reading arms
+        const bookSway = Math.sin(t * Math.PI * 0.4) * 2.8;
+        const leftArmSway = bookSway * 0.75;
+        const rightArmSway = bookSway * 0.6;
+        
+        if (bookLeftArmRotateGroup) bookLeftArmRotateGroup.setAttribute('transform', `rotate(${leftArmSway}, 313, 640)`);
+        if (bookRightArmRotateGroup) bookRightArmRotateGroup.setAttribute('transform', `rotate(${rightArmSway}, 553, 682)`);
+      } else {
+        if (bookArms) bookArms.style.display = 'none';
+        if (cupArms) cupArms.style.display = 'block';
+        
+        // Sway cup holding arms
+        const cupLeftArmAngle = Math.sin(t * Math.PI * 0.8) * 6;
+        const cupRightArmAngle = Math.sin(t * Math.PI * 0.8 + Math.PI) * 6;
+        
+        if (cupLeftArmRotateGroup) cupLeftArmRotateGroup.setAttribute('transform', `rotate(${cupLeftArmAngle}, 320, 658)`);
+        if (cupRightArmRotateGroup) cupRightArmRotateGroup.setAttribute('transform', `rotate(${cupRightArmAngle}, 636, 655)`);
+      }
+    } else {
+      accessoryArmsGroup.style.display = 'none';
+    }
+  }
+
+  // Accessories display
+  if (bookAccessoryGroup) {
+    if (currentBookProgress > 0.01) {
+      bookAccessoryGroup.style.display = 'block';
+      bookAccessoryGroup.setAttribute('opacity', currentBookProgress);
+      const bookSway = Math.sin(t * Math.PI * 0.4) * 2.8;
+      if (bookRotateGroup) bookRotateGroup.setAttribute('transform', `rotate(${bookSway}, 480, 665)`);
+    } else {
+      bookAccessoryGroup.style.display = 'none';
+    }
+  }
+
+  if (coffeeCupAccessoryGroup) {
+    if (currentCoffeeProgress > 0.01) {
+      coffeeCupAccessoryGroup.style.display = 'block';
+      coffeeCupAccessoryGroup.setAttribute('opacity', currentCoffeeProgress);
+      const cupSway = Math.sin(t * Math.PI * 0.9) * 2.5;
+      if (coffeeCupRotateGroup) coffeeCupRotateGroup.setAttribute('transform', `rotate(${cupSway}, 500, 610)`);
+    } else {
+      coffeeCupAccessoryGroup.style.display = 'none';
+    }
+  }
+
+  if (bobaCupAccessoryGroup) {
+    if (currentBobaProgress > 0.01) {
+      bobaCupAccessoryGroup.style.display = 'block';
+      bobaCupAccessoryGroup.setAttribute('opacity', currentBobaProgress);
+      const cupSway = Math.sin(t * Math.PI * 0.9) * 2.5;
+      if (bobaCupRotateGroup) bobaCupRotateGroup.setAttribute('transform', `rotate(${cupSway}, 490, 660)`);
+    } else {
+      bobaCupAccessoryGroup.style.display = 'none';
+    }
+  }
+
+  // 6. Mouth & lipsync
+  const mouthOpacity = Math.max(0, 1 - currentThinkProgress - currentTalkingProgress);
+  if (normalMouthGroup) normalMouthGroup.setAttribute('opacity', mouthOpacity);
+  
+  if (thinkingMouth) {
+    if (currentThinkProgress > 0.05) {
+      thinkingMouth.style.display = 'block';
+      thinkingMouth.setAttribute('opacity', currentThinkProgress);
+    } else {
+      thinkingMouth.style.display = 'none';
+    }
+  }
+
+  if (talkingMouthGroup) {
+    if (currentTalkingProgress > 0.05) {
+      talkingMouthGroup.style.display = 'block';
+      talkingMouthGroup.setAttribute('opacity', currentTalkingProgress);
+
+      let mouthOpenX = 1.0;
+      let mouthOpenY = 0.05;
+      const isSpeaking = visemeQueue.length > 0 || speechTimer > 0;
+      
+      if (isSpeaking) {
+        if (speechTimer > 0) {
+          speechTimer -= clampedDt;
+        }
+        if (speechTimer <= 0 && visemeQueue.length > 0) {
+          const frame = visemeQueue.shift();
+          if (frame) {
+            const code = toRiveVisemeCode(frame.code);
+            speechTimer = frame.duration;
             lastVisemeCode = code;
             lastVisemeSetTime = performance.now();
-          } catch (e) {
-            console.error('[Rive VM Debug] Error setting visemeProp:', e);
+          }
+        }
+        
+        const shape = VISEME_SHAPES[lastVisemeCode] || VISEME_SHAPES['sil'];
+        mouthOpenX = shape.x;
+        mouthOpenY = shape.y;
+      } else {
+        const talkA = Math.abs(Math.sin(t * Math.PI * 3.0));
+        const talkB = Math.abs(Math.sin(t * Math.PI * 4.6 + 1.2));
+        const rawY = Math.max(talkA, talkB * 0.8) * 0.95 + 0.05;
+        mouthOpenY = rawY;
+        mouthOpenX = 1.0 + (rawY * 0.1);
+        
+        if (lastVisemeCode !== 'sil') {
+          const sinceLastViseme = performance.now() - lastVisemeSetTime;
+          if (sinceLastViseme >= VISEME_DECAY_MS) {
+            lastVisemeCode = 'sil';
           }
         }
       }
+
+      const mouthLerpSpeed = 26;
+      let mouthLerpFactor = 1 - Math.exp(-mouthLerpSpeed * clampedDt);
+      if (isNaN(mouthLerpFactor)) mouthLerpFactor = 0.35;
+
+      currentMouthScaleX += (mouthOpenX - currentMouthScaleX) * mouthLerpFactor;
+      currentMouthScaleY += (mouthOpenY - currentMouthScaleY) * mouthLerpFactor;
+
+      talkingMouthGroup.setAttribute('transform', `translate(495, 508) scale(${currentMouthScaleX}, ${currentMouthScaleY}) translate(-495, -508)`);
+      
+      const tongueOpacity = Math.min(1, Math.max(0, (currentMouthScaleY - 0.15) / 0.35));
+      if (tongue) tongue.setAttribute('opacity', tongueOpacity);
+      if (tongueHighlight) tongueHighlight.setAttribute('opacity', tongueOpacity * 0.85);
     } else {
-      // Fallback random visemes if no text but still in talking state
-      mouthTimer -= delta;
-      if (mouthTimer <= 0) {
-        mouthTimer = 0.08 + Math.random() * 0.07;
-        try {
-          const oculusCode = talkingVisemes[Math.floor(Math.random() * talkingVisemes.length)];
-          const code = toRiveVisemeCode(oculusCode);
-          setEnumProperty(visemeProp, code);
-          lastVisemeCode = code;
-          lastVisemeSetTime = performance.now();
-        } catch (e) {
-          console.error('[Rive VM Debug] Error setting fallback visemeProp:', e);
-        }
-      }
+      talkingMouthGroup.style.display = 'none';
     }
-  } else if (visemeProp) {
-    // ── Smooth viseme decay ──
-    // Instead of snapping to 'sil', check if we just finished speaking
-    // and apply a smooth decay over VISEME_DECAY_MS
-    if (lastVisemeCode !== 'sil') {
-      const sinceLastViseme = performance.now() - lastVisemeSetTime;
-      if (sinceLastViseme >= VISEME_DECAY_MS) {
-        // Decay complete — set to silence
-        try {
-          setEnumProperty(visemeProp, 'sil');
-          lastVisemeCode = 'sil';
-        } catch (e) {
-          console.error('[Rive VM Debug] Error resetting visemeProp:', e);
+  }
+
+  // 7. Sleep Zzz floating
+  if (zzzGroup) {
+    const isAsleep = currentSleepProgress > 0.98;
+    if (isAsleep) {
+      zzzGroup.style.display = 'block';
+      const elapsedSinceSleep = stateTime;
+      
+      const updateZ = (el, delay) => {
+        if (!el) return;
+        const startAt = delay;
+        if (elapsedSinceSleep < startAt) {
+          el.setAttribute('opacity', 0);
+          return;
         }
-      }
-      // During decay window, keep the last viseme (natural hold before closing)
+        const cycleTime = (elapsedSinceSleep - startAt) % 2.2;
+        const progress = cycleTime / 2.2;
+        const x = progress * 20;
+        const y = -progress * 120;
+        const opacity = interpolateArray(progress, [0, 0.1, 0.72, 1], [0, 1, 0.85, 0]);
+        
+        el.setAttribute('transform', `translate(${x}, ${y})`);
+        el.setAttribute('opacity', opacity);
+      };
+
+      updateZ(document.getElementById('z1'), 0);
+      updateZ(document.getElementById('z2'), 0.72);
+      updateZ(document.getElementById('z3'), 1.44);
+    } else {
+      zzzGroup.style.display = 'none';
     }
   }
 }

@@ -3,13 +3,90 @@ import sounddevice as sd, numpy as np, collections
 import warnings
 warnings.filterwarnings("ignore", message=".*FP16 is not supported on CPU.*")
 
+def strip_punctuation(word: str) -> str:
+    import string
+    return "".join(c for c in word if c not in string.punctuation)
+
+def is_hallucinated_output(text: str) -> bool:
+    normalized = text.strip().lower()
+    if not normalized:
+        return False
+    
+    stripped = normalized.rstrip(".,?!;:-")
+    
+    always_hallucination = [
+        "[blank_audio]",
+        "[ blank_audio ]",
+        "[blank audio]",
+        "(blank audio)",
+        "thank you for watching",
+        "thanks for watching",
+        "thank you for listening",
+        "thanks for listening",
+        "thank you so much",
+        "please subscribe",
+        "like and subscribe",
+        "see you next time",
+        "see you in the next video",
+        "bye bye",
+        "...",
+        ".",
+        ",",
+        "!",
+        "?",
+        "thank you",
+        "thank you.",
+        "thanks.",
+        "bye.",
+        "goodbye.",
+        "goodbye"
+    ]
+    
+    for pattern in always_hallucination:
+        if normalized == pattern or stripped == pattern:
+            return True
+            
+    raw_words = normalized.split()
+    if len(raw_words) < 3:
+        return False
+        
+    clean_words = [strip_punctuation(w) for w in raw_words]
+    clean_words = [w for w in clean_words if w]
+    
+    if not clean_words:
+        return False
+        
+    first = clean_words[0]
+    if all(w == first for w in clean_words):
+        return True
+        
+    for n in range(1, 4):
+        if len(clean_words) >= n * 2 and len(clean_words) % n == 0:
+            pattern = clean_words[:n]
+            all_match = True
+            for i in range(0, len(clean_words), n):
+                if clean_words[i:i+n] != pattern:
+                    all_match = False
+                      
+            if all_match:
+                return True
+                
+    counts = collections.Counter(clean_words)
+    total = len(clean_words)
+    for word, count in counts.items():
+        if count >= 5 and (count / total) > 0.6:
+            return True
+            
+    return False
+
+# Settings
 SAMPLE_RATE = 16000
 FRAME_MS = 30
 FRAME_SAMPLES = int(SAMPLE_RATE * FRAME_MS / 1000)
-VAD_AGGRESSIVENESS = 3
+VAD_AGGRESSIVENESS = 2
 SILENCE_FRAMES = 25 # Wait 750ms to prevent cutting the user off mid-sentence
 MIN_SPEECH_FRAMES = 10
-PRE_ROLL_FRAMES = 10
+PRE_ROLL_FRAMES = 20
 
 class ListenerThread(QThread):
     transcription_ready = pyqtSignal(str)
@@ -67,8 +144,9 @@ class ListenerThread(QThread):
                 
                 if ambient_frames:
                     avg_ambient = sum(ambient_frames) / len(ambient_frames)
-                    # Relaxed multiplier so normal conversational volume triggers the mic
-                    self._energy_threshold = max(30, avg_ambient * 1.5)
+                    # Lower minimum threshold and relaxed multiplier so quieter speech (like the wake word "Boopi")
+                    # is not cut off at the beginning of a sentence.
+                    self._energy_threshold = min(max(15, avg_ambient * 1.25), 45.0)
                 print(f"From Python: [Listener] Calibration done. Noise: {avg_ambient:.0f}, Threshold: {self._energy_threshold:.0f}", flush=True)
 
                 ring_buffer = collections.deque(maxlen=PRE_ROLL_FRAMES)
@@ -94,10 +172,16 @@ class ListenerThread(QThread):
                         is_speech = False
                         
                         if rms > self._energy_threshold:
-                            # Apply moderate software gain
-                            data_float = data.astype(np.float32) * 10.0
-                            np.clip(data_float, -32768, 32767, out=data_float)
-                            amplified_data = data_float.astype(np.int16)
+                            # Apply soft peak normalization instead of a static hard multiplier
+                            # Use 98th percentile to avoid plosive/click spike issues
+                            max_val = np.percentile(np.abs(data), 98) if len(data) > 0 else 0
+                            if max_val > 0 and max_val < 24000:
+                                gain = min(24000.0 / max_val, 10.0)
+                                data_float = data.astype(np.float32) * gain
+                                np.clip(data_float, -32768, 32767, out=data_float)
+                                amplified_data = data_float.astype(np.int16)
+                            else:
+                                amplified_data = data
                             frame = amplified_data.flatten().tobytes()
                             
                             # WebRTC VAD voice activity check
@@ -141,24 +225,79 @@ class ListenerThread(QThread):
     def _transcribe(self, audio: np.ndarray):
         self._paused = True
         
-        # Apply software gain boost of 8.0 to handle quiet/low-gain microphones on Windows
-        audio_boosted = audio.astype(np.float32) * 8.0
-        np.clip(audio_boosted, -32768, 32767, out=audio_boosted)
-        audio = audio_boosted.astype(np.int16)
-        
-        # Local peak energy check with relaxed threshold (300 with 8x gain means unamplified peak >= 37.5)
-        max_val = np.max(np.abs(audio)) if len(audio) > 0 else 0
-        if max_val < 300:
-            print(f"From Python: [Listener] Discarded silent audio (peak: {max_val} is below threshold 300)", flush=True)
+        # Check peak value using 98th percentile before boosting to determine if we should discard it
+        orig_max = np.percentile(np.abs(audio), 98) if len(audio) > 0 else 0
+        if orig_max < 38: # unamplified equivalent of peak < 300 with 8x gain
+            print(f"From Python: [Listener] Discarded silent audio (peak: {orig_max} is below threshold 38)", flush=True)
             self.transcription_ready.emit("")
             return
 
-        audio_f32 = audio.astype(np.float32) / 32768.0
+        # Apply soft peak normalization to handle quiet/low-gain microphones on Windows
+        if orig_max > 0 and orig_max < 24000:
+            gain = min(24000.0 / orig_max, 8.0)
+            audio_boosted = audio.astype(np.float32) * gain
+            np.clip(audio_boosted, -32768, 32767, out=audio_boosted)
+            audio = audio_boosted.astype(np.int16)
+
+        # Try Groq Cloud Whisper first if keys are available
+        groq_keys = []
+        import os
+        if os.environ.get("GROQ_API_KEY"):
+            groq_keys.append(os.environ.get("GROQ_API_KEY"))
+        for i in range(2, 11):
+            key = os.environ.get(f"GROQ_API_KEY_{i}")
+            if key:
+                groq_keys.append(key)
+        
+        text = ""
+        transcription_succeeded = False
         
         # Give whisper context to heavily bias towards names, commands, and app functions we care about
-        prompt = "Bupi, shift to Mode 2, shift to Mode 1, Mode 2, Mode 1, display readings, show sensor values, highest reading, MQ2 gas sensor, LCD screen, relay, turn on, turn off, message Chintu on WhatsApp, send email, write draft in Notepad, YouTube, OpenRouter, Claude, summarize, rewrite."
-        segments, info = self._model.transcribe(audio_f32, language="en", initial_prompt=prompt, condition_on_previous_text=False)
-        text = "".join([segment.text for segment in segments]).strip()
+        prompt = "Boopi, Bupi, Boopy, Boopie, how are you, shift to Mode 2, shift to Mode 1, Mode 2, Mode 1, display readings, show sensor values, highest reading, MQ2 gas sensor, LCD screen, relay, turn on, turn off, message Chintu on WhatsApp, send email, write draft in Notepad, YouTube, OpenRouter, Claude, summarize, rewrite."
+        
+        if groq_keys:
+            import io
+            import wave
+            import requests
+            
+            wav_buffer = io.BytesIO()
+            with wave.open(wav_buffer, 'wb') as wav_file:
+                wav_file.setnchannels(1)
+                wav_file.setsampwidth(2) # 16-bit PCM
+                wav_file.setframerate(SAMPLE_RATE)
+                wav_file.writeframes(audio.tobytes())
+            wav_bytes = wav_buffer.getvalue()
+            
+            for key in groq_keys:
+                try:
+                    print(f"From Python: [Listener] Trying Groq Cloud Whisper STT...", flush=True)
+                    files = {
+                        'file': ('speech.wav', wav_bytes, 'audio/wav')
+                    }
+                    data = {
+                        'model': 'whisper-large-v3',
+                        'language': 'en',
+                        'prompt': prompt
+                    }
+                    headers = {
+                        'Authorization': f'Bearer {key}'
+                    }
+                    r = requests.post("https://api.groq.com/openai/v1/audio/transcriptions", headers=headers, files=files, data=data, timeout=3.0)
+                    if r.status_code == 200:
+                        text = r.json().get("text", "").strip()
+                        print(f"From Python: [Listener] Groq STT Success: \"{text}\"", flush=True)
+                        transcription_succeeded = True
+                        break
+                    else:
+                        print(f"From Python: [Listener Warning] Groq STT HTTP {r.status_code}: {r.text}", flush=True)
+                except Exception as ex:
+                    print(f"From Python: [Listener Warning] Groq STT failed: {ex}", flush=True)
+        
+        if not transcription_succeeded:
+            print(f"From Python: [Listener] Using local faster-whisper fallback...", flush=True)
+            audio_f32 = audio.astype(np.float32) / 32768.0
+            segments, info = self._model.transcribe(audio_f32, language="en", initial_prompt=prompt, condition_on_previous_text=False)
+            text = "".join([segment.text for segment in segments]).strip()
         
         # Filter out common Whisper hallucinations for silence
         clean_text = text.replace(",", "").replace(".", "").strip().lower()
@@ -173,10 +312,10 @@ class ListenerThread(QThread):
         prompt_density = (matched_words / len(prompt_words)) if prompt_words else 0
         
         is_exact_prompt = (clean_text == clean_prompt) or (prompt_density > 0.6 and len(clean_text) > 40)
-        is_hallucination = any(h in clean_text for h in hallucinations) or is_exact_prompt
+        is_hallucination = any(h in clean_text for h in hallucinations) or is_exact_prompt or is_hallucinated_output(text)
         
         if is_hallucination or (len(clean_text) <= 2 and clean_text != "hi" and clean_text != "go"):
-            print(f"From Python: [Listener] Filtered silence/hallucination (prompt density: {prompt_density:.2f}, exact prompt: {is_exact_prompt})", flush=True)
+            print(f"From Python: [Listener] Filtered silence/hallucination (prompt density: {prompt_density:.2f}, exact prompt: {is_exact_prompt}, robust check: {is_hallucinated_output(text)})", flush=True)
             text = ""
 
         self.transcription_ready.emit(text)
