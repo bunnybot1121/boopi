@@ -382,7 +382,7 @@ function holdThenIdle(ackFace, holdMs = ACK_FACE_HOLD_MS) {
   isHoldingAckFace = true;
   
   const tempState = mapFaceToState(ackFace);
-  console.log(`[SVG Mascot Ack] Holding state "${tempState}" (from face "${ackFace}") for ${holdMs}ms`);
+  console.log(`[SVG Mascot] Sentiment Display Hold: showing "${tempState}" (from face "${ackFace}") for ${holdMs}ms (planned animation hold)`);
   
   currentState = tempState;
   stateTime = 0;
@@ -391,7 +391,7 @@ function holdThenIdle(ackFace, holdMs = ACK_FACE_HOLD_MS) {
   ackTimer = setTimeout(() => {
     ackTimer = null;
     isHoldingAckFace = false;
-    console.log('[SVG Mascot Ack] Hold complete, returning to idle');
+    console.log('[SVG Mascot] Sentiment hold complete, returning to idle');
     currentState = 'idle';
     stateTime = 0;
     updateStateTargets();

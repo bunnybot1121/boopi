@@ -7,7 +7,8 @@ import subprocess
 
 app = QCoreApplication(sys.argv)
 
-subprocess.run(["edge-tts", "--text", "Hello this is a test", "--write-media", "test.mp3"], check=True)
+# Use existing test_out.mp3
+
 
 player = QMediaPlayer()
 audio = QAudioOutput()
@@ -21,7 +22,7 @@ def on_status(status):
 
 player.mediaStatusChanged.connect(on_status)
 
-player.setSource(QUrl.fromLocalFile(os.path.abspath("test.mp3")))
+player.setSource(QUrl.fromLocalFile(os.path.abspath("test_out.mp3")))
 player.play()
 print("Playing...")
 

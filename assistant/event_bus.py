@@ -10,3 +10,13 @@ class EventBus(QObject):
     action_detected   = pyqtSignal(str, str)
 
 bus = EventBus()
+
+class HackathonEventBus:
+    def emit(self, event_name, *args, **kwargs):
+        import json
+        if event_name == 'speak':
+            print(json.dumps({"type": "speak", "value": args[0]}), flush=True)
+        elif event_name == 'set_state':
+            print(json.dumps({"type": "state", "value": args[0]}), flush=True)
+
+event_bus = HackathonEventBus()

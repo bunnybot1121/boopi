@@ -68,10 +68,10 @@ function createNotepadWindow() {
   console.log("[Main] Creating new notepadWindow");
   notepadReady = false;
   notepadWindow = new BrowserWindow({
-    width: 900,
-    height: 600,
-    minWidth: 600,
-    minHeight: 400,
+    width: 1200,
+    height: 800,
+    minWidth: 900,
+    minHeight: 600,
     frame: false,
     webPreferences: {
       nodeIntegration: true,
@@ -336,6 +336,14 @@ if (!gotTheLock) {
         }
       },
       { label: 'Toggle Conversation Mode', click: () => sendCommand('toggle_conversation') },
+      { label: 'Toggle Click-Through Mascot', click: () => {
+          if (mainWindow) {
+            const current = mainWindow.isIgnoreMouseEvents ? true : false;
+            mainWindow.setIgnoreMouseEvents(!current, { forward: true });
+          }
+        } 
+      },
+      { label: 'Hardware E-Stop (Ctrl+Alt+S)', click: () => sendCommand('estop') },
       { label: 'Clear Memory', click: () => sendCommand('clear_memory') },
       { label: 'Toggle Overlay', click: () => {
           if (mainWindow.isVisible()) mainWindow.hide();
@@ -354,6 +362,7 @@ if (!gotTheLock) {
 
     // Global shortcuts
     globalShortcut.register('CommandOrControl+I', () => sendCommand('quit'));
+    globalShortcut.register('CommandOrControl+Alt+S', () => sendCommand('estop'));
 
     // Handle smooth wheel resizing for frameless windows
     ipcMain.on('resize-window', (event, step) => {

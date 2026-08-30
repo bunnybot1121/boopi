@@ -17,11 +17,12 @@ class MQTTBridge:
         self._last_bridged = {}
         
         # Multi-sensor telemetry states
-        self.telemetry_modes = {}  # maps sensor_id -> mode (continuous, highest, lowest, average)
+        self.telemetry_modes = {"mq2": "continuous"}  # maps sensor_id -> mode (continuous, highest, lowest, average)
         self.highest_vals = {}     # maps sensor_id -> float
         self.lowest_vals = {}      # maps sensor_id -> float
         self.values_histories = {} # maps sensor_id -> list of float
         self.latest_formatted_lines = {} # maps sensor_id -> formatted display string
+        self._init_db()
 
     # 100% Backward compatibility getters/setters for single sensor mq2
     @property
@@ -83,6 +84,165 @@ class MQTTBridge:
             self.values_histories[sensor_id] = []
             if sensor_id in self.latest_formatted_lines:
                 del self.latest_formatted_lines[sensor_id]
+        
+    def _init_db(self):
+        import sqlite3
+        import os
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.db_path = os.path.join(base_dir, "bupi_telemetry.db")
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS telemetry (
+                    timestamp REAL,
+                    sensor_id TEXT,
+                    value REAL
+                )
+            """)
+            conn.commit()
+            conn.close()
+            print(f"[MQTT Bridge] SQLite database initialized at {self.db_path}", flush=True)
+        except Exception as e:
+            print(f"[MQTT Bridge Error] Failed to initialize SQLite: {e}", flush=True)
+
+    def log_to_db(self, sensor_id, value):
+        import sqlite3
+        import time
+        import threading
+        
+        def worker():
+            try:
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT INTO telemetry (timestamp, sensor_id, value) VALUES (?, ?, ?)",
+                    (time.time(), sensor_id, value)
+                )
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                print(f"[MQTT Bridge Error] Failed to log to SQLite: {e}", flush=True)
+                
+        # Run in a background thread to prevent blocking
+        threading.Thread(target=worker, daemon=True).start()
+
+    def get_historical_readings(self, sensor_id, limit=100):
+        """Returns the latest historical readings for a sensor from the persistent database."""
+        import sqlite3
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT timestamp, value FROM telemetry WHERE sensor_id = ? ORDER BY rowid DESC LIMIT ?",
+                (sensor_id, limit)
+            )
+            rows = cursor.fetchall()
+            conn.close()
+            # Convert to list of dicts, sorted chronologically (ascending timestamp)
+            return [{"timestamp": r[0], "value": r[1]} for r in reversed(rows)]
+        except Exception as e:
+            print(f"[MQTT Bridge Error] Failed to query SQLite: {e}", flush=True)
+            return []
+
+    def get_average_reading(self, sensor_id, since_seconds=None):
+        """Calculates the average reading of a sensor since a relative duration in seconds."""
+        import sqlite3
+        import time
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            if since_seconds:
+                t_threshold = time.time() - since_seconds
+                cursor.execute(
+                    "SELECT AVG(value) FROM telemetry WHERE sensor_id = ? AND timestamp >= ?",
+                    (sensor_id, t_threshold)
+                )
+            else:
+                cursor.execute("SELECT AVG(value) FROM telemetry WHERE sensor_id = ?", (sensor_id,))
+            val = cursor.fetchone()[0]
+            conn.close()
+            return val if val is not None else 0.0
+        except Exception as e:
+            print(f"[MQTT Bridge Error] Failed to query average: {e}", flush=True)
+            return 0.0
+
+    def get_max_reading(self, sensor_id, since_seconds=None):
+        """Gets the maximum reading of a sensor since a relative duration in seconds."""
+        import sqlite3
+        import time
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            if since_seconds:
+                t_threshold = time.time() - since_seconds
+                cursor.execute(
+                    "SELECT MAX(value) FROM telemetry WHERE sensor_id = ? AND timestamp >= ?",
+                    (sensor_id, t_threshold)
+                )
+            else:
+                cursor.execute("SELECT MAX(value) FROM telemetry WHERE sensor_id = ?", (sensor_id,))
+            val = cursor.fetchone()[0]
+            conn.close()
+            return val if val is not None else 0.0
+        except Exception as e:
+            print(f"[MQTT Bridge Error] Failed to query max: {e}", flush=True)
+            return 0.0
+
+    def get_min_reading(self, sensor_id, since_seconds=None):
+        """Gets the minimum reading of a sensor since a relative duration in seconds."""
+        import sqlite3
+        import time
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            if since_seconds:
+                t_threshold = time.time() - since_seconds
+                cursor.execute(
+                    "SELECT MIN(value) FROM telemetry WHERE sensor_id = ? AND timestamp >= ?",
+                    (sensor_id, t_threshold)
+                )
+            else:
+                cursor.execute("SELECT MIN(value) FROM telemetry WHERE sensor_id = ?", (sensor_id,))
+            val = cursor.fetchone()[0]
+            conn.close()
+            return val if val is not None else 0.0
+        except Exception as e:
+            print(f"[MQTT Bridge Error] Failed to query min: {e}", flush=True)
+            return 0.0
+
+    def get_sensor_status(self, sensor_id):
+        """Fetches the latest reading for a sensor and returns its semantic translation."""
+        import sqlite3
+        from core.sensor_translator import translate_sensor_value
+        try:
+            # Query the latest reading from SQLite
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT value FROM telemetry WHERE sensor_id = ? ORDER BY rowid DESC LIMIT 1",
+                (sensor_id,)
+            )
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row is not None:
+                raw_val = row[0]
+                return translate_sensor_value(sensor_id, raw_val)
+        except Exception as e:
+            print(f"[MQTT Bridge Error] Failed to get translated status: {e}", flush=True)
+            
+        # Fallback to RAM history if DB fails or is empty
+        if sensor_id in self.values_histories and self.values_histories[sensor_id]:
+            raw_val = self.values_histories[sensor_id][-1]
+            return translate_sensor_value(sensor_id, raw_val)
+            
+        return {
+            "sensor": sensor_id,
+            "value": 0.0,
+            "status": "Unknown",
+            "description": "No readings received yet."
+        }
         
     def connect(self):
         print(f"[MQTT Bridge] Connecting to {MQTT_BROKER}:{MQTT_PORT}...")
@@ -179,6 +339,7 @@ class MQTTBridge:
                         pass
                         
                 if raw_val is not None:
+                    self.log_to_db(sensor_id, raw_val)
                     # Update stats
                     if sensor_id not in self.highest_vals or self.highest_vals[sensor_id] == -1.0 or raw_val > self.highest_vals[sensor_id]:
                         self.highest_vals[sensor_id] = raw_val

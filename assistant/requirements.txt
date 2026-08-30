@@ -11,6 +11,7 @@ websockets
 paho-mqtt
 hindsight-all
 google-generativeai
+google-genai
 langchain-google-genai
 langchain-core
 pyserial

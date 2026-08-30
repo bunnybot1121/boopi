@@ -32,3 +32,26 @@ def crash_log(msg):
     os.fsync(_debug_log.fileno())
 
 init_logs()
+
+import logging
+def setup_logger():
+    log_file = os.path.join(os.path.dirname(__file__), 'bupi.log')
+    logger = logging.getLogger('Bupi')
+    logger.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    
+    if sys.stderr and sys.stderr.isatty():
+        stream_handler = logging.StreamHandler(sys.stderr)
+        stream_handler.setFormatter(formatter)
+        logger.addHandler(stream_handler)
+    return logger
+
+log = setup_logger()
+log.info("Logger initialized successfully.")
+
+import threading
+import_lock = threading.Lock()

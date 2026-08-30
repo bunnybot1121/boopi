@@ -7,7 +7,7 @@
 // Hardcoded Network Credentials (BUPI Rule 5)
 const char* ssid = "home";
 const char* password = "sachin1121";
-const char* mqtt_server = "192.168.0.102";
+const char* mqtt_server = "192.168.0.107";
 
 // LCD Object (BUPI Rule 1 & Chapter A)
 // Common addresses: 0x27, 0x3F. Using 0x27 as per user's original code.

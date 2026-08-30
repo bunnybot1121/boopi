@@ -8,19 +8,15 @@ __pycache__/
 # User data & Memory
 memory/user_data.json
 
-# Screenshots
-screenshot_*.png
-
-# Temporary audio files
+# Temporary files & logs
 *.mp3
-
-# Logs
+*.log
 *log.txt
-
-# Node
+debug_log.txt
+*.db
+*.jsonl
+screenshot_*.png
 node_modules/
-
-# Executables
 *.exe
 ffmpeg.exe
 
@@ -66,3 +62,4 @@ tiny_mascot_simplified.riv
 
 # Browser data
 actions/browser_data/
+.rocketride/

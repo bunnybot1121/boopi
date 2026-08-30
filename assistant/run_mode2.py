@@ -121,72 +121,7 @@ def get_sensor_id_from_text(text):
 
 def process_with_crew(text):
     global hw_bridge
-    cleaned = text.lower()
     
-    # Deterministic telemetry routing to handle all display & MQ2 commands robustly
-    sensor_words = ["mq2", "gas", "smoke", "sensor", "reading", "readings", "value", "values", "data", "val", "level", "levels", "ppm", "temp", "temperature", "humidity", "distance", "ultrasonic"]
-    display_words = ["lcd", "display", "screen", "unit", "show", "output", "view", "relay"]
-    
-    sensor_id = get_sensor_id_from_text(text)
-    sensor_name = sensor_id.upper()
-    
-    has_sensor = any(w in cleaned for w in sensor_words) or (sensor_id in cleaned)
-    has_display = any(w in cleaned for w in display_words)
-    
-    # Identify if the request contains any conditional logic (for custom closed-loop script generation)
-    conditional_words = ["if", "when", "whenever", "once", "greater", "less", "above", "below", "under", "exceed", "exceeds", "threshold", "trigger", "higher than", "lower than", ">", "<", "="]
-    is_conditional = any(f" {w} " in f" {cleaned} " or cleaned.startswith(w) or cleaned.endswith(w) for w in conditional_words)
-    
-    if (has_sensor or has_display) and not is_conditional:
-        if any(w in cleaned for w in ["stop", "turn off", "disable", "clear", "remove", "reset"]):
-            if hw_bridge:
-                hw_bridge.set_sensor_mode(sensor_id, None)
-                
-                # Check if any telemetry modes remain active
-                active_sensors = [s for s, mode in hw_bridge.telemetry_modes.items() if mode is not None]
-                if not active_sensors:
-                    # Clear the display if no sensors are active
-                    hw_bridge.client.publish("bupi/actuators/lcd/cmd", " ")
-                    response = "I have stopped displaying the sensor readings on the LCD."
-                else:
-                    response = f"I have stopped displaying the {sensor_name} sensor readings on the LCD."
-                    
-                print(f"[Mode 2] Deterministic route: {response}", flush=True)
-                m2_client.publish("bupi/internal/tts", json.dumps({"text": response}))
-                return
-                
-        elif any(w in cleaned for w in ["highest", "maximum", "max", "peak"]):
-            if hw_bridge:
-                hw_bridge.set_sensor_mode(sensor_id, "highest")
-                response = f"I am now tracking and displaying the highest {sensor_name} sensor readings on the display unit."
-                print(f"[Mode 2] Deterministic route: {response}", flush=True)
-                m2_client.publish("bupi/internal/tts", json.dumps({"text": response}))
-                return
-                
-        elif any(w in cleaned for w in ["lowest", "minimum", "min"]):
-            if hw_bridge:
-                hw_bridge.set_sensor_mode(sensor_id, "lowest")
-                response = f"I am now tracking and displaying the lowest {sensor_name} sensor readings on the display unit."
-                print(f"[Mode 2] Deterministic route: {response}", flush=True)
-                m2_client.publish("bupi/internal/tts", json.dumps({"text": response}))
-                return
-                
-        elif any(w in cleaned for w in ["average", "avg", "mean"]):
-            if hw_bridge:
-                hw_bridge.set_sensor_mode(sensor_id, "average")
-                response = f"I am now calculating and displaying the running average of the {sensor_name} sensor readings on the display unit."
-                print(f"[Mode 2] Deterministic route: {response}", flush=True)
-                m2_client.publish("bupi/internal/tts", json.dumps({"text": response}))
-                return
-                
-        elif any(w in cleaned for w in ["continuous", "current", "realtime", "live", "real-time"]) or ("display" in cleaned or "show" in cleaned or "relay" in cleaned or "view" in cleaned):
-            if hw_bridge:
-                hw_bridge.set_sensor_mode(sensor_id, "continuous")
-                response = f"I have enabled the continuous {sensor_name} sensor display on the LCD."
-                print(f"[Mode 2] Deterministic route: {response}", flush=True)
-                m2_client.publish("bupi/internal/tts", json.dumps({"text": response}))
-                return
-
     max_retries = 3
     import time
     for attempt in range(max_retries):
@@ -198,6 +133,13 @@ def process_with_crew(text):
             # Send TTS back to Mode 1
             m2_client.publish("bupi/internal/tts", json.dumps({"text": response}))
             return # Success, exit function
+        except Exception as e:
+            print(f"[Mode 2] CrewAI Attempt {attempt + 1} Error: {e}", flush=True)
+            if attempt < max_retries - 1:
+                print("[Mode 2] Rotating key and retrying in 5 seconds...", flush=True)
+                time.sleep(5)
+            else:
+                m2_client.publish("bupi/internal/tts", json.dumps({"text": "Sorry, my robotic crew encountered an error."}))
         except Exception as e:
             print(f"[Mode 2] CrewAI Attempt {attempt + 1} Error: {e}", flush=True)
             if attempt < max_retries - 1:

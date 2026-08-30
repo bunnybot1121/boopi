@@ -1,327 +1,419 @@
 import os
-import json
 import time
-from openai import OpenAI
-from google import genai
-from google.genai import types
+import urllib.parse
+import webbrowser
+from PIL import Image
+from io import BytesIO
 from playwright.sync_api import sync_playwright
+import pyautogui
 
-SYSTEM_PROMPT = """You are an Intelligent Automation Agent for Bupi.
-You have a deep understanding of WhatsApp, Email, and LinkedIn.
-The user will give you an instruction like "message Hi to Chintu on WhatsApp".
-Your job is to parse their request into a structured JSON action.
+from logger import log
+import config
 
-Valid Platforms: "whatsapp", "email", "linkedin"
+class AutomationAgent:
+  def __init__(self, ai_brain=None):
+    self.ai_brain = ai_brain
+    self.user_data_dir = os.path.join(os.path.dirname(__file__), 'browser_data')
+    os.makedirs(self.user_data_dir, exist_ok=True)
 
-Output ONLY valid JSON in this exact format:
-{
-    "platform": "whatsapp" | "email" | "linkedin",
-    "recipient": "Contact Name or Email",
-    "subject": "The subject (for emails only)",
-    "message": "The message to send"
-}
-"""
-
-def parse_intent(task_text: str) -> dict:
-    use_local_llm = os.environ.get("USE_LOCAL_LLM", "false").lower() == "true"
-    
-    if use_local_llm:
-        # Use local LLM (Ollama)
-        local_llm_url = os.environ.get("LOCAL_LLM_URL", "http://localhost:11434/v1")
-        local_model = os.environ.get("LOCAL_LLM_MODEL", "llama3.2")
-        client = OpenAI(base_url=local_llm_url, api_key="ollama")
-        try:
-            response = client.chat.completions.create(
-                model=local_model,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": task_text}
-                ],
-                response_format={"type": "json_object"},
-                max_tokens=150
-            )
-            content = response.choices[0].message.content
-            return json.loads(content)
-        except Exception as e:
-            print(f"[Automation Agent] Parsing error with local LLM: {e}")
-            return {}
-    else:
-        # Use Google GenAI Native SDK
-        google_key = os.environ.get("GOOGLE_AI_STUDIO_KEY")
-        if not google_key:
-            print("[Automation Agent] Error: No GOOGLE_AI_STUDIO_KEY found.")
-            return {}
-        try:
-            client = genai.Client(api_key=google_key)
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=task_text,
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_PROMPT,
-                    response_mime_type="application/json",
-                )
-            )
-            return json.loads(response.text)
-        except Exception as e:
-            print(f"[Automation Agent] Parsing error with Google native SDK: {e}")
-            return {}
-
-def verify_contact_with_vision(recipient: str) -> bool:
-    print("[Automation Agent] Taking screenshot for vision verification...")
+  def open_gmail_compose(self, recipient: str, subject: str, body: str):
+    """Opens a Gmail compose window prepopulated with parameters, leaving it open for user review."""
+    log.info(f"Opening Gmail draft to: {recipient}, subject: {subject}")
     try:
-        from PIL import ImageGrab
-        import os
-
-        # Take screenshot
-        screen = ImageGrab.grab(all_screens=True)
-        # Resize to save bandwidth but keep UI text readable
-        screen.thumbnail((1280, 720))
-
-        use_local_llm = os.environ.get("USE_LOCAL_LLM", "false").lower() == "true"
-        local_llm_url = os.environ.get("LOCAL_LLM_URL", "http://localhost:11434/v1")
-        
-        prompt = f"I searched for '{recipient}' on WhatsApp. Look at the UI in the screenshot. Are there valid search results for a contact with this name to click on, or does it say 'No results found' / display an empty list? Reply with exactly 'FOUND' if a valid chat is available to be opened, or 'NOT_FOUND' if there are no results."
-        
-        if use_local_llm:
-            from io import BytesIO
-            import base64
-            buffered = BytesIO()
-            screen.save(buffered, format="JPEG", quality=70)
-            img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-            print("[Automation Agent] Using Local Vision Model (Llava) for verification...")
-            client = OpenAI(base_url=local_llm_url, api_key="ollama")
-            response = client.chat.completions.create(
-                model="llava", # Default vision model for ollama
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_str}"}}
-                        ]
-                    }
-                ],
-                max_tokens=10
-            )
-            content = response.choices[0].message.content.strip().upper()
-        else:
-            google_key = os.environ.get("GOOGLE_AI_STUDIO_KEY")
-            if not google_key:
-                print("[Automation Agent] No Google API key found. Assuming contact found.")
-                return True
-                
-            print("[Automation Agent] Using Cloud Vision Model (Google GenAI Native) for verification...")
-            client = genai.Client(api_key=google_key)
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=[screen, prompt]
-            )
-            content = response.text.strip().upper()
-        
-        print(f"[Automation Agent] Vision Agent response: {content}")
-        if "NOT_FOUND" in content:
-            return False
-        return True
+      # URL-encode parameters
+      enc_to = urllib.parse.quote(recipient)
+      enc_su = urllib.parse.quote(subject)
+      enc_body = urllib.parse.quote(body)
+      
+      # Gmail standard compose URL format
+      compose_url = f"https://mail.google.com/mail/?view=cm&fs=1&to={enc_to}&su={enc_su}&body={enc_body}"
+      
+      # Open in default system browser so they use their active login session
+      webbrowser.open(compose_url)
+      log.info("Gmail compose opened in user's default browser.")
+      return True
     except Exception as e:
-        print(f"[Automation Agent] Vision verification error: {e}. Falling back to assuming contact found.")
-        return True
+      log.error(f"Failed to open Gmail compose: {e}")
+      return False
 
-def send_whatsapp_native(recipient: str, message: str):
-    print(f"[Automation Agent] Using Native Automation to send WhatsApp to {recipient}...")
-    import time
-    import pyautogui
-    from actions.action_engine import _find_and_focus_tab, _open_in_chrome
+  def send_linkedin_message(self, contact_name: str, message_text: str):
+    """Launches Playwright with user data context, searches for contact, drafts message."""
+    log.info(f"Preparing to send LinkedIn message to '{contact_name}'...")
     
-    try:
-        # Try to focus an existing WhatsApp tab or app first
-        if not _find_and_focus_tab("WhatsApp"):
-            print("[Automation Agent] WhatsApp not found, opening in Chrome...")
-            _open_in_chrome("https://web.whatsapp.com/")
-            time.sleep(3.5) # Reduced from 6s. Wait for WhatsApp Web to load
+    # Run Playwright in a sync block
+    with sync_playwright() as p:
+      try:
+        # Launch persistent browser context (user login session will persist)
+        context = p.chromium.launch_persistent_context(
+          user_data_dir=self.user_data_dir,
+          headless=False,
+          args=["--start-maximized"]
+        )
+        page = context.new_page()
+        
+        # Navigate to LinkedIn messaging
+        page.goto("https://www.linkedin.com/messaging/", wait_until="load")
+        log.info("Loaded LinkedIn messaging. Please ensure you are logged in.")
+        
+        # Wait a moment for page to render fully
+        time.sleep(3)
+        
+        # Try to find the 'Compose new message' button (selector: pencil/edit icon or new message link)
+        new_msg_btn = page.locator("a[href*='/messaging/thread/new/']").first
+        if new_msg_btn.is_visible():
+          new_msg_btn.click()
         else:
-            time.sleep(0.5) # Wait for focus
-            
-        # We are now focused on WhatsApp.
-        
-        # 0. Crucial Fix: Back out of any currently open chats, text boxes, or popups
-        # If a chat is open and the text box is focused, the search hotkey gets swallowed.
-        for _ in range(3):
-            pyautogui.press('escape')
-            time.sleep(0.2)
-            
-        # 1. Focus search bar
-        # Ctrl+Alt+/ focuses the search bar on WhatsApp Web and Desktop.
-        pyautogui.hotkey('ctrl', 'alt', '/')
-        time.sleep(0.5)
-        
-        # Clear anything existing in the search bar
-        pyautogui.hotkey('ctrl', 'a')
-        pyautogui.press('backspace')
-        time.sleep(0.2)
-        
-        # 2. Type recipient name
-        pyautogui.write(recipient, interval=0.01)
-        time.sleep(1.5) # Reduced from 2.5s. Wait for search results to filter
-        
-        # Verify with Vision Agent
-        if not verify_contact_with_vision(recipient):
-            print(f"[Automation Agent] Vision Agent aborted: {recipient} not found.")
-            # Back out by pressing escape to clear the search
-            for _ in range(3):
-                pyautogui.press('escape')
-                time.sleep(0.1)
-            return f"Error: I could not find any contact named '{recipient}' on your WhatsApp screen. Please check the name."
-
-        # 3. Press Enter to open the chat
-        pyautogui.press('enter')
-        time.sleep(1.5) # Wait for chat to open
-        
-        if message:
-            # 4. Type the message
-            # When a chat opens, the text box is automatically focused
-            pyautogui.write(message, interval=0.01)
-            time.sleep(0.5)
-            pyautogui.press('enter')
-            return f"Sent '{message}' to {recipient} on WhatsApp natively."
-        else:
-            return f"Opened WhatsApp chat for {recipient}."
-            
-    except Exception as e:
-        print(f"[Automation Agent] Native automation error: {e}")
-        return "An error occurred while trying to automate WhatsApp natively."
-
-def run_automation_agent(task_text: str) -> str:
-    print(f"[Automation Agent] Analyzing task: '{task_text}'")
-    intent = parse_intent(task_text)
-    
-    if not intent:
-        return "Sorry, I couldn't understand the automation request."
-        
-    platform = intent.get("platform", "").lower()
-    recipient = intent.get("recipient", "")
-    subject = intent.get("subject", "")
-    message = intent.get("message", "")
-    
-    if platform == "whatsapp":
-        if not recipient:
-            return "Who do you want me to message on WhatsApp?"
-        return send_whatsapp_native(recipient, message)
-        
-    elif platform == "email":
-        if not recipient:
-            return "Who do you want me to email?"
-        return send_email_playwright(recipient, subject, message)
-        
-    elif platform == "linkedin":
-        if not recipient:
-            return "Who do you want me to message on LinkedIn?"
-        return send_linkedin_playwright(recipient, message)
-        
-    else:
-        return f"Sorry, I don't know how to automate {platform} yet."
-
-def send_email_playwright(recipient: str, subject: str, message: str):
-    import urllib.parse
-    print(f"[Automation Agent] Opening Playwright to send Email to {recipient}...")
-    user_data_dir = os.path.join(os.path.dirname(__file__), "browser_data")
-    
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch_persistent_context(
-                user_data_dir=user_data_dir,
-                headless=False,
-                channel="chrome",
-                args=["--start-maximized"],
-                no_viewport=True
-            )
-            page = browser.pages[0] if browser.pages else browser.new_page()
-            
-            # Use Gmail compose URL structure
-            url = f"https://mail.google.com/mail/u/0/?view=cm&fs=1&to={urllib.parse.quote(recipient)}"
-            if subject: url += f"&su={urllib.parse.quote(subject)}"
-            if message: url += f"&body={urllib.parse.quote(message)}"
-            
-            page.goto(url)
-            
-            # Wait for compose window to load
-            try:
-                page.wait_for_selector('div[aria-label="Message Body"]', timeout=20000)
-            except Exception:
-                browser.close()
-                return "I couldn't access Gmail. Please ensure you are logged in."
-
-            time.sleep(2)
-            # We will NOT press send automatically for emails to be safe. We let the user hit send.
-            browser.close()
-            return f"Drafted email to {recipient}."
-            
-    except Exception as e:
-        print(f"[Automation Agent] Playwright error: {e}")
-        return "An error occurred while trying to automate Email."
-
-def send_linkedin_playwright(recipient: str, message: str):
-    print(f"[Automation Agent] Opening Playwright to send LinkedIn message to {recipient}...")
-    user_data_dir = os.path.join(os.path.dirname(__file__), "browser_data")
-    
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch_persistent_context(
-                user_data_dir=user_data_dir,
-                headless=False,
-                channel="chrome",
-                args=["--start-maximized"],
-                no_viewport=True
-            )
-            page = browser.pages[0] if browser.pages else browser.new_page()
-            
-            page.goto("https://www.linkedin.com/messaging/")
-            
-            try:
-                # Wait for messaging search box
-                search_input = page.wait_for_selector('input.msg-search-form__search-field', timeout=20000)
-            except Exception:
-                browser.close()
-                return "I couldn't access LinkedIn. Please ensure you are logged in."
-                
+          # Try search input
+          search_input = page.locator("input[placeholder*='Search messages']").first
+          if search_input.is_visible():
             search_input.click()
-            search_input.fill(recipient)
-            time.sleep(2) # wait for dropdown
-            
-            page.keyboard.press("ArrowDown")
-            page.keyboard.press("Enter")
-            
-            # Verify chat opened
-            chat_opened = False
-            try:
-                msg_box = page.locator('div[aria-label="Write a message…"]').first
-                msg_box.wait_for(timeout=3000)
-                chat_opened = True
-            except Exception:
-                print(f"[Automation Agent] Could not find message box for '{recipient}'.")
-                
-            if not chat_opened:
-                browser.close()
-                return f"Error: I could not find any connection named '{recipient}' on LinkedIn. Please ask the user for the exact connection name."
-            
-            if message:
-                msg_box = page.locator('div[aria-label="Write a message…"]')
-                msg_box.click()
-                msg_box.fill(message)
-                time.sleep(0.5)
-                page.keyboard.press("Enter")
-                res = f"Sent '{message}' to {recipient} on LinkedIn."
-            else:
-                res = f"Opened LinkedIn chat for {recipient}."
-                
+            search_input.fill(contact_name)
             time.sleep(2)
-            browser.close()
-            return res
-            
-    except Exception as e:
-        print(f"[Automation Agent] Playwright error: {e}")
-        return "An error occurred while trying to automate LinkedIn."
+            # Select first search result
+            first_result = page.locator(".msg-conversations-container__convo-item").first
+            if first_result.is_visible():
+              first_result.click()
+            else:
+              log.warning("No existing thread found, searching global contacts...")
+              
+        # Enter contact name into 'To:' field if starting a new message
+        to_field = page.locator("input[name='searchTerm']").first
+        if to_field.is_visible():
+          to_field.fill(contact_name)
+          time.sleep(2)
+          # Click the first autocomplete recommendation
+          page.keyboard.press("ArrowDown")
+          page.keyboard.press("Enter")
+          time.sleep(1)
 
-if __name__ == "__main__":
-    # Test script locally
-    res = run_automation_agent("message Hi to Chintu on WhatsApp")
-    print(res)
+        # Focus message text area and fill
+        text_area = page.locator("div[role='textbox'][aria-label*='Write a message']").first
+        if text_area.is_visible():
+          text_area.click()
+          text_area.fill(message_text)
+          log.info("Message draft filled. Waiting for user review before closing browser context...")
+          
+          # Leave open for 10 seconds for user review and manual sending (to prevent automated spam bans)
+          time.sleep(10)
+        else:
+          log.error("Could not locate message textbox on LinkedIn.")
+          
+        context.close()
+        return True
+      except Exception as e:
+        log.error(f"LinkedIn automation error: {e}")
+        return False
+
+  def find_and_activate_whatsapp_tab(self) -> bool:
+    """Attempts to find and focus an existing WhatsApp Web tab using window titles, PowerShell UI Automation, and keyboard tab searching."""
+    import pygetwindow as gw
+    import pyautogui
+    import time
+    
+    # 1. Quick check: Is there a window that already has "WhatsApp" in its title?
+    try:
+      windows = gw.getAllWindows()
+      for w in windows:
+        if w.title and "whatsapp" in w.title.lower():
+          log.info(f"Found window with 'WhatsApp' in title: '{w.title}'. Activating...")
+          w.restore()
+          w.activate()
+          time.sleep(0.5)
+          return True
+    except Exception as e:
+      log.warning(f"Error checking window titles: {e}")
+
+    # 2. Try the PowerShell UI Automation script (original method)
+    log.info("Checking for WhatsApp tab via PowerShell UI Automation...")
+    import subprocess
+    ps_cmd = """
+    Add-Type -TypeDefinition @"
+    using System;
+    using System.Runtime.InteropServices;
+    public class Win32Utils {
+        [DllImport("user32.dll")]
+        public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+        [DllImport("user32.dll")]
+        public static extern bool SetForegroundWindow(IntPtr hWnd);
+    }
+"@
+    Add-Type -AssemblyName UIAutomationClient
+    Add-Type -AssemblyName UIAutomationTypes
+    
+    $procs = Get-Process | Where-Object { $_.Name -eq "chrome" -or $_.Name -eq "msedge" -or $_.Name -eq "firefox" -or $_.Name -eq "brave" -or $_.Name -eq "opera" -or $_.Name -eq "vivaldi" }
+    foreach ($p in $procs) {
+        $hwnd = $p.MainWindowHandle
+        if ($hwnd -eq 0 -or $hwnd -eq [IntPtr]::Zero) { continue }
+        
+        $ae = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+        if (-not $ae) { continue }
+        
+        $condition = New-Object System.Windows.Automation.PropertyCondition(
+            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+            [System.Windows.Automation.ControlType]::TabItem
+        )
+        
+        $tabs = $ae.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
+        foreach ($tab in $tabs) {
+            if ($tab.Current.Name -like "*WhatsApp*") {
+                Write-Output "FOUND_TAB|$($p.Name)|$($p.Id)|$($tab.Current.Name)"
+                [Win32Utils]::ShowWindow($hwnd, 9)
+                [Win32Utils]::SetForegroundWindow($hwnd)
+                Start-Sleep -Milliseconds 400
+                
+                $selectPattern = $null
+                if ($tab.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selectPattern)) {
+                    $selectPattern.Select()
+                    Write-Output "SUCCESS_SELECT"
+                    return
+                } else {
+                    try {
+                        $pt = $tab.GetClickablePoint()
+                        Write-Output "CLICK_COORDS|$($pt.X)|$($pt.Y)"
+                        return
+                    } catch {}
+                }
+            }
+        }
+        if ($p.MainWindowTitle -like "*WhatsApp*") {
+            Write-Output "FOUND_ACTIVE_TAB|$($p.Name)|$($p.Id)"
+            [Win32Utils]::ShowWindow($hwnd, 9)
+            [Win32Utils]::SetForegroundWindow($hwnd)
+            return
+        }
+    }
+    Write-Output "NOT_FOUND"
+    """
+    
+    try:
+      proc = subprocess.run(["powershell", "-Command", ps_cmd], capture_output=True, text=True, timeout=10)
+      output = proc.stdout.strip()
+      log.info(f"PowerShell WhatsApp check result: {output}")
+      if "FOUND_TAB" in output or "FOUND_ACTIVE_TAB" in output or "SUCCESS_SELECT" in output:
+        if "CLICK_COORDS" in output:
+          for line in output.splitlines():
+            if line.startswith("CLICK_COORDS"):
+              _, x_str, y_str = line.split("|")
+              pyautogui.click(int(x_str), int(y_str))
+              time.sleep(0.5)
+              break
+        return True
+    except Exception as e:
+      log.warning(f"PowerShell check failed: {e}")
+
+    # 3. Fallback: Search tabs in all open browser windows using keyboard shortcuts
+    log.info("PowerShell check didn't succeed. Trying active window keyboard search tab fallback...")
+    try:
+      windows = gw.getAllWindows()
+      browser_keywords = ["chrome", "edge", "brave", "firefox", "opera", "vivaldi"]
+      
+      for w in windows:
+        if not w.title:
+          continue
+        
+        is_browser = any(kw in w.title.lower() for kw in browser_keywords)
+        if not is_browser:
+          continue
+          
+        log.info(f"Activating browser window '{w.title}' to search tabs...")
+        try:
+          w.restore()
+          w.activate()
+          time.sleep(0.6)
+          
+          # Universal Chromium Tab Search shortcut
+          pyautogui.hotkey('ctrl', 'shift', 'a')
+          time.sleep(0.3)
+          pyautogui.write('whatsapp')
+          time.sleep(0.3)
+          pyautogui.press('enter')
+          time.sleep(0.8)
+          
+          # Refresh active window
+          active_w = gw.getActiveWindow()
+          if active_w and "whatsapp" in active_w.title.lower():
+            log.info("Successfully activated WhatsApp tab via tab search!")
+            return True
+            
+          # Escape search list if not found
+          pyautogui.press('esc')
+          time.sleep(0.2)
+        except Exception as win_err:
+          log.warning(f"Failed to search tabs in window '{w.title}': {win_err}")
+    except Exception as e:
+      log.warning(f"Keyboard tab search fallback failed: {e}")
+      
+    return False
+
+  def send_whatsapp_via_existing_tab(self, contact_name: str, message_text: str) -> bool:
+    """Attempts to find an open WhatsApp Web tab, bring it to focus, and send the message using keyboard automation."""
+    log.info(f"Checking for existing WhatsApp tab in open browsers...")
+    import pyperclip
+    import pyautogui
+    import time
+    
+    # Use our robust helper to find and focus the tab
+    if not self.find_and_activate_whatsapp_tab():
+      log.info("No open WhatsApp tab found in running browsers.")
+      return False
+      
+    if not contact_name and not message_text:
+      log.info("WhatsApp tab activated successfully (view-only mode).")
+      return True
+      
+    log.info("WhatsApp tab found and activated. Automating search and message inputs...")
+    time.sleep(1.0) # Wait for focus to settle
+    
+    # Force page document focus by clicking in the body area
+    try:
+      import pygetwindow as gw
+      active_w = gw.getActiveWindow()
+      if active_w:
+        click_x = active_w.left + int(active_w.width * 0.3)
+        click_y = active_w.top + int(active_w.height * 0.5)
+        log.info(f"Clicking at ({click_x}, {click_y}) to focus WhatsApp Web page body...")
+        pyautogui.click(click_x, click_y)
+        time.sleep(0.5)
+    except Exception as click_err:
+      log.warning(f"Failed to click focus page body: {click_err}")
+      
+    # Save clipboard and clear to prepare
+    old_clip = pyperclip.paste()
+    
+    # Press escape 3 times before search to clear any active chat selection or search state
+    for _ in range(3):
+      pyautogui.press('esc')
+      time.sleep(0.15)
+    
+    # Focus search input using shortcut (Ctrl + Alt + /, Ctrl + Alt + Shift + F, or Alt + K)
+    log.info("Sending shortcuts to focus search input...")
+    pyautogui.hotkey('ctrl', 'alt', '/')
+    time.sleep(0.15)
+    pyautogui.hotkey('ctrl', 'alt', 'shift', 'f')
+    time.sleep(0.15)
+    pyautogui.hotkey('alt', 'k')
+    time.sleep(0.5)
+    
+    # Paste contact name
+    pyperclip.copy(contact_name)
+    pyautogui.hotkey('ctrl', 'v')
+    time.sleep(1.5) # Wait for contacts list to update
+    
+    # Press Enter to open the chat
+    pyautogui.press('enter')
+    time.sleep(1.0) # Wait for chat to open
+    
+    # Copy message text and paste
+    pyperclip.copy(message_text)
+    pyautogui.hotkey('ctrl', 'v')
+    time.sleep(0.5)
+    
+    # Send message
+    pyautogui.press('enter')
+    log.info("Message sent successfully using keyboard automation on existing tab!")
+    
+    # Press escape 3 times to exit the chat focus and clear the search input
+    time.sleep(0.5)
+    for _ in range(3):
+      pyautogui.press('esc')
+      time.sleep(0.2)
+    
+    # Restore clipboard
+    pyperclip.copy(old_clip)
+    return True
+
+  def send_whatsapp_message(self, contact_name: str, message_text: str) -> bool:
+    """Uses existing WhatsApp Web tab if present, otherwise opens WhatsApp in default browser and automates it."""
+    log.info(f"Preparing WhatsApp message to '{contact_name}'...")
+    
+    # Try sending via existing tab first
+    if self.send_whatsapp_via_existing_tab(contact_name, message_text):
+      return True
+      
+    log.info("No active WhatsApp tab found. Opening WhatsApp Web in default browser...")
+    webbrowser.open("https://web.whatsapp.com/")
+    
+    # Wait for tab to open and load
+    time.sleep(8)
+    
+    # Try automating the newly opened tab (up to 3 retries)
+    for attempt in range(3):
+      log.info(f"Attempting to automate newly opened WhatsApp tab (attempt {attempt+1}/3)...")
+      if self.send_whatsapp_via_existing_tab(contact_name, message_text):
+        return True
+      time.sleep(3)
+      
+    log.error("Failed to automate WhatsApp in default browser.")
+    return False
+
+
+  def fetch_linkedin_notifications(self) -> str:
+    """Launches Playwright with user data context, opens LinkedIn notifications, and scrapes updates."""
+    log.info("Fetching LinkedIn notifications via Playwright...")
+    with sync_playwright() as p:
+      try:
+        context = p.chromium.launch_persistent_context(
+          user_data_dir=self.user_data_dir,
+          headless=True
+        )
+        page = context.new_page()
+        page.goto("https://www.linkedin.com/notifications/", wait_until="load")
+        
+        # Wait for notifications container or login redirect
+        time.sleep(3.5)
+        
+        if "login" in page.url or "signin" in page.url:
+          log.warning("LinkedIn: User is not logged in browser_data session.")
+          context.close()
+          return "Not logged into LinkedIn. Run scratch/login_linkedin.py to log in."
+          
+        # Extract notification list texts
+        selectors = [
+          "[data-test-nt-card]",
+          ".nt-card__content",
+          ".nt-card",
+          "article.nt-card",
+          ".notifications-card",
+          ".artdeco-list__item",
+          "[class*='nt-card']",
+          ".nt-card__text"
+        ]
+        cards = []
+        for selector in selectors:
+          try:
+            cards = page.locator(selector).all()
+            if cards:
+              log.info(f"LinkedIn: Found notifications using selector: {selector}")
+              break
+          except:
+            continue
+            
+        if not cards:
+          log.warning("LinkedIn: Notification card selectors not visible. Checking generic content...")
+          body_text = page.locator("body").inner_text()
+          if "notification" in body_text.lower():
+            context.close()
+            return "No unread notifications parsed."
+          context.close()
+          return "No notifications visible. Ensure you are logged in."
+
+        notification_texts = []
+        for card in cards[:5]: # Extract top 5
+          try:
+            text = card.inner_text().strip()
+            if text:
+              clean_text = " ".join(text.split())
+              # Clean metadata/button texts from the card snippet
+              if " See more" in clean_text:
+                clean_text = clean_text.split(" See more")[0]
+              notification_texts.append(f"- {clean_text}")
+          except Exception as inner_e:
+            continue
+            
+        context.close()
+        if not notification_texts:
+          return "No recent LinkedIn notifications found."
+        return "\n".join(notification_texts)
+      except Exception as e:
+        log.error(f"Failed to fetch LinkedIn notifications: {e}")
+        return f"LinkedIn automation error: {e}"

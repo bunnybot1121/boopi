@@ -32,22 +32,31 @@ from state_manager import state_mgr
 from voice.listener import ListenerThread
 from brain.ai_brain import AIThread
 from voice.speaker import SpeakerThread
-from actions.action_engine import detect_and_run
-from memory import user_memory
+from actions.action_engine import detect_and_run, ActionEngine
+from brain.db_manager import db_manager
+from brain.activity_monitor import ActivityMonitorService
+from brain.daily_briefing_service import DailyBriefingService
 from event_bus import bus
 from bupi_node_server import start_node_server, send_to_esp32
 
 app = QCoreApplication(sys.argv)
 
 # -------------------------------------------------------------
-# Init Threads
+# Init Threads & Services
 # -------------------------------------------------------------
 listener = ListenerThread()
 ai = AIThread()
 speaker = SpeakerThread()
 
+action_engine = ActionEngine()
+activity_monitor = ActivityMonitorService()
+activity_monitor.start()
+
+daily_briefing = DailyBriefingService(ai, speaker)
+
 conversation_mode = True
 mode2_active = False
+on_hold = False
 
 # -------------------------------------------------------------
 # Mode 2 MQTT Bridge
@@ -67,9 +76,26 @@ def on_mqtt_connect(client, userdata, flags, reason_code, properties):
     client.subscribe("bupi/internal/tts")
     client.subscribe("bupi/nodes/announce")
     client.subscribe("bupi/nodes/heartbeat")
+    client.subscribe("bwe/esp32/write/#")
+    client.subscribe("bwe/esp32/stats")
 
 def on_mqtt_message(client, userdata, msg):
-    if msg.topic == "bupi/internal/tts":
+    topic = msg.topic
+    if topic.startswith("bwe/esp32/write/"):
+        try:
+            pin = int(topic.split("/")[-1])
+            payload = json.loads(msg.payload.decode('utf-8'))
+            val = float(payload.get("value", 0.0))
+            print(json.dumps({"type": "bwe_pin_write", "pin": pin, "val": val}), flush=True)
+        except Exception:
+            pass
+    elif topic == "bwe/esp32/stats":
+        try:
+            payload = json.loads(msg.payload.decode('utf-8'))
+            print(json.dumps({"type": "bwe_esp32_stats", "value": payload}), flush=True)
+        except Exception:
+            pass
+    elif topic == "bupi/internal/tts":
         try:
             payload = json.loads(msg.payload.decode())
             text = payload.get("text", "")
@@ -142,6 +168,54 @@ def start_mode2_process():
     except Exception as e:
         print(f"[Mode 1] Failed to spawn Mode 2 process: {e}", flush=True)
 
+def auto_update_local_ip():
+    import socket
+    import re
+    
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        current_ip = s.getsockname()[0]
+        s.close()
+    except Exception:
+        current_ip = "127.0.0.1"
+        
+    if current_ip == "127.0.0.1" or not current_ip:
+        return
+        
+    print(f"[IP Auto-Config] Detected current PC IP: {current_ip}", flush=True)
+    
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    files_to_update = [
+        os.path.join(base_dir, "hardware_rules.md"),
+        os.path.join(base_dir, "esp32_bupi_client.ino"),
+        os.path.join(base_dir, "esp32_hive_display.ino"),
+        os.path.join(base_dir, "workspace", "BupiNode", "BupiNode.ino")
+    ]
+    
+    ip_pattern = re.compile(r'(const\s+char\s*\*\s*(?:mqtt_server|websocket_server)\s*=\s*")[0-9.]+(";?)')
+    
+    for file_path in files_to_update:
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                
+                match = ip_pattern.search(content)
+                if match:
+                    full_match = match.group(0)
+                    inner_match = re.search(r'"([0-9.]+)"', full_match)
+                    if inner_match:
+                        old_ip = inner_match.group(1)
+                        if old_ip != current_ip:
+                            new_content = ip_pattern.sub(rf'\g<1>{current_ip}\g<2>', content)
+                            with open(file_path, "w", encoding="utf-8") as f:
+                                f.write(new_content)
+                            print(f"[IP Auto-Config] Updated {os.path.basename(file_path)}: {old_ip} -> {current_ip}", flush=True)
+            except Exception as e:
+                print(f"[IP Auto-Config Warning] Failed to update {file_path}: {e}", flush=True)
+
+auto_update_local_ip()
 start_node_server()
 start_mode2_process()
 
@@ -162,6 +236,98 @@ water_timer = QTimer()
 water_timer.setInterval(720000) # 12 minutes in milliseconds
 water_timer.timeout.connect(remind_water)
 water_timer.start()
+
+def check_reminders():
+    try:
+        import time
+        now = time.time()
+        pending = db_manager.get_pending_reminders(now)
+        for rem in pending:
+            db_manager.mark_reminder_notified(rem["id"])
+            username = db_manager.get_preference("username", "Chintu")
+            print(f"[Reminder] Triggering reminder notification: '{rem['text']}'", flush=True)
+            
+            # Speak it
+            state_mgr.force("happy")
+            speaker.say(f"{username}, you have a reminder: {rem['text']}")
+            
+            # Show on notepad
+            sync_packet = {
+                "notepad_text": f"REMINDER ALERT:\n\nTime: {time.strftime('%Y-%m-%d %I:%M %p', time.localtime(rem['trigger_time']))}\n\nTask: {rem['text']}",
+                "notepad_title": "Reminder Alert",
+                "notepad_clear": False
+            }
+            print(json.dumps({"type": "notepad", "value": sync_packet}), flush=True)
+    except Exception as e:
+        print(f"[Reminder Error] {e}", flush=True)
+        
+reminder_timer = QTimer()
+reminder_timer.setInterval(5000) # Check every 5 seconds
+reminder_timer.timeout.connect(check_reminders)
+reminder_timer.start()
+
+def check_hold_or_resume(text: str) -> bool:
+    global on_hold
+    if not text:
+        return False
+    clean = text.lower().replace(".", "").replace(",", "").replace("?", "").replace("!", "").strip()
+    words = clean.split()
+    
+    # Common names for Bupi
+    bupi_names = ["bupi", "boopi", "boopy", "buppi", "boopie", "bupis", "boopis", "bobi", "bobby", "boby"]
+    has_bupi = any(w in words for w in bupi_names)
+    
+    # Hold keywords/phrases
+    hold_phrases = [
+        "hold a second", "hold on a second", "hold on", 
+        "hold on for a second", "hold on a minute", "hold a minute",
+        "hold on a moment", "hold a moment", "wait a second", "wait a moment",
+        "pause please", "please pause", "stop taking instructions",
+        "pause taking instructions", "pause instructions",
+        "hold instructions"
+    ]
+    has_hold = any(w in words for w in ["hold", "pause"])
+    
+    is_hold_cmd = any(phrase in clean for phrase in hold_phrases) or (has_bupi and has_hold)
+    
+    # Resume keywords/phrases
+    resume_phrases = [
+        "can we continue", "can we resume", "please continue", "please resume",
+        "let's continue", "let's resume", "continue taking instructions",
+        "continue instructions", "resume instructions", "resume taking instructions",
+        "start taking instructions", "start instructions"
+    ]
+    has_resume = any(w in words for w in ["continue", "resume"])
+    
+    is_resume_cmd = any(phrase in clean for phrase in resume_phrases) or (has_bupi and has_resume) or (clean in ["continue", "resume"])
+    
+    if on_hold:
+        if is_resume_cmd:
+            print("[HoldManager] Matched resume command. Resuming...", flush=True)
+            on_hold = False
+            username = "User"
+            try:
+                username = db_manager.get_preference("username", "User")
+            except Exception:
+                pass
+            resume_speech = f"Welcome back, {username}! I'm ready for your instructions."
+            state_mgr.force("happy")
+            speaker.say(resume_speech)
+            return True
+        else:
+            print(f"[HoldManager] On hold: ignoring input: '{text}'", flush=True)
+            state_mgr.force("chilling")
+            return True
+    else:
+        if is_hold_cmd:
+            print("[HoldManager] Matched hold command. Pausing...", flush=True)
+            on_hold = True
+            hold_speech = "Sure, I'll hold on! Say 'Bupi continue' when you're ready."
+            state_mgr.force("chilling")
+            speaker.say(hold_speech)
+            return True
+            
+    return False
 
 # -------------------------------------------------------------
 # Inactivity Timer
@@ -201,7 +367,10 @@ def start_listening():
 # -------------------------------------------------------------
 # Wiring Listener
 # -------------------------------------------------------------
-listener.listening_started.connect(lambda: state_mgr.transition("listening"))
+def on_listening_started():
+    state_mgr.transition("listening")
+
+listener.listening_started.connect(on_listening_started)
 listener.listening_stopped.connect(lambda: state_mgr.transition("thinking"))
 listener.error_occurred.connect(lambda e: (
     print(json.dumps({"type": "log", "message": f"[Listener Error] {e}"}), flush=True),
@@ -218,23 +387,18 @@ def process_next_instruction():
     task = instruction_queue.pop(0)
     print(f"From Python: [Task Queue] Executing: {task}", flush=True)
     
-    handled, response = detect_and_run(task)
-    if handled:
-        if response and response.lower().startswith("error"):
-            print(f"From Python: [Orchestrator] Action '{task}' failed: {response}", flush=True)
-            # Clear remaining tasks because a step failed
-            instruction_queue.clear()
-            # Feed error back to AI for self-correction
-            ai.ask(f"[System Error in Orchestrator]: The action '{task}' failed with error: {response}. Please apologize and output a new [ACTION: ...] to try an alternative approach.")
-        else:
-            state_mgr.transition("talking")
-            if response:
-                speaker.say(response)
-            else:
-                # Give a small delay before next task if no speech
-                QTimer.singleShot(500, process_next_instruction)
-    else:
-        ai.ask(task)
+    try:
+        action_engine.execute_action(task)
+    except Exception as e:
+        print(f"From Python: [Orchestrator] Action '{task}' failed: {e}", flush=True)
+        # Clear remaining tasks because a step failed
+        instruction_queue.clear()
+        # Feed error back to AI for self-correction
+        ai.ask(f"[System Error in Orchestrator]: The action '{task}' failed with error: {e}. Please apologize and output a new [ACTION: ...] to try an alternative approach.")
+        return
+        
+    # Give a small delay before next task
+    QTimer.singleShot(500, process_next_instruction)
 
 def on_transcription(text: str):
     global conversation_mode
@@ -243,6 +407,8 @@ def on_transcription(text: str):
     
     if text:
         text = text.strip()
+        if check_hold_or_resume(text):
+            return
         # Send what we heard to the thought cloud so the user gets instant visual confirmation of the STT
         print(json.dumps({"type": "speech_text", "value": f"Heard: \"{text}\""}), flush=True)
         
@@ -418,7 +584,7 @@ def on_ai_action(actions: list):
         # Run screen updates instantly for immediate visual feedback (don't wait for TTS to finish)
         if re.search(r"print|display|show", act, re.I) and "esp" in act.lower():
             print(f"From Python: [Fast Track] Executing instantly: {act}", flush=True)
-            detect_and_run(act)
+            action_engine.execute_action(act)
         else:
             queued_actions.append(act)
             
@@ -489,9 +655,11 @@ def analyze_sentiment(text: str) -> str:
     return "idle"
 
 def on_speech_finished():
+    setattr(listener, "is_speaking", False)
     if instruction_queue:
+        state_mgr.transition("idle")
         # Give a slight delay before triggering the next task so it feels natural
-        QTimer.singleShot(1500, process_next_instruction)
+        QTimer.singleShot(400, process_next_instruction)
     else:
         global last_ai_response
         sentiment_state = analyze_sentiment(last_ai_response)
@@ -506,9 +674,11 @@ def on_speech_finished():
             state_mgr.transition("idle")
             QTimer.singleShot(300, start_listening)
 
+speaker.speech_started.connect(lambda: setattr(listener, "is_speaking", True))
 speaker.speech_finished.connect(on_speech_finished)
 speaker.error_occurred.connect(lambda e: (
     print(json.dumps({"type": "log", "message": f"[TTS Error] {e}"}), flush=True),
+    setattr(listener, "is_speaking", False),
     state_mgr.force("idle")
 ))
 
@@ -578,9 +748,13 @@ def stdin_listener():
                 broadcast_nodes()
             elif cmd == "test_ask":
                 text = req.get("text", "")
+                if check_hold_or_resume(text):
+                    continue
                 if listener.isRunning():
                     listener.pause()
                 ai.ask(text)
+            elif cmd == "trigger_briefing":
+                threading.Thread(target=daily_briefing.generate_briefing, daemon=True).start()
             elif cmd == "pause_listener":
                 if listener.isRunning():
                     listener.pause()
@@ -593,6 +767,19 @@ def stdin_listener():
             elif cmd == "flash_hardware":
                 code = req.get("code", "")
                 bridge.do_flash_hardware.emit(code)
+            elif cmd == "bwe_pin_update":
+                pin = req.get("pin")
+                val = req.get("val")
+                if pin is not None and val is not None:
+                    mqtt_client.publish(f"bwe/simulator/write/{pin}", json.dumps({"value": val}))
+            elif cmd == "estop":
+                print("From Python: [EMERGENCY STOP] Triggering hardware E-Stop hard cut...", flush=True)
+                try:
+                    mqtt_client.publish("bupi/internal/estop", json.dumps({"command": "STOP_ALL"}))
+                    send_to_esp32("STOP_ALL")
+                except Exception as ex:
+                    print(f"E-Stop broadcast error: {ex}", flush=True)
+                speaker.say("Emergency stop activated. All hardware motors halted.")
             elif cmd == "search_components":
                 query = req.get("query", "")
                 def run_search():
@@ -614,8 +801,83 @@ threading.Thread(target=stdin_listener, daemon=True).start()
 # -------------------------------------------------------------
 from datetime import datetime
 
+def _format_notifications_dashboard_fallback(gmail, github, linkedin):
+    lines = []
+    lines.append("✧ ══════════════════════════════════════ ✧")
+    lines.append("         BUPI NOTIFICATION HUB")
+    lines.append("✧ ══════════════════════════════════════ ✧\n")
+    
+    lines.append("📧 GOOGLE MAIL (GMAIL) INBOX")
+    lines.append("──────────────────────────────────────────")
+    if gmail and "not configured" not in gmail.lower() and "error" not in gmail.lower() and "no unread" not in gmail.lower() and "no primary" not in gmail.lower():
+        lines.append(gmail)
+    elif "no unread" in gmail.lower() or "no primary" in gmail.lower():
+        lines.append("  No unread emails.")
+    else:
+        lines.append(f"  {gmail}")
+    lines.append("")
+    
+    lines.append("🐙 GITHUB NOTIFICATIONS")
+    lines.append("──────────────────────────────────────────")
+    if github and "not configured" not in github.lower() and "error" not in github.lower() and "no unread" not in github.lower():
+        lines.append(github)
+    elif "no unread" in github.lower():
+        lines.append("  You have not received any notifications from GitHub.")
+    else:
+        lines.append(f"  {github}")
+    lines.append("")
+    
+    lines.append("💬 LINKEDIN NOTIFICATIONS")
+    lines.append("──────────────────────────────────────────")
+    if linkedin and "not configured" not in linkedin.lower() and "error" not in linkedin.lower() and "no recent" not in linkedin.lower() and "no unread" not in linkedin.lower():
+        lines.append(linkedin)
+    elif "no recent" in linkedin.lower() or "no unread" in linkedin.lower():
+        lines.append("  You have not received any notifications from LinkedIn.")
+    else:
+        lines.append(f"  {linkedin}")
+    lines.append("\n✧ ══════════════════════════════════════ ✧")
+    lines.append("          Have a wonderful day! ✨")
+    return "\n".join(lines)
+
+def _fetch_real_notifications_async():
+    try:
+        # 1. Fetch Gmail (Fast)
+        try:
+            from actions.gmail_helper import get_unread_emails
+            gmail_text = get_unread_emails()
+        except Exception as ge:
+            gmail_text = f"Error: {ge}"
+        
+        # 2. Fetch GitHub (Fast)
+        try:
+            from actions.github_helper import get_github_updates
+            github_text = get_github_updates()
+        except Exception as ghe:
+            github_text = f"Error: {ghe}"
+
+        # Intermediate display
+        real_notes = _format_notifications_dashboard_fallback(gmail_text, github_text, "Syncing LinkedIn notifications... 🔄")
+        print(json.dumps({"type": "notepad_clear"}), flush=True)
+        print(json.dumps({"type": "notepad_insert", "value": real_notes}), flush=True)
+
+        # 3. Fetch LinkedIn (Slower)
+        try:
+            from actions.automation_agent import AutomationAgent
+            agent = AutomationAgent()
+            linkedin_text = agent.fetch_linkedin_notifications()
+        except Exception as le:
+            linkedin_text = f"Error: {le}"
+            
+        formatted_notes = _format_notifications_dashboard_fallback(gmail_text, github_text, linkedin_text)
+        
+        print(json.dumps({"type": "notepad_clear"}), flush=True)
+        print(json.dumps({"type": "notepad_insert", "value": formatted_notes}), flush=True)
+        
+    except Exception as e:
+        print(f"[Notifications Error] {e}", flush=True)
+
 def startup_sequence():
-    user_name = user_memory.get("user_name", "Chintu")
+    user_name = db_manager.get_preference("username", "Chintu")
     hour = datetime.now().hour
     greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 17 else "Good evening"
     state_mgr.force("startup")
@@ -626,22 +888,23 @@ def startup_sequence():
     on_ai_notepad_title("Notifications Summary")
     on_ai_notepad_clear()
     
+    loading_text = (
+        "✧ ══════════════════════════════════════ ✧\n"
+        "         BUPI NOTIFICATION HUB\n"
+        "✧ ══════════════════════════════════════ ✧\n\n"
+        "  🔄 Syncing real-time notifications...\n"
+        "  - Gmail Inbox\n"
+        "  - GitHub Notifications\n"
+        "  - LinkedIn Updates\n\n"
+        "  Please wait a moment... ✨\n"
+    )
+    on_ai_notepad(loading_text)
+    
+    # Start background thread to fetch real notifications
+    threading.Thread(target=_fetch_real_notifications_async, daemon=True).start()
+    
     # Run key check asynchronously 5 seconds after boot
     QTimer.singleShot(5000, ai.check_api_keys)
-    
-    mock_notes = (
-        "📧 Emails (3 Unread)\n"
-        " - Client: \"Feedback on the latest design draft.\"\n"
-        " - GitHub: \"Pull request #42 has been merged.\"\n"
-        " - Newsletter: \"Weekly tech insights and news.\"\n\n"
-        "💼 LinkedIn (2 Notifications)\n"
-        " - John Doe endorsed you for Python.\n"
-        " - You appeared in 12 searches this week.\n\n"
-        "💬 WhatsApp (2 Unread)\n"
-        " - Mom: \"Call me when you are free!\"\n"
-        " - Group Chat: \"Lunch plans for tomorrow?\"\n"
-    )
-    on_ai_notepad(mock_notes)
 
     welcome_speech = f"Hi {user_name}, I have some notifications and I have summarized what you have got. I also checked your LinkedIn and WhatsApp and gave you a quick summary of all the stuff."
     speaker.say(welcome_speech)
@@ -654,7 +917,8 @@ def startup_sequence():
         Qt.ConnectionType.SingleShotConnection if hasattr(Qt, 'ConnectionType') else 1
     )
 
-QTimer.singleShot(800, startup_sequence)
+if "--lab-mode" not in sys.argv:
+    QTimer.singleShot(800, startup_sequence)
 
 def shutdown():
     global mode2_process
@@ -674,6 +938,10 @@ def shutdown():
     speaker.wait(2000)
     ai.quit()
     ai.wait(2000)
+    try:
+        activity_monitor.stop()
+    except Exception:
+        pass
 
 app.aboutToQuit.connect(shutdown)
 

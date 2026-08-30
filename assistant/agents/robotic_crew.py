@@ -12,7 +12,7 @@ if hasattr(sys.stderr, 'reconfigure'):
     sys.stderr.reconfigure(encoding='utf-8')
 
 from crewai import Agent, Task, Crew, Process, LLM
-from actions.hardware_tools import control_relay, display_on_esp32, universal_mqtt_tool, read_mqtt_sensor, run_robotic_code
+from actions.hardware_tools import control_relay, display_on_esp32, universal_mqtt_tool, read_mqtt_sensor, run_robotic_code, read_sensor_status, get_world_state
 
 load_dotenv()
 
@@ -175,7 +175,7 @@ def run_robotic_task(user_request: str) -> str:
                 backstory=orchestrator_config["backstory"],
                 verbose=True,
                 allow_delegation=True,
-                tools=[control_relay, display_on_esp32, universal_mqtt_tool, read_mqtt_sensor, run_robotic_code],
+                tools=[control_relay, display_on_esp32, universal_mqtt_tool, read_mqtt_sensor, run_robotic_code, read_sensor_status, get_world_state],
                 llm=orchestrator_llm
             )
             crew_agents.append(orchestrator_agent)
@@ -269,7 +269,7 @@ def run_robotic_task(user_request: str) -> str:
 
             # 7. Create the master Orchestration Task
             orchestrator_task = Task(
-                description=f"User Request: '{user_request}'.\n\nHere is the complete hardware knowledge:\n{hardware_knowledge}\n\nCo-ordinate the dynamically spawned sensor listener and actuator controller sub-agents to achieve the goal. Plan the overall telemetry processing loop.\n\nCRITICAL FOR CONTINUOUS AUTOMATIONS/TRIGGERS:\nIf the request requires continuous automation or value tracking, you MUST use the `run_robotic_code` tool to execute a Python script. The script should run a non-blocking loop (by starting a `threading.Thread` loop) to subscribe to sensor topics (e.g. `bupi/sensors/+/state` or `footmo2/esp32-001/sensor/+`), read values, perform checks/math, and publish the output to the command/display topics.",
+                description=f"User Request: '{user_request}'.\n\nHere is the complete hardware knowledge:\n{hardware_knowledge}\n\nCo-ordinate the dynamically spawned sensor listener and actuator controller sub-agents to achieve the goal.\n\nWORLD STATE & DECISION RULES:\n1. You MUST prefer using the `get_world_state` tool as your primary tool to check overall environment conditions before making decisions or executing actions.\n2. Always think and reason using semantic states (e.g. SAFE, WARNING, DANGER, CLEAR, COLLISION_RISK) rather than raw numerical sensor readings whenever possible.\n3. Validate the safety of actions before executing them. Commands sent to actuators are validated; physical movements will fail if there is a COLLISION_RISK.\n\nCRITICAL FOR CONTINUOUS AUTOMATIONS/TRIGGERS:\nIf the request requires continuous automation or value tracking, you MUST use the `run_robotic_code` tool to execute a Python script. The script should run a non-blocking loop (by starting a `threading.Thread` loop) to subscribe to sensor topics (e.g. `bupi/sensors/+/state` or `footmo2/esp32-001/sensor/+`), read values, perform checks/math, and publish the output to the command/display topics. Inside your script, you can call `get_world_state()` to retrieve the current semantic world state dictionary.",
                 expected_output="A very short, highly concise, and conversational companion notification (under 2 sentences) indicating that the loop/action has been successfully established and is active. Keep it simple and direct.",
                 agent=orchestrator_agent
             )
@@ -284,6 +284,34 @@ def run_robotic_task(user_request: str) -> str:
             )
 
             result = crew.kickoff()
+            
+            # Log the decision to SQLite
+            try:
+                from core.safety_validator import get_current_world_state
+                import sqlite3
+                import time
+                
+                db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "bupi_telemetry.db")
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS decisions (
+                        timestamp REAL,
+                        world_state TEXT,
+                        decision TEXT,
+                        result TEXT
+                    )
+                """)
+                cursor.execute(
+                    "INSERT INTO decisions (timestamp, world_state, decision, result) VALUES (?, ?, ?, ?)",
+                    (time.time(), json.dumps(get_current_world_state()), user_request, str(result))
+                )
+                conn.commit()
+                conn.close()
+                print("[Robotic Crew] Decision successfully logged to database.", flush=True)
+            except Exception as e:
+                print(f"[Robotic Crew Error] Failed to log decision to SQLite: {e}", flush=True)
+
             return str(result)
             
         except Exception as e:

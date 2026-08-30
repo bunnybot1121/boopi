@@ -7,12 +7,17 @@ keys = [
 ]
 for k in keys:
     try:
-        resp = requests.post(
-            f'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={k}', 
-            json={'contents': [{'parts': [{'text': 'hi'}]}]}, 
-            headers={'Content-Type': 'application/json'}, 
+        resp = requests.get(
+            f'https://generativelanguage.googleapis.com/v1beta/models?key={k}',
             timeout=10
         )
-        print(f'Key {k[:15]}... -> {resp.status_code} {resp.text[:150]}')
+        print(f'Key {k[:15]}... -> {resp.status_code}')
+        if resp.status_code == 200:
+            models = resp.json().get('models', [])
+            names = [m['name'] for m in models]
+            print(f'  Models: {names}')
+        else:
+            print(f'  Response: {resp.text[:200]}')
     except Exception as e:
         print(f'Key {k[:15]}... -> ERROR {e}')
+

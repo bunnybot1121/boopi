@@ -1,3 +1,4 @@
+(() => {
 const { ipcRenderer } = require('electron');
 const fs = require('fs');
 const path = require('path');
@@ -196,6 +197,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 const iframe = document.getElementById('footmo2-iframe');
                 if (iframe) {
                     iframe.src = iframe.src; // Force refresh iframe
+                }
+            } else if (targetId === 'panel-bwe') {
+                if (typeof initializeBWE === 'function') {
+                    initializeBWE();
                 }
             }
         });
@@ -935,3 +940,4 @@ print(val or 'Timeout')
     loadTrainedDevices();
     ipcRenderer.send('request-connected-nodes');
 });
+})();
