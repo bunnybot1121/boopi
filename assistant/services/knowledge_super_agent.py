@@ -43,6 +43,8 @@ class KnowledgeSuperAgent:
         self.arduino_index_path = os.path.join(self.project_root, "brain", "arduino_library_index.json")
         self.json_cache_path = os.path.join(self.project_root, "brain", "sensor_knowledge_cache.json")
         self.db_path = os.path.join(self.project_root, "brain", "chroma_db")
+        self.fts5_db_path = os.path.join(self.project_root, "brain", "fts5_hardware_index.db")
+        self._init_fts5_db()
         
         # Initialize database cache (ChromaDB with JSON fallback)
         self.use_chromadb = False
@@ -74,6 +76,75 @@ class KnowledgeSuperAgent:
         except Exception as e:
             print(f"[Super Agent Warning] Could not initialize ChromaDB ({e}). Falling back to JSON cache.", flush=True)
             self._init_json_cache()
+
+    def _init_fts5_db(self):
+        """Initializes SQLite FTS5 (Full-Text Search) table for instant hardware & library searches."""
+        import sqlite3
+        try:
+            conn = sqlite3.connect(self.fts5_db_path)
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE VIRTUAL TABLE IF NOT EXISTS hardware_fts USING fts5(
+                    name, sentence, paragraph, website, includes
+                )
+            """)
+            conn.commit()
+            
+            # Check if FTS index is empty; if so, populate from arduino_library_index.json
+            cursor.execute("SELECT count(*) FROM hardware_fts")
+            count = cursor.fetchone()[0]
+            if count == 0 and os.path.exists(self.arduino_index_path):
+                print("[Super Agent FTS5] Indexing Arduino Library Index into SQLite FTS5...", flush=True)
+                with open(self.arduino_index_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                libraries = data.get("libraries", [])
+                rows = []
+                for lib in libraries:
+                    rows.append((
+                        lib.get("name", ""),
+                        lib.get("sentence", ""),
+                        lib.get("paragraph", ""),
+                        lib.get("website", ""),
+                        " ".join(lib.get("includes", []))
+                    ))
+                cursor.executemany("INSERT INTO hardware_fts (name, sentence, paragraph, website, includes) VALUES (?, ?, ?, ?, ?)", rows)
+                conn.commit()
+                print(f"[Super Agent FTS5] Indexed {len(rows)} hardware libraries into SQLite FTS5 table.", flush=True)
+            conn.close()
+        except Exception as e:
+            print(f"[Super Agent FTS5 Warning] Failed to initialize SQLite FTS5 table: {e}", flush=True)
+
+    def search_fts5(self, query: str, limit: int = 5) -> list:
+        """Microsecond (<15ms) SQLite FTS5 exact keyword search over hardware catalog."""
+        import sqlite3
+        if not os.path.exists(self.fts5_db_path):
+            return []
+        try:
+            conn = sqlite3.connect(self.fts5_db_path)
+            cursor = conn.cursor()
+            clean_query = query.replace("'", "''").replace('"', '')
+            fts_query = f'"{clean_query}"*'
+            cursor.execute("""
+                SELECT name, sentence, paragraph, website, includes 
+                FROM hardware_fts 
+                WHERE hardware_fts MATCH ? 
+                ORDER BY rank LIMIT ?
+            """, (fts_query, limit))
+            rows = cursor.fetchall()
+            conn.close()
+            results = []
+            for r in rows:
+                results.append({
+                    "name": r[0],
+                    "sentence": r[1],
+                    "paragraph": r[2],
+                    "url": r[3],
+                    "includes": r[4].split() if r[4] else []
+                })
+            return results
+        except Exception as e:
+            print(f"[Super Agent FTS5 Search Error] {e}", flush=True)
+            return []
 
     def _init_json_cache(self):
         os.makedirs(os.path.dirname(self.json_cache_path), exist_ok=True)
@@ -141,10 +212,15 @@ class KnowledgeSuperAgent:
     # -------------------------------------------------------------
     def _search_arduino_registry(self, query: str) -> list:
         """
-        Downloads/Loads the official Arduino Library Index and searches for matching libraries.
+        Searches the official Arduino Library Index using microsecond SQLite FTS5 lookup first.
         """
         try:
-            # Download if not present
+            # Try microsecond FTS5 query first
+            fts_results = self.search_fts5(query, limit=3)
+            if fts_results:
+                return fts_results
+
+            # Fallback to linear JSON file scan if FTS is empty or downloading
             if not os.path.exists(self.arduino_index_path):
                 os.makedirs(os.path.dirname(self.arduino_index_path), exist_ok=True)
                 print("[Super Agent] Downloading Arduino Library Index...", flush=True)
@@ -152,6 +228,7 @@ class KnowledgeSuperAgent:
                 if r.status_code == 200:
                     with open(self.arduino_index_path, "w", encoding="utf-8") as f:
                         f.write(r.text)
+                    self._init_fts5_db()
                 else:
                     return []
             
@@ -374,29 +451,28 @@ Return ONLY a valid JSON object matching these keys. Do not include markdown cod
                     print(f"[Super Agent Error] Gemini key {self.current_google_key_idx + 1} failed ({e}). Rotating key...", flush=True)
                     self.current_google_key_idx = (self.current_google_key_idx + 1) % len(self.google_keys)
 
-        # 4b. Fallback to Groq keys
-        if not synthesized_text and self.groq_keys:
+        # 4c. Fallback to Local Ollama
+        if not synthesized_text:
             from openai import OpenAI
-            max_attempts = len(self.groq_keys) * 2
-            for attempt in range(max_attempts):
-                key = self.groq_keys[self.current_groq_key_idx]
+            print("[Super Agent] Attempting synthesis with local Ollama...", flush=True)
+            for local_model in ["llama3.1:8b", "llama3.2:3b", "llama3.2:latest"]:
                 try:
-                    print(f"[Super Agent] Falling back to Groq key {self.current_groq_key_idx + 1}...", flush=True)
                     client = OpenAI(
-                        base_url="https://api.groq.com/openai/v1",
-                        api_key=key
+                        base_url="http://localhost:11434/v1",
+                        api_key="ollama"
                     )
                     resp = client.chat.completions.create(
-                        model="llama-3.3-70b-versatile",
+                        model=local_model,
                         messages=[{"role": "user", "content": prompt}],
                         temperature=0.0,
                         response_format={"type": "json_object"}
                     )
                     synthesized_text = resp.choices[0].message.content.strip()
+                    print(f"[Super Agent] Synthesized knowledge card via local Ollama ({local_model})!", flush=True)
                     break
-                except Exception as e:
-                    print(f"[Super Agent Warning] Groq key {self.current_groq_key_idx + 1} failed ({e}). Rotating key...", flush=True)
-                    self.current_groq_key_idx = (self.current_groq_key_idx + 1) % len(self.groq_keys)
+                except Exception as local_err:
+                    print(f"[Super Agent Warning] Local Ollama synthesis failed for '{local_model}': {local_err}", flush=True)
+                    continue
 
         # Fallback raw parse if synthesis completely fails
         if not synthesized_text:

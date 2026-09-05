@@ -105,8 +105,60 @@ def run_robotic_task(user_request: str) -> str:
     if os.environ.get("NVIDIA_API_KEY") and os.environ.get("NVIDIA_API_KEY").strip():
         nvidia_keys.append(os.environ.get("NVIDIA_API_KEY").strip())
 
-    # Try Gemini first, then fall back to Groq, then NVIDIA, then OpenRouter (prevents 429/402 quota exhaustion crashes)
-    models_to_try = []
+# In-memory Agent Registry Cache
+_TRAINED_AGENTS_CACHE = None
+
+async def run_robotic_task_async(user_request: str) -> str:
+    """
+    Asynchronous non-blocking wrapper for run_robotic_task.
+    Executes CrewAI planning in a worker thread so the main asyncio / PyQt loop remains 100% responsive.
+    """
+    import asyncio
+    return await asyncio.to_thread(run_robotic_task, user_request)
+
+def run_robotic_task(user_request: str) -> str:
+    """
+    Executes the hierarchical multi-agent Crew.
+    Dynamically loads the persistent agent registry, queries active online ESP32 capabilities,
+    spawns persistent specialized sub-agents for any connected hardware, and kicks off the tasks.
+    """
+    global _TRAINED_AGENTS_CACHE
+
+    # Gather Cloud API Keys for fallback
+    openrouter_keys = []
+    if os.environ.get("OPENROUTER_API_KEY") and os.environ.get("OPENROUTER_API_KEY").strip():
+        openrouter_keys.append(os.environ.get("OPENROUTER_API_KEY").strip())
+    for i in range(2, 11):
+        key = os.environ.get(f"OPENROUTER_API_KEY_{i}")
+        if key and key.strip():
+            openrouter_keys.append(key.strip())
+
+    groq_keys = []
+    if os.environ.get("GROQ_API_KEY") and os.environ.get("GROQ_API_KEY").strip():
+        groq_keys.append(os.environ.get("GROQ_API_KEY").strip())
+    for i in range(2, 11):
+        key = os.environ.get(f"GROQ_API_KEY_{i}")
+        if key and key.strip():
+            groq_keys.append(key.strip())
+
+    google_keys = []
+    if os.environ.get("GOOGLE_AI_STUDIO_KEY") and os.environ.get("GOOGLE_AI_STUDIO_KEY").strip():
+        google_keys.append(os.environ.get("GOOGLE_AI_STUDIO_KEY").strip())
+    for i in range(2, 11):
+        key = os.environ.get(f"GOOGLE_AI_STUDIO_KEY_{i}")
+        if key and key.strip():
+            google_keys.append(key.strip())
+
+    nvidia_keys = []
+    if os.environ.get("NVIDIA_API_KEY") and os.environ.get("NVIDIA_API_KEY").strip():
+        nvidia_keys.append(os.environ.get("NVIDIA_API_KEY").strip())
+
+    # LOCAL-FIRST Model Fallback Chain (Local Ollama -> Gemini -> Groq -> NVIDIA -> OpenRouter)
+    models_to_try = [
+        ("ollama/llama3.2:3b", ["ollama"], "http://localhost:11434/v1"),
+        ("ollama/llama3.1:8b", ["ollama"], "http://localhost:11434/v1"),
+        ("ollama/llama3.2", ["ollama"], "http://localhost:11434/v1"),
+    ]
     if google_keys:
         models_to_try.append(("gemini/gemini-2.5-flash", google_keys, None))
     if groq_keys:
@@ -115,12 +167,6 @@ def run_robotic_task(user_request: str) -> str:
         models_to_try.append(("openai/deepseek-ai/deepseek-v4-pro", nvidia_keys, "https://integrate.api.nvidia.com/v1"))
     if openrouter_keys:
         models_to_try.append(("openrouter/meta-llama/llama-3.3-70b-instruct:free", openrouter_keys, None))
-    
-    # Always append local Ollama fallback as the final option
-    models_to_try.append(("ollama/llama3.2", ["ollama"], "http://localhost:11434/v1"))
-        
-    if not models_to_try:
-        models_to_try.append(("gemini/gemini-2.5-flash", [""], None))
 
     last_error = None
     for model_name, keys_list, base_url in models_to_try:
@@ -134,15 +180,19 @@ def run_robotic_task(user_request: str) -> str:
                 base_url=base_url
             )
 
-            # 2. Load Persistent Agent Registry from trained_agents.json
+            # 2. Load Persistent Agent Registry (Memory Cache / Disk Sync)
             agents_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "brain", "trained_agents.json")
-            trained_agents = {}
-            if os.path.exists(agents_file):
-                try:
-                    with open(agents_file, "r", encoding="utf-8") as f:
-                        trained_agents = json.load(f)
-                except Exception as e:
-                    print(f"[Robotic Crew Error] Could not load trained_agents.json: {e}")
+            if _TRAINED_AGENTS_CACHE is not None:
+                trained_agents = _TRAINED_AGENTS_CACHE
+            else:
+                trained_agents = {}
+                if os.path.exists(agents_file):
+                    try:
+                        with open(agents_file, "r", encoding="utf-8") as f:
+                            trained_agents = json.load(f)
+                    except Exception as e:
+                        print(f"[Robotic Crew Error] Could not load trained_agents.json: {e}")
+                _TRAINED_AGENTS_CACHE = trained_agents
 
             # Ensure base templates exist in the registry
             if "robotic_orchestrator" not in trained_agents:

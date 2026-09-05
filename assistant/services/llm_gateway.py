@@ -40,26 +40,48 @@ class LLMGateway:
         Takes a natural language string and returns a structured JSON intent.
         """
         system_prompt = """
-        You are the Intent Router for BUPI, a smart home AI.
-        Your job is to classify the user's utterance and return ONLY a JSON object.
-        If the user wants to control hardware (lights, etc.), output:
+        You are the Intent Router for BUPI, a smart home desktop companion and physical robotics hive mind.
+        Your job is to classify the user's utterance and return ONLY a JSON object belonging to one of the following 4 types:
+
+        1. Physical Hardware & Robotics (motors, LCD display, relays, gas/distance/IMU sensors):
         {
           "type": "hardware_intent",
           "payload": {
-             "device": "lights",
-             "action": "ON" | "OFF"
+             "device": "motors" | "lcd" | "relay" | "sensors" | "general",
+             "action": "ON" | "OFF" | "MOVE" | "READ" | "DISPLAY",
+             "direction": "forward" | "reverse" | "left" | "right" | "stop",
+             "text": "<optional text to display>"
           }
         }
-        
-        If the user is just chatting or asking a general question, output:
+
+        2. Desktop & Windows OS Automation (opening apps, browser, Gmail, WhatsApp, LinkedIn, Notepad, reminders):
+        {
+          "type": "desktop_automation",
+          "payload": {
+             "target": "whatsapp" | "gmail" | "linkedin" | "notepad" | "browser" | "app",
+             "action": "send_message" | "open_draft" | "search" | "launch",
+             "recipient": "<optional recipient name>",
+             "text": "<message or search text>"
+          }
+        }
+
+        3. Technical Knowledge & Hardware Search (datasheets, pinouts, Arduino libraries, hardware specs, wiring):
+        {
+          "type": "rag_search",
+          "payload": {
+             "query": "<hardware module or datasheet query string>"
+          }
+        }
+
+        4. General Conversation & Spoken Chat:
         {
           "type": "chat_response",
           "payload": {
-             "text": "<A brief, friendly response>"
+             "text": "<A brief, friendly companion response>"
           }
         }
-        
-        Respond ONLY with raw JSON, no markdown blocks.
+
+        Respond ONLY with raw JSON, no markdown code blocks.
         """
         
         if not self.gemini_keys:
@@ -99,32 +121,44 @@ class LLMGateway:
                 # For non-quota errors, we also try the next key just in case
                 continue
 
-        # 2. Fallback to Groq keys
-        if self.groq_keys:
-            for idx, key in enumerate(self.groq_keys):
+        # 3. Fallback to Local Ollama (llama3.2:3b or llama3.1:8b)
+        try:
+            print("[LLM Gateway] Attempting intent classification via local Ollama...", flush=True)
+            client = AsyncOpenAI(
+                base_url="http://localhost:11434/v1",
+                api_key="ollama"
+            )
+            
+            # Try llama3.2:3b first (super fast), fallback to llama3.1:8b
+            for local_model in ["llama3.2:3b", "llama3.1:8b", "llama3.2:latest"]:
                 try:
-                    client = AsyncOpenAI(
-                        base_url="https://api.groq.com/openai/v1",
-                        api_key=key
-                    )
                     response = await client.chat.completions.create(
-                        model="llama-3.3-70b-versatile",
+                        model=local_model,
                         messages=[
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": user_utterance}
                         ],
                         temperature=0.0,
-                        max_tokens=150,
+                        max_tokens=250,
                         response_format={"type": "json_object"}
                     )
                     raw_text = response.choices[0].message.content.strip()
-                    return json.loads(raw_text)
-                except Exception as e:
-                    print(f"[LLM Gateway] Groq error with Key {idx + 1}: {e}")
-                    # Try next Groq key
+                    if raw_text.startswith("```json"):
+                        raw_text = raw_text.split("```json")[1].split("```")[0].strip()
+                    elif raw_text.startswith("```"):
+                        raw_text = raw_text.split("```")[1].strip()
+                    
+                    parsed = json.loads(raw_text)
+                    print(f"[LLM Gateway] Local Ollama ({local_model}) intent classification successful!", flush=True)
+                    return parsed
+                except Exception as local_err:
+                    print(f"[LLM Gateway Warning] Local Ollama model '{local_model}' failed: {local_err}", flush=True)
                     continue
 
-        # If the loop finishes, it means ALL keys failed or were exhausted
-        print("[LLM Gateway] ALL Groq and Gemini keys have been exhausted or failed!")
-        return {"type": "chat_response", "payload": {"text": "My API keys are completely exhausted. Please top me up!"}}
+        except Exception as e:
+            print(f"[LLM Gateway Error] Local Ollama fallback failed: {e}", flush=True)
+
+        # If everything fails
+        print("[LLM Gateway] All cloud and local Ollama intent routing attempts failed!")
+        return {"type": "chat_response", "payload": {"text": "I'm having trouble processing that intent right now."}}
 
