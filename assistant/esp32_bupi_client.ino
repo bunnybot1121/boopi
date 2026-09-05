@@ -8,7 +8,7 @@ const char* ssid = "home";
 const char* password = "sachin1121";
 
 // 2. BUPI PC SERVER SETTINGS (Pre-filled with your current local IP)
-const char* websocket_server = "192.168.0.107";
+const char* websocket_server = "192.168.0.106";
 const uint16_t websocket_port = 8767;
 
 WebSocketsClient webSocket;

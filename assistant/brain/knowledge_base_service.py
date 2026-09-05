@@ -4,10 +4,12 @@ import threading
 from logger import log, import_lock
 
 class KnowledgeBaseService:
-  def __init__(self, workspace_path="c:\\Users\\Sachin\\hackathon"):
+  def __init__(self, workspace_path=None):
+    if workspace_path is None:
+      workspace_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     self.workspace_path = workspace_path
     self.docs_dir = os.path.join(workspace_path, "documents")
-    self.db_dir = os.path.join(workspace_path, "brain", "chroma_db")
+    self.db_dir = os.path.join(workspace_path, "brain", "chroma_docs_db")
     self.lock = threading.Lock()
     self.ready = False
     

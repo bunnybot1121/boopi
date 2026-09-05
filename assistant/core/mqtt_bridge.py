@@ -100,11 +100,50 @@ class MQTTBridge:
                     value REAL
                 )
             """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS nodes (
+                    client_id TEXT PRIMARY KEY,
+                    device_name TEXT,
+                    ip_address TEXT,
+                    capabilities TEXT,
+                    last_heartbeat REAL,
+                    status TEXT
+                )
+            """)
             conn.commit()
             conn.close()
             print(f"[MQTT Bridge] SQLite database initialized at {self.db_path}", flush=True)
         except Exception as e:
             print(f"[MQTT Bridge Error] Failed to initialize SQLite: {e}", flush=True)
+
+    def log_node_heartbeat(self, client_id, device_name, ip_address, capabilities, status="online"):
+        """Records node heartbeat, IP, and online state into persistent SQLite database."""
+        import sqlite3
+        import time
+        import threading
+        import json
+        
+        def worker():
+            try:
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.cursor()
+                caps_str = json.dumps(capabilities) if not isinstance(capabilities, str) else capabilities
+                cursor.execute("""
+                    INSERT INTO nodes (client_id, device_name, ip_address, capabilities, last_heartbeat, status)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(client_id) DO UPDATE SET
+                        device_name=excluded.device_name,
+                        ip_address=excluded.ip_address,
+                        capabilities=excluded.capabilities,
+                        last_heartbeat=excluded.last_heartbeat,
+                        status=excluded.status
+                """, (client_id, device_name, ip_address, caps_str, time.time(), status))
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                print(f"[MQTT Bridge Error] Failed to log node heartbeat: {e}", flush=True)
+                
+        threading.Thread(target=worker, daemon=True).start()
 
     def log_to_db(self, sensor_id, value):
         import sqlite3
@@ -297,7 +336,10 @@ class MQTTBridge:
         client.subscribe("bupi/sensors/+/lpg")
         client.subscribe("bupi/actuators/lcd/cmd")
         client.subscribe("bupi/nodes/desk_display/cmd")
-        print("[MQTT Bridge] Subscribed to all bridging topics.")
+        client.subscribe("bupi/nodes/announce")
+        client.subscribe("bupi/nodes/heartbeat")
+        client.subscribe("bupi/nodes/#")
+        print("[MQTT Bridge] Subscribed to all bridging and node topics.")
         
     def on_disconnect(self, client, userdata, disconnect_flags, reason_code, properties):
         print("[MQTT Bridge] Disconnected from Mosquitto.")
@@ -309,7 +351,21 @@ class MQTTBridge:
             if not payload:
                 return
                 
-            # Dynamic Sensor to LCD telemetry bridging
+            # 0. Node announcement and heartbeat tracking
+            if topic in ["bupi/nodes/announce", "bupi/nodes/heartbeat"] or (topic.startswith("bupi/nodes/") and not topic.endswith("/cmd")):
+                try:
+                    data = json.loads(payload)
+                    if isinstance(data, dict):
+                        client_id = data.get("client_id") or data.get("device_id") or "ESP32_Node"
+                        device_name = data.get("device") or data.get("name") or "ESP32 Device"
+                        ip_addr = data.get("ip") or data.get("ip_address") or "unknown"
+                        caps = data.get("capabilities", [])
+                        status = data.get("status", "online")
+                        self.log_node_heartbeat(client_id, device_name, ip_addr, caps, status)
+                except Exception:
+                    pass
+
+            # Dynamic Sensor to LCD telemetry bridging & persistent DB logging
             sensor_id = None
             if topic.startswith("bupi/sensors/") and topic.endswith("/state"):
                 sensor_id = topic.split("/")[2]
@@ -320,8 +376,7 @@ class MQTTBridge:
             elif topic.startswith("bupi/sensors/") and topic.endswith("/lpg"):
                 sensor_id = "mq2"
                 
-            if sensor_id and self.telemetry_modes.get(sensor_id):
-                mode = self.telemetry_modes[sensor_id]
+            if sensor_id:
                 raw_val = None
                 try:
                     data = json.loads(payload)
@@ -339,8 +394,8 @@ class MQTTBridge:
                         pass
                         
                 if raw_val is not None:
+                    # Always log incoming telemetry to persistent DB and update RAM history
                     self.log_to_db(sensor_id, raw_val)
-                    # Update stats
                     if sensor_id not in self.highest_vals or self.highest_vals[sensor_id] == -1.0 or raw_val > self.highest_vals[sensor_id]:
                         self.highest_vals[sensor_id] = raw_val
                         
@@ -353,45 +408,56 @@ class MQTTBridge:
                     if len(self.values_histories[sensor_id]) > 100:
                         self.values_histories[sensor_id].pop(0)
                         
-                    sensor_label = sensor_id.upper()
-                    
-                    def format_val(v):
-                        try:
-                            if v == int(v):
-                                return str(int(v))
-                            return f"{v:.1f}"
-                        except Exception:
-                            return str(v)
-                            
-                    lcd_msg = None
-                    if sensor_id == "mq2":
-                        if mode == "continuous":
-                            lcd_msg = f"MQ2: {int(raw_val)} ppm"
-                        elif mode == "highest":
-                            lcd_msg = f"MQ2 Max: {int(self.highest_vals[sensor_id])} ppm"
-                        elif mode == "lowest":
-                            lcd_msg = f"MQ2 Min: {int(self.lowest_vals[sensor_id])} ppm"
-                        elif mode == "average":
-                            avg_val = sum(self.values_histories[sensor_id]) / len(self.values_histories[sensor_id])
-                            lcd_msg = f"MQ2 Avg: {int(avg_val)} ppm"
-                    else:
-                        if mode == "continuous":
-                            lcd_msg = f"{sensor_label}: {format_val(raw_val)}"
-                        elif mode == "highest":
-                            lcd_msg = f"{sensor_label} Max: {format_val(self.highest_vals[sensor_id])}"
-                        elif mode == "lowest":
-                            lcd_msg = f"{sensor_label} Min: {format_val(self.lowest_vals[sensor_id])}"
-                        elif mode == "average":
-                            avg_val = sum(self.values_histories[sensor_id]) / len(self.values_histories[sensor_id])
-                            lcd_msg = f"{sensor_label} Avg: {format_val(avg_val)}"
-                            
-                    if lcd_msg:
-                        self.latest_formatted_lines[sensor_id] = lcd_msg
+                    # If telemetry display mode is active for this sensor, format and display on LCD
+                    if self.telemetry_modes.get(sensor_id):
+                        mode = self.telemetry_modes[sensor_id]
+                        sensor_label = sensor_id.upper()
                         
-                        active_sensors = [
-                            s for s, m in self.telemetry_modes.items()
-                            if m is not None and s in self.latest_formatted_lines
-                        ]
+                        def format_val(v):
+                            try:
+                                if v == int(v):
+                                    return str(int(v))
+                                return f"{v:.1f}"
+                            except Exception:
+                                return str(v)
+                                
+                        lcd_msg = None
+                        if sensor_id == "mq2":
+                            if mode == "continuous":
+                                lcd_msg = f"MQ2: {int(raw_val)} ppm"
+                            elif mode == "highest":
+                                lcd_msg = f"MQ2 Max: {int(self.highest_vals[sensor_id])} ppm"
+                            elif mode == "lowest":
+                                lcd_msg = f"MQ2 Min: {int(self.lowest_vals[sensor_id])} ppm"
+                            elif mode == "average":
+                                avg_val = sum(self.values_histories[sensor_id]) / len(self.values_histories[sensor_id])
+                                lcd_msg = f"MQ2 Avg: {int(avg_val)} ppm"
+                        else:
+                            if mode == "continuous":
+                                lcd_msg = f"{sensor_label}: {format_val(raw_val)}"
+                            elif mode == "highest":
+                                lcd_msg = f"{sensor_label} Max: {format_val(self.highest_vals[sensor_id])}"
+                            elif mode == "lowest":
+                                lcd_msg = f"{sensor_label} Min: {format_val(self.lowest_vals[sensor_id])}"
+                            elif mode == "average":
+                                avg_val = sum(self.values_histories[sensor_id]) / len(self.values_histories[sensor_id])
+                                lcd_msg = f"{sensor_label} Avg: {format_val(avg_val)}"
+                                
+                        if lcd_msg:
+                            self.latest_formatted_lines[sensor_id] = lcd_msg
+                            
+                            active_sensors = [
+                                s for s, m in self.telemetry_modes.items()
+                                if m is not None and s in self.latest_formatted_lines
+                            ]
+                            
+                            # Direct display updates if only one sensor is active (zero latency)
+                            if len(active_sensors) <= 1:
+                                if self._last_bridged.get("bupi/actuators/lcd/cmd") != lcd_msg:
+                                    self._last_bridged["bupi/actuators/lcd/cmd"] = lcd_msg
+                                    print(f"[MQTT Bridge] Auto-forwarding {sensor_id} -> LCD ({mode}): {lcd_msg}", flush=True)
+                                    self.client.publish("bupi/actuators/lcd/cmd", lcd_msg)
+                                    self.client.publish("bupi/nodes/desk_display/cmd", lcd_msg)
                         
                         # Direct display updates if only one sensor is active (zero latency)
                         # Direct display updates if only one sensor is active (zero latency)

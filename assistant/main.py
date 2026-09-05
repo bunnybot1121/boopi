@@ -355,25 +355,53 @@ def on_global_state_changed(state: str):
 bus.state_changed.connect(on_global_state_changed)
 
 def start_listening():
-    if state_mgr.current == "idle":
-        if not listener.isRunning():
-            listener.start()
-        else:
-            was_paused = getattr(listener, "_paused", False)
-            listener.resume()
-            if not was_paused:
-                state_mgr.transition("listening")
+    if not listener.isRunning():
+        listener.start()
+    else:
+        listener.resume()
+    if state_mgr.current in ["idle", "happy", "cautious", "excited", "praise", "surprised"]:
+        if conversation_mode:
+            state_mgr.transition("listening")
+
+# Thinking Watchdog: Guarantees Bupi NEVER gets stuck in thinking state
+thinking_watchdog = QTimer()
+thinking_watchdog.setInterval(5000) # 5 seconds max thinking timeout
+thinking_watchdog.setSingleShot(True)
+
+def on_thinking_timeout():
+    if state_mgr.current == "thinking":
+        print("[Watchdog] ⚠️ Thinking state timed out after 5s. Auto-recovering to idle...", flush=True)
+        try:
+            ai.interrupt()
+        except Exception:
+            pass
+        state_mgr.transition("idle")
+        start_listening()
+
+thinking_watchdog.timeout.connect(on_thinking_timeout)
 
 # -------------------------------------------------------------
 # Wiring Listener
 # -------------------------------------------------------------
 def on_listening_started():
+    thinking_watchdog.stop()
+    if state_mgr.current == "thinking":
+        print("[Barge-In] User started speaking during thinking. Interrupting AI query...", flush=True)
+        try:
+            ai.interrupt()
+        except Exception:
+            pass
     state_mgr.transition("listening")
 
+def on_listening_stopped():
+    state_mgr.transition("thinking")
+    thinking_watchdog.start()
+
 listener.listening_started.connect(on_listening_started)
-listener.listening_stopped.connect(lambda: state_mgr.transition("thinking"))
+listener.listening_stopped.connect(on_listening_stopped)
 listener.error_occurred.connect(lambda e: (
     print(json.dumps({"type": "log", "message": f"[Listener Error] {e}"}), flush=True),
+    thinking_watchdog.stop(),
     state_mgr.force("error"),
     QTimer.singleShot(2000, lambda: state_mgr.force("idle"))
 ))
@@ -459,7 +487,7 @@ def on_transcription(text: str):
         return
 
     
-    wake_words = r"\b(boopy|boopie|puppy|poopy|bupi|boupi|boby|booby)\b"
+    wake_words = r"\b(boopi|boopy|boopie|bupi|bupie|boupi|boby|booby|puppy|poopy)\b"
     
     if not conversation_mode:
         if re.search(wake_words, text, re.I):
@@ -478,8 +506,166 @@ def on_transcription(text: str):
             QTimer.singleShot(300, start_listening)
             return
 
-    if mode2_active:
-        # Route to Mode 2 completely
+    # -------------------------------------------------------------
+    # 1. Fast-Pass Deterministic Router (<1ms execution)
+    # -------------------------------------------------------------
+    try:
+        from agents.router_agent import router
+        fast_intent = router.quick_regex_classify(text)
+        if fast_intent:
+            itype = fast_intent.get("type")
+            payload = fast_intent.get("payload", {})
+            print(f"[Main Fast-Pass] ⚡ Matched: {itype} -> {payload}", flush=True)
+
+            if itype == "autonomous_mission":
+                mission_text = payload.get("mission", text)
+                try:
+                    from agents.autonomous_goal_agent import goal_agent
+                    state_mgr.force("thinking")
+                    res = goal_agent.start_mission(mission_text)
+                    print(f"[Main Mission] {res}", flush=True)
+                except Exception as me:
+                    speaker.say(f"Could not start autonomous mission: {me}")
+                return
+
+            elif itype == "abort_mission":
+                try:
+                    from agents.autonomous_goal_agent import goal_agent
+                    res = goal_agent.stop_mission()
+                    state_mgr.force("cautious")
+                    speaker.say("Mission stopped. All motors halted.")
+                except Exception as me:
+                    speaker.say("Failed to abort mission.")
+                return
+
+            elif itype == "mission_report_query":
+                try:
+                    from agents.autonomous_goal_agent import goal_agent
+                    latest = goal_agent.get_latest_mission_report()
+                    if latest:
+                        m_name = latest.get("mission_name", "Mission")
+                        summary = latest.get("summary", "")
+                        status = latest.get("status", "COMPLETED")
+                        duration = latest.get("duration_seconds", 0)
+                        spoken = f"Last mission {m_name} finished in {duration} seconds with status {status}. {summary}"
+                        state_mgr.force("talking")
+                        speaker.say(spoken)
+                        # Switch to missions panel in Bupi Hub
+                        print(json.dumps({"type": "command", "value": "open_notepad"}), flush=True)
+                        print(json.dumps({"type": "notepad_switch_tab", "value": "panel-missions"}), flush=True)
+                        print(json.dumps({"type": "mission_report", "value": latest}), flush=True)
+                    else:
+                        state_mgr.force("talking")
+                        speaker.say("No mission reports recorded yet. Say 'Boopi, find the human' to start a mission.")
+                except Exception as me:
+                    speaker.say(f"Could not retrieve mission report: {me}")
+                return
+
+            elif itype == "hardware_intent":
+                dev = payload.get("device")
+                action = payload.get("action")
+                direction = payload.get("direction", "")
+                
+                if dev == "motors":
+                    if direction == "stop":
+                        try:
+                            from agents.autonomous_goal_agent import goal_agent
+                            if goal_agent.is_running:
+                                goal_agent.stop_mission()
+                        except Exception:
+                            pass
+                        mqtt_client.publish("bupi/actuators/motors/cmd", "stop")
+                        state_mgr.force("cautious")
+                        speaker.say("Emergency stop triggered. Motors halted.")
+                    else:
+                        mqtt_client.publish("bupi/actuators/motors/cmd", direction)
+                        state_mgr.force("excited")
+                        speaker.say(f"Driving {direction}.")
+                    return
+                elif dev == "relay":
+                    state_str = "ON" if action == "ON" else "OFF"
+                    mqtt_client.publish("bupi/hardware/relay_1/set", state_str)
+                    state_mgr.force("talking")
+                    speaker.say(f"Relay turned {action.lower()}.")
+                    return
+
+            elif itype == "sensor_query":
+                sensor_id = payload.get("sensor_id", "mq2")
+                try:
+                    from actions.hardware_tools import read_sensor_status
+                    raw_fn = getattr(read_sensor_status, "func", read_sensor_status)
+                    res_str = raw_fn(sensor_id)
+                    res_json = json.loads(res_str)
+                    status = res_json.get("status", "UNKNOWN")
+                    raw_val = res_json.get("raw_value", 0)
+                    state_mgr.force("talking")
+                    speaker.say(f"The {sensor_id} reading is {raw_val}, status is {status}.")
+                except Exception as e:
+                    speaker.say(f"Could not read {sensor_id}: {e}")
+                return
+
+            elif itype == "world_state_query":
+                try:
+                    from core.safety_validator import get_current_world_state
+                    ws = get_current_world_state()
+                    gas_st = ws.get("gas", "UNKNOWN")
+                    dist_st = ws.get("distance", "CLEAR")
+                    state_mgr.force("talking")
+                    speaker.say(f"World state: gas is {gas_st}, front path is {dist_st}.")
+                except Exception as e:
+                    speaker.say(f"World state check failed: {e}")
+                return
+
+            elif itype == "nodes_query":
+                try:
+                    from actions.hardware_tools import get_connected_nodes
+                    raw_fn = getattr(get_connected_nodes, "func", get_connected_nodes)
+                    res_str = raw_fn()
+                    res_json = json.loads(res_str)
+                    nodes_list = res_json.get("connected_nodes", [])
+                    state_mgr.force("talking")
+                    if nodes_list:
+                        first_dev = nodes_list[0].get("device_name", "ESP32")
+                        first_ip = nodes_list[0].get("ip_address", "")
+                        status = nodes_list[0].get("status", "ONLINE")
+                        speaker.say(f"ESP32 is {status}. {first_dev} at IP {first_ip}.")
+                    else:
+                        speaker.say("No active ESP32 nodes found yet. Waiting for heartbeat.")
+                except Exception as e:
+                    speaker.say(f"Node query failed: {e}")
+                return
+
+            elif itype == "mission_report_query":
+                try:
+                    from agents.autonomous_goal_agent import goal_agent
+                    report = goal_agent.get_latest_mission_report()
+                    state_mgr.force("talking")
+                    if report:
+                        p_type = report.get("project_type", "General")
+                        status = report.get("status", "completed")
+                        dur = report.get("duration_seconds", 0)
+                        obstacles = report.get("obstacles_avoided", 0)
+                        target_str = "target was verified" if report.get("target_found") else "no target confirmed"
+                        msg = f"Last mission was {p_type}. Status {status} in {dur} seconds. Avoided {obstacles} obstacles, and {target_str}. Check your Missions Hub for the full debrief card."
+                        speaker.say(msg)
+                    else:
+                        speaker.say("No completed mission debriefs found in the log yet. Ready to launch one!")
+                    # Switch Bupi Hub to Missions tab
+                    print(json.dumps({"type": "notepad_switch_tab", "value": "panel-missions"}), flush=True)
+                except Exception as me:
+                    speaker.say(f"Could not load mission debrief: {me}")
+                return
+    except Exception as router_err:
+        print(f"[Main Router Error] {router_err}", flush=True)
+
+    # -------------------------------------------------------------
+    # 2. General Query Routing (Local Orchestrator vs AI Companion)
+    # -------------------------------------------------------------
+    hw_keywords = ["relay", "motor", "sensor", "telemetry", "robot", "crawl", "esp32", "lcd", "display on screen", "world state", "mission", "patrol", "human", "search room", "explore"]
+    is_hw_query = any(k in text.lower() for k in hw_keywords)
+
+    if mode2_active or is_hw_query:
+        # Route to Mode 2 / Local Orchestrator
         publish_to_mode2(text)
     else:
         # Route to Mode 1
@@ -494,6 +680,7 @@ last_ai_response = ""
 
 def on_ai_started(tag: str):
     global last_ai_response
+    thinking_watchdog.stop()
     last_ai_response = ""
     emotion = "talking"
     
@@ -658,23 +845,26 @@ def on_speech_finished():
     setattr(listener, "is_speaking", False)
     if instruction_queue:
         state_mgr.transition("idle")
-        # Give a slight delay before triggering the next task so it feels natural
-        QTimer.singleShot(400, process_next_instruction)
+        QTimer.singleShot(200, process_next_instruction)
     else:
         global last_ai_response
         sentiment_state = analyze_sentiment(last_ai_response)
         if sentiment_state and sentiment_state != "idle":
             state_mgr.transition(sentiment_state)
-            # Hold the sentiment face for 2.5 seconds before returning to idle
-            QTimer.singleShot(2500, lambda: (
-                state_mgr.transition("idle"),
-                QTimer.singleShot(300, start_listening)
+            # Re-arm listener immediately so user can speak right away with 0 delay!
+            start_listening()
+            # Return mascot face to idle after a brief natural 1.0s window if user hasn't spoken
+            QTimer.singleShot(1000, lambda: (
+                state_mgr.transition("idle") if state_mgr.current == sentiment_state else None
             ))
         else:
             state_mgr.transition("idle")
-            QTimer.singleShot(300, start_listening)
+            start_listening()
 
-speaker.speech_started.connect(lambda: setattr(listener, "is_speaking", True))
+speaker.speech_started.connect(lambda: (
+    thinking_watchdog.stop(),
+    setattr(listener, "is_speaking", True)
+))
 speaker.speech_finished.connect(on_speech_finished)
 speaker.error_occurred.connect(lambda e: (
     print(json.dumps({"type": "log", "message": f"[TTS Error] {e}"}), flush=True),
@@ -775,11 +965,43 @@ def stdin_listener():
             elif cmd == "estop":
                 print("From Python: [EMERGENCY STOP] Triggering hardware E-Stop hard cut...", flush=True)
                 try:
+                    from agents.autonomous_goal_agent import goal_agent
+                    if goal_agent.is_running:
+                        goal_agent.stop_mission(reason="Emergency Stop")
                     mqtt_client.publish("bupi/internal/estop", json.dumps({"command": "STOP_ALL"}))
                     send_to_esp32("STOP_ALL")
                 except Exception as ex:
                     print(f"E-Stop broadcast error: {ex}", flush=True)
                 speaker.say("Emergency stop activated. All hardware motors halted.")
+            elif cmd == "get_mission_history":
+                try:
+                    from agents.autonomous_goal_agent import goal_agent
+                    history = goal_agent.get_mission_history(20)
+                    print(json.dumps({"type": "mission_history", "value": history}), flush=True)
+                except Exception as mhe:
+                    print(f"[Mission History Error] {mhe}", flush=True)
+            elif cmd == "get_mission_status":
+                try:
+                    from agents.autonomous_goal_agent import goal_agent
+                    status = goal_agent.get_status()
+                    print(json.dumps({"type": "mission_status", "value": status}), flush=True)
+                except Exception as mse:
+                    print(f"[Mission Status Error] {mse}", flush=True)
+            elif cmd == "start_mission":
+                goal = req.get("goal", "Find the human in the room")
+                try:
+                    from agents.autonomous_goal_agent import goal_agent
+                    res = goal_agent.start_mission(goal)
+                    print(f"[Main Mission] {res}", flush=True)
+                except Exception as sme:
+                    print(f"[Start Mission Error] {sme}", flush=True)
+            elif cmd == "stop_mission":
+                try:
+                    from agents.autonomous_goal_agent import goal_agent
+                    res = goal_agent.stop_mission(reason="User command via GUI")
+                    print(f"[Main Mission] {res}", flush=True)
+                except Exception as stme:
+                    print(f"[Stop Mission Error] {stme}", flush=True)
             elif cmd == "search_components":
                 query = req.get("query", "")
                 def run_search():

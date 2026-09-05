@@ -5,6 +5,8 @@
     <title>Bupi Hub</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="bwe_simulator.css">
+    <link rel="stylesheet" href="missions.css">
+
     <style>
         :root {
             --bg-color: rgba(248, 249, 254, 0.6);
@@ -590,6 +592,10 @@
                 <div class="nav-item active" data-target="panel-notes">
                     <i>📝</i> Notes & Ideas
                 </div>
+                <div class="nav-item" data-target="panel-missions">
+                    <i>🚀</i> Missions & Reports
+                </div>
+
                 <div class="nav-item" data-target="panel-hardware">
                     <i>🤖</i> Hardware Setup
                 </div>
@@ -643,198 +649,211 @@
                 </div>
             </div>
 
-            <!-- Hardware Setup Panel -->
-            <div class="content-panel" id="panel-hardware">
-                <div class="editor-header">
-                    <h2 style="margin:0;">Hardware Ingestion</h2>
-                    <div style="margin-left:auto; display:flex; gap:10px;">
-                        <button class="btn btn-primary" id="processHardwareBtn">⚡ Generate Integration</button>
-                        <button class="btn" id="flashHardwareBtn" style="background:linear-gradient(135deg, #4299e1, #3182ce); color:white; box-shadow: 0 4px 10px rgba(66, 153, 225, 0.3);" disabled>🚀 Flash to ESP32</button>
-                    </div>
-                </div>
-                
-                <div id="trainingStatusBanner" style="display:none; background: linear-gradient(135deg, var(--accent-green), #38a169); color: white; padding: 12px 20px; border-radius: 12px; margin-bottom: 15px; font-weight: 600; font-size: 14px; align-items: center; gap: 10px; box-shadow: 0 4px 15px rgba(72, 187, 120, 0.3); animation: fadeIn 0.3s ease;">
-                    <span style="font-size: 18px;">✅</span> 
-                    <span>Agent Successfully Trained! Mode 2 Orchestrator now knows how to use this hardware.</span>
-                </div>
+                        <!-- Missions & Debriefs Panel -->
+            <div class="content-panel" id="panel-missions" style="overflow: hidden;">
+                <div class="missions-container">
+                    <!-- Top Mission Status Banner -->
+                    <div class="mission-status-banner">
+                        <div style="display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0;">
+                            <div style="font-size: 26px;" id="missionIcon">🚀</div>
+                            <div style="flex: 1; min-width: 0;">
+                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 2px;">
+                                    <span class="mission-badge-status status-idle" id="missionStatusBadge">
+                                        <span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #718096;" id="missionStatusDot"></span>
+                                        <span id="missionStatusText">IDLE</span>
+                                    </span>
+                                    <span class="mission-badge-type" id="missionTypeBadge">Project-Agnostic Engine</span>
+                                    <span style="font-size: 12px; font-weight: 600; color: var(--text-light); margin-left: 4px;" id="missionTimerText">00:00</span>
+                                </div>
+                                <div style="font-size: 13.5px; font-weight: 700; color: var(--text-dark); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" id="missionGoalText">
+                                    No active mission running. Select or launch a mission below.
+                                </div>
+                            </div>
+                        </div>
 
-                <div id="flasherStatusBanner" style="display:none; flex-direction:column; background: linear-gradient(135deg, #3182ce, #2b6cb0); color: white; padding: 15px 20px; border-radius: 12px; margin-bottom: 15px; font-weight: 600; font-size: 14px; gap: 8px; box-shadow: 0 4px 15px rgba(49, 130, 206, 0.3); animation: fadeIn 0.3s ease;">
-                    <div style="display:flex; align-items:center; gap:10px; width:100%;">
-                        <span style="font-size: 18px;" id="flasherIcon">⏳</span> 
-                        <span id="flasherStatusText">Flashing to ESP32...</span>
-                    </div>
-                    <div id="flasherProgressContainer" style="width:100%; height:6px; background:rgba(255,255,255,0.25); border-radius:3px; overflow:hidden; display:none; margin-top:4px;">
-                        <div id="flasherProgressBar" style="width:0%; height:100%; background:#fff; border-radius:3px; transition:width 0.2s ease;"></div>
-                    </div>
-                </div>
-
-                <p style="color: var(--text-light); margin-top:0;">Select components from the autocompleting list below, OR paste your raw C++/Arduino code in the editor to generate a tailored integration client.</p>
-                
-                <!-- Quick Component Builder UI -->
-                <div style="background: rgba(255, 255, 255, 0.45); border: var(--glass-border); border-radius: 12px; padding: 15px; margin-bottom: 15px; display: flex; flex-direction: column; gap: 10px; position: relative;">
-                    <label style="font-weight: 700; font-size: 13px; color: var(--text-dark); display: flex; align-items: center; gap: 6px;">
-                        <span>🔌</span> Quick Component Builder
-                    </label>
-                    <div style="display: flex; gap: 10px; position: relative; align-items: center;">
-                        <input type="text" id="componentSearchInput" placeholder="Type a component (e.g. mq2, lcd16x2, relay...)" style="flex: 1; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-color); font-size: 13px; outline: none; background: rgba(255,255,255,0.85);" />
-                        <div id="autocompleteDropdown" style="display: none; position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); z-index: 100; max-height: 180px; overflow-y: auto;">
-                            <!-- Dropdown options injected dynamically -->
+                        <!-- Banner Action Buttons -->
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <button class="btn btn-primary" id="launchMissionBtn" style="padding: 8px 16px; font-size: 12px;">
+                                🚀 Launch Mission
+                            </button>
+                            <button class="btn" id="stopActiveMissionBtn" style="padding: 8px 14px; font-size: 12px; background: rgba(245, 101, 101, 0.15); color: #c53030; border: 1px solid rgba(245, 101, 101, 0.3);" disabled>
+                                ⏹️ Stop
+                            </button>
+                            <button class="btn" id="refreshMissionDataBtn" style="padding: 8px 12px; font-size: 12px; border: 1px solid var(--border-color); background: rgba(255,255,255,0.7);" title="Refresh Mission History & Telemetry">
+                                🔄
+                            </button>
                         </div>
                     </div>
-                    
-                    <!-- Selected Components Tags Area -->
-                    <div id="selectedComponentsContainer" style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-height: 30px;">
-                        <span style="font-size: 11px; color: var(--text-light); font-style: italic;">No components selected yet. Start typing to build.</span>
+
+                    <!-- Dynamic Active Sensor Telemetry HUD -->
+                    <div class="missions-sensors-grid" id="missionSensorsGrid">
+                        <div class="sensor-card">
+                            <div class="sensor-card-header">
+                                <span>📏 Obstacle Distance</span>
+                                <span style="color: var(--accent-green);">ONLINE</span>
+                            </div>
+                            <div class="sensor-card-val">
+                                <span id="hudDistanceVal">--</span> <small>cm</small>
+                            </div>
+                            <div class="sensor-card-status" style="color: var(--accent-green);" id="hudDistanceStatus">
+                                🟢 Clear Path
+                            </div>
+                        </div>
+                        <div class="sensor-card">
+                            <div class="sensor-card-header">
+                                <span>🌡️ Gas / Air Quality</span>
+                                <span style="color: var(--accent-green);">ONLINE</span>
+                            </div>
+                            <div class="sensor-card-val">
+                                <span id="hudGasVal">--</span> <small>PPM</small>
+                            </div>
+                            <div class="sensor-card-status" style="color: var(--accent-green);" id="hudGasStatus">
+                                🟢 Normal
+                            </div>
+                        </div>
+                        <div class="sensor-card">
+                            <div class="sensor-card-header">
+                                <span>🧭 Compass / Heading</span>
+                                <span style="color: var(--accent-green);">ONLINE</span>
+                            </div>
+                            <div class="sensor-card-val">
+                                <span id="hudHeadingVal">0</span> <small>deg</small>
+                            </div>
+                            <div class="sensor-card-status" style="color: var(--text-light);" id="hudHeadingStatus">
+                                🧭 Facing 0°
+                            </div>
+                        </div>
+                        <div class="sensor-card">
+                            <div class="sensor-card-header">
+                                <span>🛡️ Obstacles Avoided</span>
+                                <span style="color: #4299e1;">METRIC</span>
+                            </div>
+                            <div class="sensor-card-val">
+                                <span id="hudAvoidanceCount">0</span> <small>events</small>
+                            </div>
+                            <div class="sensor-card-status" style="color: #4299e1;">
+                                🛡️ Reactive Autonomy
+                            </div>
+                        </div>
                     </div>
 
-                    <!-- Component Purpose / Application Description Input -->
-                    <div style="margin-top: 5px; display: flex; flex-direction: column; gap: 6px;">
-                        <label style="font-weight: 700; font-size: 12px; color: var(--text-dark); display: flex; align-items: center; gap: 4px;">
-                            <span>🎯</span> Application Purpose / Description (Optional)
-                        </label>
-                        <textarea id="componentPurposeInput" placeholder="Describe how these components are used (e.g., 'A mini robot car that steers using IR obstacle sensors and runs a motor')" style="width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border-color); font-size: 12.5px; outline: none; background: rgba(255,255,255,0.85); font-family: var(--font-family); resize: vertical; min-height: 55px;"></textarea>
+                    <!-- Two-Column Main Split Area -->
+                    <div class="missions-main-split">
+                        <!-- Left Column: Past Mission History -->
+                        <div class="missions-history-col">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <h3 style="margin: 0; font-size: 13px; font-weight: 700; color: var(--text-dark); display: flex; align-items: center; gap: 6px;">
+                                    <span>📜</span> Mission Log
+                                </h3>
+                                <span style="font-size: 11px; color: var(--text-light);" id="missionHistoryCount">0 missions</span>
+                            </div>
+                            
+                            <input type="text" id="missionSearchInput" placeholder="Filter missions..." style="width: 100%; box-sizing: border-box; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border-color); font-size: 11.5px; outline: none; background: rgba(255,255,255,0.85);" />
+
+                            <div class="missions-history-list" id="missionHistoryList">
+                                <div style="text-align: center; padding: 25px 10px; color: var(--text-light); font-size: 12px;">
+                                    No completed missions yet.<br>Click "Launch Mission" to start!
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right Column: Mission Debrief Card -->
+                        <div class="missions-detail-col" id="missionDebriefCard">
+                            <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;">
+                                <div>
+                                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                                        <span class="mission-badge-type" id="debriefProjectType">Mission Overview</span>
+                                        <span class="mission-badge-status status-completed" id="debriefStatusBadge">Ready</span>
+                                    </div>
+                                    <h2 style="margin: 0 0 4px 0; font-size: 18px; font-weight: 700; color: var(--text-dark);" id="debriefTitle">
+                                        Mission Debrief
+                                    </h2>
+                                    <p style="margin: 0; font-size: 12px; color: var(--text-light);" id="debriefTimestamp">
+                                        Awaiting mission selection or live telemetry...
+                                    </p>
+                                </div>
+
+                                <div class="debrief-action-bar">
+                                    <button class="btn-action-sm" id="copyDebriefMarkdownBtn" title="Copy Markdown Report to Clipboard">
+                                        📋 Copy Markdown
+                                    </button>
+                                    <button class="btn-action-sm" id="sendDebriefToNotesBtn" title="Send Report directly to Bupi Notes Editor">
+                                        📝 Open in Notes
+                                    </button>
+                                    <button class="btn-action-sm" id="exportDebriefJsonBtn" title="Download Debrief JSON">
+                                        💾 Export JSON
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Debrief High-level Metric Pills -->
+                            <div class="debrief-stats-row">
+                                <div class="debrief-stat-pill">
+                                    <div class="label">Duration</div>
+                                    <div class="value" id="statDuration">--</div>
+                                </div>
+                                <div class="debrief-stat-pill">
+                                    <div class="label">Obstacles Avoided</div>
+                                    <div class="value" id="statObstacles">--</div>
+                                </div>
+                                <div class="debrief-stat-pill">
+                                    <div class="label">Sectors Scanned</div>
+                                    <div class="value" id="statSectors">--</div>
+                                </div>
+                                <div class="debrief-stat-pill">
+                                    <div class="label">Outcome</div>
+                                    <div class="value" id="statOutcome" style="font-size: 14px;">--</div>
+                                </div>
+                            </div>
+
+                            <!-- Recorded Telemetry Snapshot Table -->
+                            <div>
+                                <h4 style="margin: 0 0 8px 0; font-size: 13px; font-weight: 700; color: var(--text-dark); display: flex; align-items: center; gap: 6px;">
+                                    <span>📊</span> Discovered Sensor Snapshot
+                                </h4>
+                                <table class="debrief-table" id="debriefTelemetryTable">
+                                    <thead>
+                                        <tr>
+                                            <th>Sensor / Metric</th>
+                                            <th>Reading / Value</th>
+                                            <th>Timestamp</th>
+                                            <th>Health / Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="debriefTelemetryBody">
+                                        <tr>
+                                            <td colspan="4" style="text-align: center; color: var(--text-light); padding: 15px;">
+                                                No sensor telemetry recorded for this mission.
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <!-- Chronological Event Timeline -->
+                            <div>
+                                <h4 style="margin: 0 0 8px 0; font-size: 13px; font-weight: 700; color: var(--text-dark); display: flex; align-items: center; gap: 6px;">
+                                    <span>⏱️</span> Execution Timeline
+                                </h4>
+                                <div class="timeline-container" id="debriefTimelineContainer">
+                                    <div class="timeline-entry">
+                                        <span class="time">--:--</span>
+                                        <span class="desc" style="color: var(--text-light); font-style: italic;">No timeline events logged yet.</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Markdown Report Card -->
+                            <div>
+                                <h4 style="margin: 0 0 8px 0; font-size: 13px; font-weight: 700; color: var(--text-dark); display: flex; align-items: center; gap: 6px;">
+                                    <span>📝</span> Markdown Debrief Report
+                                </h4>
+                                <div class="markdown-rendered-view" id="debriefMarkdownPreview">
+                                    Mission report will appear here upon completion.
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                </div>
-                
-                <div style="display:flex; gap:20px; flex:1; min-height:330px; margin-top:10px;">
-                    <div style="flex:1; display:flex; flex-direction:column;">
-                        <label style="font-weight:600; margin-bottom:5px;">Original Robot Code</label>
-                        <textarea class="editor-area" id="hardwareInput" placeholder="Paste C++/Arduino code here..." style="border:1px solid var(--border-color); border-radius:10px; padding:10px; background:rgba(255,255,255,0.5);"></textarea>
-                    </div>
-                    <div style="flex:1; display:flex; flex-direction:column;">
-                        <label style="font-weight:600; margin-bottom:5px;">Generated Minimal Code</label>
-                        <textarea class="editor-area" id="hardwareOutput" placeholder="BUPI will output the clean code here..." style="border:1px solid var(--border-color); border-radius:10px; padding:10px; background:rgba(240,240,240,0.5);" readonly></textarea>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ESP32 Panel -->
-            <div class="content-panel" id="panel-esp">
-                <h2 style="margin:0 0 10px 0;">ESP32 Controller</h2>
-                <p style="color: var(--text-light); margin:0 0 20px 0;">Manage your connected hardware directly from Bupi.</p>
-                
-                <h3 style="margin: 20px 0 10px 0; font-size: 15px; font-weight:700; color: var(--text-dark); display: flex; align-items: center; gap: 8px;">
-                    <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--accent-green); box-shadow:0 0 8px var(--accent-green);" id="livePulse"></span>
-                    Live Connected Nodes
-                </h3>
-                <div class="esp-grid" id="liveNodesGrid" style="margin-bottom: 25px;">
-                    <!-- Live nodes will load here -->
-                    <div style="grid-column: 1 / -1; text-align: center; padding: 30px; color: var(--text-light); background: rgba(255,255,255,0.4); border-radius: 12px; border: var(--glass-border);">
-                        <span style="font-size: 18px;">📡</span>
-                        <p style="margin: 5px 0 0 0; font-size:12px;">Searching for active ESP32 nodes...</p>
-                    </div>
-                </div>
-                
-                <h3 style="margin: 0 0 12px 0; font-size: 15px; font-weight:700; color: var(--text-dark);">Registered Device Actions</h3>
-                <div class="esp-grid" id="espDeviceGrid">
-                    <!-- We will dynamically load cards here -->
-                </div>
-            </div>
-
-            <!-- Active Lab Panel -->
-            <div class="content-panel" id="panel-trained">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                    <div>
-                        <h2 style="margin:0 0 5px 0;">Active Lab 🧪</h2>
-                        <p style="color: var(--text-light); margin:0;">Displays only the devices Bupi was just trained on or used in your active session.</p>
-                    </div>
-                    <button class="btn" style="padding:6px 12px; font-size:11px; border:1px solid var(--border-color); background:rgba(255,255,255,0.6);" id="clearTrainedBtn">🧹 Clear Session Cache</button>
-                </div>
-                
-            bottom: 0;
-            left: 0;
-            transform: translateX(-100%);
-            background: linear-gradient(90deg, 
-                rgba(255, 255, 255, 0) 0%, 
-                rgba(255, 255, 255, 0.4) 20%, 
-                rgba(255, 255, 255, 0.6) 60%, 
-                rgba(255, 255, 255, 0) 100%
-            );
-            animation: shimmer 1.5s infinite;
-        }
-
-        @keyframes shimmer {
-            100% { transform: translateX(100%); }
-        }
-
-        .skeleton-line {
-            height: 12px;
-            background: rgba(0, 0, 0, 0.05);
-            border-radius: 4px;
-            margin-bottom: 8px;
-        }
-
-        .skeleton-line.short { width: 40%; }
-        .skeleton-line.medium { width: 70%; }
-        .skeleton-line.long { width: 90%; }
-    </style>
-</head>
-<body>
-
-    <div class="app-container glass-panel">
-        <div class="sidebar">
-            <div class="header-logo">
-                <div class="logo-icon">✨</div>
-                <div class="header-text">
-                    <h1>Bupi Hub</h1>
-                    <p>Desktop Companion</p>
-                </div>
-            </div>
-
-            <div class="nav-menu">
-                <div class="nav-item active" data-target="panel-notes">
-                    <i>📝</i> Notes & Ideas
-                </div>
-                <div class="nav-item" data-target="panel-hardware">
-                    <i>🤖</i> Hardware Setup
-                </div>
-                <div class="nav-item" data-target="panel-esp">
-                    <i>🔌</i> ESP32 Control
-                </div>
-                <div class="nav-item" data-target="panel-trained">
-                    <i>🧪</i> Active Lab
-                </div>
-                <div class="nav-item" data-target="panel-chat">
-                    <i>💬</i> Chat History
-                </div>
-                <div class="nav-item" data-target="panel-paint">
-                    <i>🎨</i> Paint Canvas
-                </div>
-                <div class="nav-item" data-target="panel-footmo2">
-                    <i>🕹️</i> FootMo2 Cockpit
-                </div>
-                <div class="nav-item" data-target="panel-bwe">
-                    <i>🌐</i> BWE Simulator
-                </div>
-                <div class="nav-item" data-target="panel-settings">
-                    <i>⚙️</i> Settings
-                </div>
-            </div>
-            
-            <div style="margin-top: auto; padding: 20px; font-size: 12px; color: var(--text-light); text-align: center;">
-                Bupi Engine v2.0
-            </div>
-        </div>
-
-        <div class="main-content">
-            <div class="window-controls">
-                <button class="win-btn min" id="minBtn" title="Minimize"></button>
-                <button class="win-btn max" id="maxBtn" title="Maximize"></button>
-                <button class="win-btn close" id="closeBtn" title="Close"></button>
-            </div>
-
-            <!-- Notes Panel -->
-            <div class="content-panel active" id="panel-notes" style="overflow: hidden;">
-                <div class="editor-header">
-                    <input type="text" class="title-input" id="noteTitle" value="Untitled Note">
-                    <button class="btn btn-primary" id="saveBtn">💾 Save</button>
-                </div>
-                
-                <textarea class="editor-area" id="noteContent" placeholder="Bupi will write here, or you can type your ideas..."></textarea>
-                
-                <div class="status-footer">
-                    <div>Status: <span id="saveStatus" style="color: var(--accent-green);">Ready</span></div>
-                    <div>Words: <span id="wordCount">0</span></div>
                 </div>
             </div>
 
@@ -1121,5 +1140,58 @@
 
     <script src="bwe_simulator.js"></script>
     <script src="notepad.js"></script>
+    <script src="missions.js"></script>
+    <!-- Launch Mission Modal -->
+    <div class="modal-overlay" id="newMissionModal">
+        <div class="modal-card">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: var(--text-dark); display: flex; align-items: center; gap: 8px;">
+                    <span>🚀</span> Launch Autonomous Mission
+                </h3>
+                <button id="closeMissionModalBtn" style="background: transparent; border: none; font-size: 18px; color: var(--text-light); cursor: pointer;">✕</button>
+            </div>
+
+            <p style="margin: 0; font-size: 12px; color: var(--text-light);">
+                Choose a project preset or type a custom goal. Boopi will autonomously sense, avoid obstacles, classify the project, and compile a debrief card.
+            </p>
+
+            <div>
+                <label style="font-size: 11.5px; font-weight: 600; color: var(--text-dark); display: block; margin-bottom: 6px;">
+                    Preset Missions:
+                </label>
+                <div class="preset-goals-list">
+                    <button class="preset-goal-btn" data-goal="Find the human in the room and confirm presence">
+                        <span>🔍</span> Search & Rescue: Find human in the room
+                    </button>
+                    <button class="preset-goal-btn" data-goal="Inspect room for gas leaks and air hazards">
+                        <span>🔥</span> Hazard Inspection: Gas & air quality patrol
+                    </button>
+                    <button class="preset-goal-btn" data-goal="Patrol room perimeter and map obstacle locations">
+                        <span>🛡️</span> Security Patrol: Perimeter obstacle scan
+                    </button>
+                    <button class="preset-goal-btn" data-goal="Survey environmental conditions and temperature">
+                        <span>🌡️</span> Climate Survey: Environmental temperature & humidity
+                    </button>
+                </div>
+            </div>
+
+            <div>
+                <label style="font-size: 11.5px; font-weight: 600; color: var(--text-dark); display: block; margin-bottom: 6px;">
+                    Or Custom Mission Goal:
+                </label>
+                <input type="text" id="customMissionGoalInput" placeholder="e.g. Inspect hallway for obstacles and report distance..." style="width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border-color); font-size: 12.5px; outline: none; background: rgba(255,255,255,0.9);" />
+            </div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px;">
+                <button class="btn" id="cancelMissionModalBtn" style="padding: 8px 16px; font-size: 12px; border: 1px solid var(--border-color); background: rgba(255,255,255,0.8);">
+                    Cancel
+                </button>
+                <button class="btn btn-primary" id="confirmStartMissionBtn" style="padding: 8px 20px; font-size: 12px;">
+                    🚀 Start Mission
+                </button>
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>

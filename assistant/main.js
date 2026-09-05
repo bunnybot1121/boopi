@@ -14,10 +14,8 @@ console.error = (...args) => {
   originalConsoleError(...args);
   try { fs.appendFileSync('debug_log.txt', '[ERROR] ' + args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ') + '\n'); } catch(e){}
 };
-// Increase GPU tile memory limit to prevent "tile memory limits exceeded" errors
-app.commandLine.appendSwitch('force-gpu-mem-available-mb', '4096');
-app.commandLine.appendSwitch('ignore-gpu-blocklist');
-app.commandLine.appendSwitch('disable-gpu-disk-cache');
+// Disable hardware acceleration to guarantee flawless transparent frameless window compositing on Windows DWM
+app.disableHardwareAcceleration();
 
 let mainWindow;
 let tray;
@@ -107,9 +105,14 @@ function createNotepadWindow() {
       notepadWindow.webContents.send('notepad-insert', chunk);
     }
     
-    // Request initial keys and nodes status
+    // Request initial keys, nodes status, and mission history
     sendCommand('refresh_keys');
     sendCommand('refresh_nodes');
+    sendCommand('get_mission_history');
+    sendCommand('get_mission_status');
+    if (global.cachedMissionReport && notepadWindow) {
+      notepadWindow.webContents.send('mission-report', global.cachedMissionReport);
+    }
   });
 
   notepadWindow.on('closed', () => {
@@ -120,9 +123,21 @@ function createNotepadWindow() {
 
 function createWindow() {
   console.log("[Main] createWindow called");
+  
+  const { screen } = require('electron');
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const workArea = primaryDisplay.workArea;
+  const winW = 250;
+  const winH = 250;
+  // Position clearly in the lower-right above taskbar
+  const initX = Math.round(workArea.x + workArea.width - 270);
+  const initY = Math.round(workArea.y + workArea.height - 270);
+
   mainWindow = new BrowserWindow({
-    width: 250,
-    height: 250,
+    width: winW,
+    height: winH,
+    x: initX,
+    y: initY,
     minWidth: 100,
     minHeight: 100,
     transparent: true,
@@ -130,7 +145,8 @@ function createWindow() {
     alwaysOnTop: true,
     resizable: true,
     hasShadow: false,
-    skipTaskbar: true,
+    skipTaskbar: false,
+    show: false,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -138,12 +154,8 @@ function createWindow() {
     }
   });
 
-  // Calculate position (bottom right)
-  const { screen } = require('electron');
-  const primaryDisplay = screen.getPrimaryDisplay();
-  const { width, height } = primaryDisplay.workAreaSize;
-  mainWindow.setPosition(width - 270, height - 270);
-  
+  mainWindow.setAlwaysOnTop(true, 'screen-saver');
+
   mainWindow.webContents.on('console-message', (event, ...args) => {
     let message = '';
     let line = 0;
@@ -164,6 +176,23 @@ function createWindow() {
   const filePath = path.join(__dirname, 'index.html');
   console.log("[Main] Loading index file:", filePath);
   mainWindow.loadFile(filePath);
+
+  mainWindow.once('ready-to-show', () => {
+    console.log("[Main] mainWindow ready-to-show fired, showing window");
+    mainWindow.show();
+    mainWindow.setAlwaysOnTop(true, 'screen-saver');
+    mainWindow.focus();
+  });
+
+  // Fallback in case ready-to-show is missed or delayed
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      console.log("[Main] Fallback timer showing mainWindow");
+      mainWindow.show();
+      mainWindow.setAlwaysOnTop(true, 'screen-saver');
+      mainWindow.focus();
+    }
+  }, 1200);
 }
 
 function spawnEngine() {
@@ -171,11 +200,11 @@ function spawnEngine() {
   const pyCmd = fs.existsSync(venvPython) ? venvPython : 'python';
   console.log("[Main] Spawning Python engine using command:", pyCmd);
   
-  // Spawn Python engine
+  // Spawn Python engine directly without shell to ensure correct venv binary
   pyEngine = spawn(pyCmd, ['main.py'], {
     cwd: __dirname,
     stdio: ['pipe', 'pipe', 'pipe'],
-    shell: true
+    shell: false
   });
 
   pyEngine.on('error', (err) => {
@@ -277,6 +306,30 @@ function spawnEngine() {
           if (notepadWindow && notepadReady) {
             notepadWindow.webContents.send('online-search-results', msg);
           }
+        } else if (msg.type === "mission_report") {
+          global.cachedMissionReport = msg.value;
+          if (notepadWindow && notepadReady) {
+            notepadWindow.webContents.send('mission-report', msg.value);
+            if (!notepadWindow.isVisible()) {
+              notepadWindow.show();
+            }
+            notepadWindow.webContents.send('notepad-switch-tab', 'panel-missions');
+          }
+        } else if (msg.type === "mission_history") {
+          if (notepadWindow && notepadReady) {
+            notepadWindow.webContents.send('mission-history', msg.value);
+          }
+        } else if (msg.type === "mission_status") {
+          if (notepadWindow && notepadReady) {
+            notepadWindow.webContents.send('mission-status', msg.value);
+          }
+        } else if (msg.type === "notepad_switch_tab") {
+          if (notepadWindow && notepadReady) {
+            notepadWindow.webContents.send('notepad-switch-tab', msg.value);
+            if (!notepadWindow.isVisible()) {
+              notepadWindow.show();
+            }
+          }
         } else if (msg.type === "log") {
           console.log("[Python Log]", msg.message);
         }
@@ -315,7 +368,7 @@ if (!gotTheLock) {
   app.whenReady().then(() => {
     createWindow();
     spawnEngine();
-    spawnFootMo2();
+    // spawnFootMo2(); // Paused: focusing strictly on physical ESP32-S3 robot car and sensor network
 
     // Setup System Tray
     const { nativeImage } = require('electron');
@@ -345,6 +398,23 @@ if (!gotTheLock) {
       },
       { label: 'Hardware E-Stop (Ctrl+Alt+S)', click: () => sendCommand('estop') },
       { label: 'Clear Memory', click: () => sendCommand('clear_memory') },
+      { label: 'Center Character (Ctrl+Alt+C)', click: () => {
+          if (mainWindow) {
+            mainWindow.center();
+            mainWindow.show();
+            mainWindow.setAlwaysOnTop(true, 'screen-saver');
+            mainWindow.focus();
+          }
+        }
+      },
+      { label: 'Bring Character to Front', click: () => {
+          if (mainWindow) {
+            mainWindow.show();
+            mainWindow.setAlwaysOnTop(true, 'screen-saver');
+            mainWindow.focus();
+          }
+        }
+      },
       { label: 'Toggle Overlay', click: () => {
           if (mainWindow.isVisible()) mainWindow.hide();
           else mainWindow.show();
@@ -363,6 +433,14 @@ if (!gotTheLock) {
     // Global shortcuts
     globalShortcut.register('CommandOrControl+I', () => sendCommand('quit'));
     globalShortcut.register('CommandOrControl+Alt+S', () => sendCommand('estop'));
+    globalShortcut.register('CommandOrControl+Alt+C', () => {
+      if (mainWindow) {
+        mainWindow.center();
+        mainWindow.show();
+        mainWindow.setAlwaysOnTop(true, 'screen-saver');
+        mainWindow.focus();
+      }
+    });
 
     // Handle smooth wheel resizing for frameless windows
     ipcMain.on('resize-window', (event, step) => {
@@ -438,6 +516,20 @@ if (!gotTheLock) {
         }
       }
       return key.trim();
+    });
+
+    // Autonomous Mission Controls & History IPC
+    ipcMain.on('request-mission-history', () => {
+      sendCommand('get_mission_history');
+    });
+    ipcMain.on('request-mission-status', () => {
+      sendCommand('get_mission_status');
+    });
+    ipcMain.on('trigger-mission', (event, goal) => {
+      sendCommand('start_mission', { goal: goal });
+    });
+    ipcMain.on('stop-mission', () => {
+      sendCommand('stop_mission');
     });
 
     // Voice triggers for automated tab switching and editor insertions

@@ -42,7 +42,7 @@ class KnowledgeSuperAgent:
         self.project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.arduino_index_path = os.path.join(self.project_root, "brain", "arduino_library_index.json")
         self.json_cache_path = os.path.join(self.project_root, "brain", "sensor_knowledge_cache.json")
-        self.db_path = os.path.join(self.project_root, "brain", "chroma_db")
+        self.db_path = os.path.join(self.project_root, "brain", "chroma_hardware_db")
         self.fts5_db_path = os.path.join(self.project_root, "brain", "fts5_hardware_index.db")
         self._init_fts5_db()
         

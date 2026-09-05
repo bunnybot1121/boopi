@@ -76,6 +76,29 @@ def make_fluent(text: str) -> str:
     return clean.strip()
 
 # -------------------------------------------------------------
+# 0-ms Audio Voice Cache
+# -------------------------------------------------------------
+import hashlib
+
+VOICE_CACHE_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "voice_cache"))
+
+def get_cached_voice_file(text: str):
+    if not os.path.isdir(VOICE_CACHE_DIR):
+        return None
+    clean_text = make_fluent(strip_emojis(text)).lower()
+    clean_key = re.sub(r'\s+', ' ', clean_text).strip()
+    if not clean_key:
+        return None
+    h = hashlib.md5(clean_key.encode("utf-8")).hexdigest()
+    mp3_path = os.path.join(VOICE_CACHE_DIR, f"{h}.mp3")
+    if os.path.exists(mp3_path) and os.path.getsize(mp3_path) > 100:
+        return mp3_path
+    wav_path = os.path.join(VOICE_CACHE_DIR, f"{h}.wav")
+    if os.path.exists(wav_path) and os.path.getsize(wav_path) > 100:
+        return wav_path
+    return None
+
+# -------------------------------------------------------------
 # Speaker Thread
 # -------------------------------------------------------------
 class SpeakerThread(QThread):
@@ -155,13 +178,13 @@ class SpeakerThread(QThread):
                 except queue.Empty:
                     break
             
-            # Clear play queue and delete temp files
+            # Clear play queue and delete temp files (never delete static voice cache files!)
             while not self._play_queue.empty():
                 try:
                     item = self._play_queue.get_nowait()
                     if item:
                         temp_path = item[0]
-                        if os.path.exists(temp_path):
+                        if not temp_path.startswith(VOICE_CACHE_DIR) and os.path.exists(temp_path):
                             os.remove(temp_path)
                 except queue.Empty:
                     break
@@ -251,8 +274,8 @@ class SpeakerThread(QThread):
             # Wait for playback of this chunk to complete (or be interrupted)
             self._playback_event.wait()
             
-            # Clean up temp file
-            if os.path.exists(temp_path):
+            # Clean up temp file (never delete static voice cache files!)
+            if not temp_path.startswith(VOICE_CACHE_DIR) and os.path.exists(temp_path):
                 try:
                     os.remove(temp_path)
                 except Exception as e:
@@ -273,6 +296,15 @@ class SpeakerThread(QThread):
             with self._lock:
                 if epoch != self._epoch or self._exit_flag:
                     continue
+
+            # 0. Check 0-ms Pre-rendered Voice Cache
+            cached_file = get_cached_voice_file(text)
+            if cached_file:
+                log.info(f"0-ms Voice Cache HIT: '{text}' -> {os.path.basename(cached_file)}")
+                with self._lock:
+                    if epoch == self._epoch and not self._exit_flag:
+                        self._play_queue.put((cached_file, text, epoch))
+                continue
                 
             self._chunk_counter += 1
             temp_path = os.path.abspath(f"temp_speech_{self._chunk_counter}.mp3")
@@ -358,8 +390,36 @@ class SpeakerThread(QThread):
                 tts_text = strip_emojis(text_val)
                 fluent_text = make_fluent(tts_text)
                 
-                communicate = edge_tts.Communicate(fluent_text, voice, rate=rate, pitch=pitch)
-                await communicate.save(path_val)
+                try:
+                    communicate = edge_tts.Communicate(fluent_text, voice, rate=rate, pitch=pitch)
+                    # 10.0s network timeout ensures edge-tts has ample time to synthesize full sentences without premature fallback
+                    await asyncio.wait_for(communicate.save(path_val), timeout=10.0)
+                except Exception as edge_err:
+                    log.warning(f"Edge-TTS unavailable or slow ({edge_err}). Falling back to offline Windows SAPI speech...")
+                    try:
+                        import win32com.client
+                        sapi_path = path_val[:-4] + ".wav" if path_val.endswith(".mp3") else path_val
+                        speaker_obj = win32com.client.Dispatch("SAPI.SpVoice")
+                        # Explicitly select a female voice (e.g. Microsoft Zira) so voice character remains consistent
+                        try:
+                            for v in speaker_obj.GetVoices():
+                                desc = v.GetDescription().lower()
+                                if "zira" in desc or "female" in desc or "eva" in desc or "hazel" in desc:
+                                    speaker_obj.Voice = v
+                                    break
+                        except Exception as v_err:
+                            log.warning(f"Could not set female SAPI voice: {v_err}")
+                        stream = win32com.client.Dispatch("SAPI.SpFileStream")
+                        stream.Open(sapi_path, 3, False)
+                        speaker_obj.AudioOutputStream = stream
+                        speaker_obj.Speak(fluent_text)
+                        stream.Close()
+                        if os.path.exists(sapi_path):
+                            nonlocal temp_path
+                            temp_path = sapi_path
+                    except Exception as sapi_err:
+                        log.error(f"Offline SAPI fallback failed: {sapi_err}")
+                        raise sapi_err
 
             try:
                 # Run async save in background thread sync loop

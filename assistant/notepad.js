@@ -186,7 +186,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const targetId = item.getAttribute('data-target');
             document.getElementById(targetId).classList.add('active');
 
-            if (targetId === 'panel-settings') {
+            if (targetId === 'panel-missions') {
+                ipcRenderer.send('request-mission-history');
+                ipcRenderer.send('request-mission-status');
+            } else if (targetId === 'panel-settings') {
                 triggerKeyRefresh();
             } else if (targetId === 'panel-esp') {
                 loadRegisteredDevices();

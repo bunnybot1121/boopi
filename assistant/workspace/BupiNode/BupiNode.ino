@@ -7,7 +7,7 @@
 // Hardcoded Network Credentials (BUPI Rule 5)
 const char* ssid = "home";
 const char* password = "sachin1121";
-const char* mqtt_server = "192.168.0.107";
+const char* mqtt_server = "192.168.0.106";
 
 // LCD Object (BUPI Rule 1 & Chapter A)
 // Common addresses: 0x27, 0x3F. Using 0x27 as per user's original code.
@@ -38,9 +38,23 @@ void callback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Payload: ");
   Serial.println(payloadString);
 
-  lcd.clear();              // Clear the display
-  lcd.setCursor(0,0);       // Set cursor to column 0, row 0
-  lcd.print(payloadString); // Print the received payload string
+  // Smart 16x2 LCD Line Formatting
+  lcd.clear();
+  int newlineIdx = payloadString.indexOf('\n');
+  if (newlineIdx != -1) {
+    lcd.setCursor(0, 0);
+    lcd.print(payloadString.substring(0, newlineIdx).substring(0, 16));
+    lcd.setCursor(0, 1);
+    lcd.print(payloadString.substring(newlineIdx + 1).substring(0, 16));
+  } else if (payloadString.length() > 16) {
+    lcd.setCursor(0, 0);
+    lcd.print(payloadString.substring(0, 16));
+    lcd.setCursor(0, 1);
+    lcd.print(payloadString.substring(16, min((int)payloadString.length(), 32)));
+  } else {
+    lcd.setCursor(0, 0);
+    lcd.print(payloadString);
+  }
 }
 
 void reconnectMQTT() {
@@ -63,9 +77,10 @@ void reconnectMQTT() {
     // Attempt to connect with a unique client ID
     if (client.connect(clientId.c_str())) { 
       Serial.println("connected");
-      // BUPI Rule 3 & Chapter A: Subscribe to actuator topic for LCD
+      // Subscribe to both display topics for full compatibility
       client.subscribe("bupi/actuators/lcd/cmd");
-      Serial.println("Subscribed to bupi/actuators/lcd/cmd");
+      client.subscribe("bupi/nodes/desk_display/cmd");
+      Serial.println("Subscribed to bupi/actuators/lcd/cmd & bupi/nodes/desk_display/cmd");
       
       // Announcement
       String announce = "{\"device\":\"MQ2 Gas & LCD Display\",\"client_id\":\"" + clientId + "\",\"ip\":\"" + WiFi.localIP().toString() + "\",\"capabilities\":[\"Display\",\"Sensor\"],\"tasks\":[\"Displaying status\",\"Sensing gas concentration\"],\"status\":\"online\"}";

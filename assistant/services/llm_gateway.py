@@ -1,7 +1,11 @@
 import os
 import json
-import google.generativeai as genai
-from google.api_core.exceptions import ResourceExhausted
+try:
+    import google.generativeai as genai
+    from google.api_core.exceptions import ResourceExhausted
+except ImportError:
+    genai = None
+    ResourceExhausted = Exception
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 

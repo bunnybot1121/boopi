@@ -26,18 +26,18 @@ VAD_AGGRESSIVENESS = 2
 MIN_SPEECH_FRAMES = 10
 PRE_ROLL_FRAMES = 20
 
-# Settings from environment variables with safe fallbacks
+# Settings from environment variables with safe fallbacks (matching Hackathon project)
 USE_CLOUD_STT = os.environ.get("USE_CLOUD_STT", "true").lower() == "true"
-LOCAL_WHISPER_MODEL = os.environ.get("LOCAL_WHISPER_MODEL", "small")
+LOCAL_WHISPER_MODEL = os.environ.get("LOCAL_WHISPER_MODEL", "base")
 GROQ_STT_MODEL = os.environ.get("GROQ_STT_MODEL", "whisper-large-v3")
 AUDIO_GAIN_BOOST = float(os.environ.get("AUDIO_GAIN_BOOST", "1.5"))
-SILENCE_FRAMES = int(os.environ.get("SILENCE_FRAMES", "25")) # 750ms default to prevent cutting off early
+SILENCE_FRAMES = int(os.environ.get("SILENCE_FRAMES", "18")) # Wait 540ms (18 frames) of continuous silence matching Hackathon
 
 PROMPT_CONTEXT = (
-    "Boopi, Bupi, Boopy, Boopie, how are you, shift to Mode 2, shift to Mode 1, Mode 2, Mode 1, "
-    "display readings, show sensor values, highest reading, MQ2 gas sensor, LCD screen, relay, "
-    "turn on, turn off, message Chintu on WhatsApp, send email, write draft in Notepad, "
-    "YouTube, OpenRouter, Claude, summarize, rewrite."
+    "Boopi, Bupi, Boopy, Boopie, find the human in the room, find human, locate person, search room, "
+    "patrol area, patrol and inspect, explore, avoid obstacles, move forward, drive reverse, turn left, turn right, "
+    "stop, halt, freeze, emergency stop, e-stop, relay on, relay off, gas reading, mq2 gas sensor, "
+    "ultrasonic distance, front distance, status, world state, esp32 connected, active nodes."
 )
 
 class SimpleLogger:
@@ -160,21 +160,40 @@ class ListenerThread(QThread):
         self._energy_threshold = 30.0
         self.audio_queue = queue.Queue()
         
-        # Initialize Whisper model in background only if cloud STT is not configured as primary
-        if not USE_CLOUD_STT:
-            threading.Thread(target=self._init_whisper, daemon=True).start()
-        else:
-            log.info("Cloud STT is configured as primary Speech-to-Text engine. Local Whisper will be lazy-loaded if needed.")
+        # Initialize Local Faster-Whisper model in background eagerly
+        threading.Thread(target=self._init_whisper, daemon=True).start()
 
     def _init_whisper(self):
         try:
+            # Register NVIDIA CUDA 12 DLLs for Windows CTranslate2
+            if sys.platform == "win32":
+                nvidia_dirs = [
+                    os.path.join(sys.prefix, "Lib", "site-packages", "nvidia", "cublas", "bin"),
+                    os.path.join(sys.prefix, "Lib", "site-packages", "nvidia", "cudnn", "bin"),
+                    os.path.join(sys.prefix, "Lib", "site-packages", "nvidia", "cuda_nvrtc", "bin"),
+                ]
+                for p in nvidia_dirs:
+                    if os.path.exists(p):
+                        try:
+                            os.add_dll_directory(p)
+                        except Exception:
+                            pass
+                        if p not in os.environ.get("PATH", ""):
+                            os.environ["PATH"] = p + os.pathsep + os.environ.get("PATH", "")
+
             from faster_whisper import WhisperModel
-            import torch
+            cuda_avail = False
             try:
                 import ctranslate2
-                cuda_avail = (torch.cuda.is_available() or ctranslate2.get_cuda_device_count() > 0)
+                cuda_avail = (ctranslate2.get_cuda_device_count() > 0)
             except Exception:
-                cuda_avail = torch.cuda.is_available()
+                pass
+            if not cuda_avail:
+                try:
+                    import torch
+                    cuda_avail = torch.cuda.is_available()
+                except Exception:
+                    pass
                 
             device = "cuda" if cuda_avail else "cpu"
             compute_type = "float16" if device == "cuda" else "int8"
@@ -290,8 +309,8 @@ class ListenerThread(QThread):
 
                     # Main loop for frame capture
                     while self._running:
-                        # If paused, thinking, or Bupi is currently speaking, ignore audio input to prevent feedback loops
-                        if self._paused or state_mgr.current == 'thinking' or getattr(self, "is_speaking", False):
+                        # If paused or Bupi is actively speaking, ignore audio input to prevent feedback loops
+                        if self._paused or getattr(self, "is_speaking", False):
                             last_talking_time = time.time()
                             ring_buffer.clear()
                             triggered = False
@@ -304,8 +323,8 @@ class ListenerThread(QThread):
                             time.sleep(0.05)
                             continue
                           
-                        # Cooldown after Bupi stops talking to avoid picking up audio echo/reverb
-                        if not self.is_speaking and time.time() - last_talking_time < 0.5:
+                        # Short 0.25s cooldown after Bupi stops talking to avoid picking up speaker echo
+                        if not getattr(self, "is_speaking", False) and time.time() - last_talking_time < 0.25:
                             ring_buffer.clear()
                             triggered = False
                             voiced_frames.clear()
@@ -435,9 +454,9 @@ class ListenerThread(QThread):
 
         # Normalize float32 1D array for Faster-Whisper
         audio_norm = audio_gain.flatten().astype(np.float32) / 32768.0
-        
         text = ""
-        # Generate WAV bytes in memory for cloud STT
+        
+        # Generate WAV bytes in memory for cloud STT if enabled
         wav_bytes = None
         if USE_CLOUD_STT:
             try:
@@ -451,43 +470,42 @@ class ListenerThread(QThread):
             except Exception as e:
                 log.error(f"Failed to generate WAV bytes in memory: {e}")
 
-        # 1. Try Groq Cloud STT if configured and API key is present
-        groq_keys = get_groq_keys()
-        if USE_CLOUD_STT and groq_keys and wav_bytes:
-            text = self._groq_stt(wav_bytes, groq_keys)
+        # 1. Primary: Cloud STT (Groq whisper-large-v3) - fastest and most accurate for all accents
+        if USE_CLOUD_STT and wav_bytes:
+            groq_keys = get_groq_keys()
+            if groq_keys:
+                text = self._groq_stt(wav_bytes, groq_keys)
+            if not text:
+                google_keys = get_google_keys()
+                if google_keys:
+                    text = self._gemini_stt(wav_bytes, google_keys)
 
-        # 2. Try Gemini 2.5 Flash STT if configured and keys are present
-        google_keys = get_google_keys()
-        if USE_CLOUD_STT and not text and google_keys and wav_bytes:
-            text = self._gemini_stt(wav_bytes, google_keys)
-
-        # 3. Fallback to Local Whisper if Cloud failed or is disabled
+        # 2. Offline Fallback: Local Faster-Whisper (base model, 100% offline, GPU/CPU)
         if not text:
             if not self.whisper_model:
                 try:
-                    from faster_whisper import WhisperModel
-                    log.info(f"Dynamically loading local Faster-Whisper model ({LOCAL_WHISPER_MODEL})...")
-                    os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
-                    self.whisper_model = WhisperModel(LOCAL_WHISPER_MODEL, device="cpu", compute_type="int8", cpu_threads=4)
-                    log.info("Local Faster-Whisper fallback model loaded successfully!")
+                    self._init_whisper()
                 except Exception as ex:
-                    log.error(f"Could not dynamically initialize local Whisper: {ex}")
-                  
+                    log.error(f"Could not initialize local Whisper: {ex}")
+                    
             if self.whisper_model:
                 try:
-                    is_en_only = LOCAL_WHISPER_MODEL.endswith(".en")
-                    transcribe_lang = "en" if is_en_only else None
-                    
+                    # Enforce language="en" so multilingual base model transcribes directly in English
                     segments, info = self.whisper_model.transcribe(
                         audio_norm, 
-                        language=transcribe_lang, 
+                        language="en", 
                         initial_prompt=PROMPT_CONTEXT, 
-                        condition_on_previous_text=False
+                        condition_on_previous_text=False,
+                        beam_size=1,
+                        best_of=1,
+                        temperature=0.0,
+                        vad_filter=True
                     )
                     text = " ".join([segment.text for segment in segments]).strip()
-                    log.info(f"Local Whisper Transcription: '{text}'")
+                    log.info(f"Local Faster-Whisper Transcription: '{text}'")
                 except Exception as e:
-                    log.error(f"Local Faster-Whisper transcription failed: {e}")
+                    log.warning(f"Local Faster-Whisper transcription error: {e}")
+                    text = ""
 
         if text:
             # Hallucination Filtering from Voice Bundle
@@ -529,7 +547,7 @@ class ListenerThread(QThread):
                     "response_format": "json"
                 }
                 
-                response = requests.post(url, headers=headers, files=files, data=data, timeout=4.0)
+                response = requests.post(url, headers=headers, files=files, data=data, timeout=3.0)
                 if response.status_code == 200:
                     result = response.json()
                     transcription = result.get("text", "").strip()
@@ -537,6 +555,9 @@ class ListenerThread(QThread):
                     return transcription
                 else:
                     log.warning(f"Groq STT key {idx+1} failed with status {response.status_code}: {response.text}")
+            except requests.exceptions.ConnectionError:
+                log.warning("No internet connection for Groq STT. Falling back immediately to local Whisper.")
+                break
             except Exception as e:
                 log.warning(f"Groq API transcription failed with key {idx+1}: {e}")
               

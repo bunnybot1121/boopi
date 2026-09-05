@@ -11,7 +11,11 @@ import paho.mqtt.client as mqtt
 from core.event_bus_async import bus
 from core.mqtt_bridge import MQTTBridge
 import threading
-from agents.robotic_crew import run_robotic_task
+from agents.local_orchestrator import local_orchestrator
+try:
+    from agents.robotic_crew import run_robotic_task
+except Exception:
+    run_robotic_task = None
 
 MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
@@ -122,31 +126,35 @@ def get_sensor_id_from_text(text):
 def process_with_crew(text):
     global hw_bridge
     
-    max_retries = 3
-    import time
-    for attempt in range(max_retries):
-        try:
-            print(f"\n--- [ROBOT] KICKING OFF CREW AI (Attempt {attempt + 1}) ---", flush=True)
-            response = run_robotic_task(text)
-            print(f"--- [ROBOT] CREW AI FINISHED ---", flush=True)
-            print(f"Result: {response}", flush=True)
-            # Send TTS back to Mode 1
-            m2_client.publish("bupi/internal/tts", json.dumps({"text": response}))
-            return # Success, exit function
-        except Exception as e:
-            print(f"[Mode 2] CrewAI Attempt {attempt + 1} Error: {e}", flush=True)
-            if attempt < max_retries - 1:
-                print("[Mode 2] Rotating key and retrying in 5 seconds...", flush=True)
-                time.sleep(5)
-            else:
-                m2_client.publish("bupi/internal/tts", json.dumps({"text": "Sorry, my robotic crew encountered an error."}))
-        except Exception as e:
-            print(f"[Mode 2] CrewAI Attempt {attempt + 1} Error: {e}", flush=True)
-            if attempt < max_retries - 1:
-                print("[Mode 2] Rotating key and retrying in 5 seconds...", flush=True)
-                time.sleep(5)
-            else:
-                m2_client.publish("bupi/internal/tts", json.dumps({"text": "Sorry, my robotic crew encountered an error."}))
+    # 1. Primary: Run fast local single-agent orchestrator (<500ms offline on RTX 4050)
+    try:
+        print(f"\n--- [ROBOT] EXECUTING LOCAL OFFLINE ORCHESTRATOR ---", flush=True)
+        response = local_orchestrator.run_task(text)
+        print(f"--- [ROBOT] LOCAL ORCHESTRATOR FINISHED ---", flush=True)
+        print(f"Result: {response}", flush=True)
+        m2_client.publish("bupi/internal/tts", json.dumps({"text": response}))
+        return
+    except Exception as local_err:
+        print(f"[Mode 2] Local Orchestrator error: {local_err}. Trying fallback...", flush=True)
+
+    # 2. Fallback: CrewAI (if available and configured)
+    if run_robotic_task:
+        max_retries = 2
+        import time
+        for attempt in range(max_retries):
+            try:
+                print(f"\n--- [ROBOT] KICKING OFF CREW AI FALLBACK (Attempt {attempt + 1}) ---", flush=True)
+                response = run_robotic_task(text)
+                print(f"--- [ROBOT] CREW AI FINISHED ---", flush=True)
+                print(f"Result: {response}", flush=True)
+                m2_client.publish("bupi/internal/tts", json.dumps({"text": response}))
+                return
+            except Exception as e:
+                print(f"[Mode 2] CrewAI Attempt {attempt + 1} Error: {e}", flush=True)
+                if attempt < max_retries - 1:
+                    time.sleep(3)
+    
+    m2_client.publish("bupi/internal/tts", json.dumps({"text": "Sorry, my robotic orchestrator encountered an error executing that action."}))
 
 # Catch the TTS intent from the RouterAgent and push it back to Mode 1
 async def send_tts_to_mode1(payload):

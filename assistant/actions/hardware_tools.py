@@ -1,5 +1,15 @@
+import os
+os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
 import paho.mqtt.publish as publish
-from crewai.tools import tool
+try:
+    from crewai.tools import tool
+except ImportError:
+    def tool(name_or_func=None):
+        if callable(name_or_func):
+            return name_or_func
+        def decorator(f):
+            return f
+        return decorator
 
 current_task_id = 0
 
@@ -31,21 +41,77 @@ def control_relay(device_id: str, action: str) -> str:
 def display_on_esp32(text: str) -> str:
     """
     Displays text on the ESP32 screen (LCD/OLED).
-    - text: The message to display.
+    - text: The message to display. Automatically formatted for 16x2 characters.
     """
     try:
-        topic = "bupi/nodes/desk_display/cmd"
-        
+        clean_text = str(text).strip()
+        # Ensure 16x2 LCD readability
+        if len(clean_text) > 16 and "\n" not in clean_text and ":" in clean_text:
+            parts = clean_text.split(":", 1)
+            line1 = parts[0].strip()[:16]
+            line2 = parts[1].strip()[:16]
+            formatted_text = f"{line1}\n{line2}"
+        else:
+            formatted_text = clean_text[:32]
+            
         # Optional display validation
         from core.safety_validator import validate_safety
-        validation = validate_safety(topic, text)
+        validation = validate_safety("bupi/actuators/lcd/cmd", formatted_text)
         if not validation.get("approved", True):
             return f"Blocked: {validation.get('reason')}"
             
-        publish.single(topic, text, hostname="localhost")
-        return f"Successfully displayed '{text}' on ESP32."
+        # Dual-publish to both display topics to support all firmware versions
+        publish.single("bupi/nodes/desk_display/cmd", formatted_text, hostname="localhost")
+        publish.single("bupi/actuators/lcd/cmd", formatted_text, hostname="localhost")
+        return f"Successfully displayed '{formatted_text}' on ESP32."
     except Exception as e:
         return f"Failed to display on ESP32: {str(e)}"
+
+@tool("Control Robot Motors")
+def control_motors(direction: str, speed: int = 200, duration_seconds: float = 0.0) -> str:
+    """
+    Controls the mobile base N20 motors via TB6612 driver on the ESP32.
+    - direction: 'forward', 'reverse', 'left', 'right', or 'stop'.
+    - speed: PWM motor speed from 0 to 255 (default 200).
+    - duration_seconds: duration in seconds before automatically stopping (0 for continuous until stopped).
+    """
+    import json
+    import time
+    import threading
+    try:
+        direction = str(direction).lower().strip()
+        speed = max(0, min(255, int(speed)))
+        topic = "bupi/actuators/motors/cmd"
+        
+        # Run safety validation against obstacles / collision risk
+        from core.safety_validator import validate_safety
+        validation = validate_safety(topic, direction)
+        if not validation.get("approved", True):
+            return f"Blocked: {validation.get('reason')}"
+            
+        payload = json.dumps({
+            "action": "MOVE",
+            "direction": direction,
+            "speed": speed,
+            "duration": duration_seconds
+        })
+        
+        # Publish structured command and raw string for backward compatibility
+        publish.single(topic, direction, hostname="localhost")
+        publish.single(f"{topic}/json", payload, hostname="localhost")
+        
+        # Timed auto-stop if duration specified
+        if duration_seconds > 0 and direction != "stop":
+            def auto_stop():
+                time.sleep(duration_seconds)
+                publish.single(topic, "stop", hostname="localhost")
+                publish.single(f"{topic}/json", json.dumps({"action": "MOVE", "direction": "stop", "speed": 0}), hostname="localhost")
+            threading.Thread(target=auto_stop, daemon=True).start()
+            return f"Motors moving {direction} at speed {speed} for {duration_seconds}s."
+            
+        return f"Motors set to {direction} (speed {speed})."
+    except Exception as e:
+        return f"Failed to control motors: {str(e)}"
 
 @tool("Universal MQTT Hardware Controller")
 def universal_mqtt_tool(topic: str, payload: str) -> str:
@@ -333,4 +399,114 @@ def run_robotic_code(script_code: str) -> str:
         
     output = stdout_buf.getvalue()
     return f"Status: {'SUCCESS' if success else 'FAILED'}\nOutput:\n{output}"
+
+@tool("Query Hardware Knowledge Base")
+def get_hardware_knowledge(component_name: str) -> str:
+    """
+    Retrieves complete offline hardware specifications, pinouts, wiring instructions, 
+    truth tables, and common pitfalls for robotics components (e.g. 'TB6612FNG', 'HC-SR04', 'MPU6050', 'MQ2', 'RELAY', 'ESP32_PINOUT').
+    - component_name: The name or type of the hardware component to look up.
+    """
+    import os
+    import json
+    try:
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        cache_path = os.path.join(base_dir, "brain", "sensor_knowledge_cache.json")
+        if os.path.exists(cache_path):
+            with open(cache_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            # Match exact or partial key (case-insensitive)
+            comp_clean = component_name.strip().upper().replace("-", "").replace("_", "")
+            for key, val in data.items():
+                key_clean = key.strip().upper().replace("-", "").replace("_", "")
+                if comp_clean in key_clean or key_clean in comp_clean:
+                    return json.dumps(val, indent=2)
+            # If not found, list available components
+            return f"Component '{component_name}' not found in offline knowledge cache. Available components: {list(data.keys())}"
+        return "Hardware knowledge cache not found."
+    except Exception as e:
+        return f"Failed to retrieve hardware knowledge: {str(e)}"
+
+@tool("Get Connected ESP32 Nodes")
+def get_connected_nodes() -> str:
+    """
+    Returns the list of active ESP32 nodes connected to the MQTT broker, including their
+    IP addresses, capabilities, tasks, and how many seconds ago they sent a heartbeat.
+    """
+    import os
+    import sqlite3
+    import time
+    import json
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    db_path = os.path.join(base_dir, "bupi_telemetry.db")
+    try:
+        if not os.path.exists(db_path):
+            return json.dumps({"connected_nodes": [], "message": "Telemetry database not initialized yet."})
+            
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='nodes'")
+        if not cursor.fetchone():
+            conn.close()
+            return json.dumps({"connected_nodes": [], "message": "No nodes registered yet. Waiting for ESP32 heartbeat."})
+            
+        cursor.execute("SELECT client_id, device_name, ip_address, capabilities, last_heartbeat, status FROM nodes ORDER BY last_heartbeat DESC")
+        rows = cursor.fetchall()
+        conn.close()
+        
+        now = time.time()
+        nodes = []
+        for r in rows:
+            client_id, device_name, ip_addr, caps, last_hb, status = r
+            delta_sec = round(now - last_hb, 1) if last_hb else None
+            is_online = (delta_sec is not None and delta_sec < 15.0)
+            
+            parsed_caps = caps
+            if caps:
+                try:
+                    parsed_caps = json.loads(caps)
+                except Exception:
+                    try:
+                        import ast
+                        parsed_caps = ast.literal_eval(caps)
+                    except Exception:
+                        parsed_caps = [caps]
+                        
+            nodes.append({
+                "client_id": client_id,
+                "device_name": device_name,
+                "ip_address": ip_addr,
+                "capabilities": parsed_caps,
+                "last_seen_seconds_ago": delta_sec,
+                "status": "ONLINE" if is_online else "OFFLINE"
+            })
+        return json.dumps({"connected_nodes": nodes, "total_nodes": len(nodes)}, indent=2)
+    except Exception as e:
+        return json.dumps({"error": f"Failed to query connected nodes: {str(e)}"})
+
+@tool("Start Autonomous Robotic Mission")
+def start_autonomous_mission(mission_description: str) -> str:
+    """
+    Decomposes and starts an autonomous closed-loop robotic mission (e.g. 'find the human in the room',
+    'patrol and inspect gas', 'explore and avoid obstacles') where Boopi navigates, senses, and avoids obstacles by itself.
+    - mission_description: High-level goal or mission for the robot to complete autonomously.
+    """
+    try:
+        from agents.autonomous_goal_agent import goal_agent
+        return goal_agent.start_mission(mission_description)
+    except Exception as e:
+        return f"Failed to launch autonomous mission: {str(e)}"
+
+@tool("Stop Active Autonomous Mission")
+def stop_current_mission() -> str:
+    """
+    Immediately stops any currently running autonomous mission, halting all motors and returning Boopi to standby.
+    """
+    try:
+        from agents.autonomous_goal_agent import goal_agent
+        return goal_agent.stop_mission(reason="Operator request")
+    except Exception as e:
+        return f"Failed to stop autonomous mission: {str(e)}"
+
+
 

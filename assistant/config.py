@@ -12,7 +12,7 @@ else:
 
 # Provider settings
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").lower()
-GROQ_LLM_MODEL = os.getenv("GROQ_LLM_MODEL", "qwen/qwen3.6-27b")
+GROQ_LLM_MODEL = os.getenv("GROQ_LLM_MODEL", "openai/gpt-oss-120b")
 OPENROUTER_LLM_MODEL = os.getenv("OPENROUTER_LLM_MODEL", "google/gemini-3.6-flash")
 
 # Cloud Keys
@@ -51,9 +51,9 @@ ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "EXAVITQu4vr4xnSDxMaL")
 
 # STT Settings
 USE_CLOUD_STT = os.getenv("USE_CLOUD_STT", "true").lower() == "true"
-LOCAL_WHISPER_MODEL = os.getenv("LOCAL_WHISPER_MODEL", "base.en")
+LOCAL_WHISPER_MODEL = os.getenv("LOCAL_WHISPER_MODEL", "base")
 GROQ_STT_MODEL = os.getenv("GROQ_STT_MODEL", "whisper-large-v3")
-SILENCE_FRAMES = int(os.getenv("SILENCE_FRAMES", "12"))
+SILENCE_FRAMES = int(os.getenv("SILENCE_FRAMES", "18")) # 540ms matching Hackathon
 
 
 def validate_config():

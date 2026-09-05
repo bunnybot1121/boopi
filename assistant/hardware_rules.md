@@ -33,7 +33,7 @@ You MUST unconditionally include these global variables at the top of the file:
 ```cpp
 const char* ssid = "home";
 const char* password = "sachin1121";
-const char* mqtt_server = "192.168.0.107";
+const char* mqtt_server = "192.168.0.106";
 ```
 
 ### 6. Output Format

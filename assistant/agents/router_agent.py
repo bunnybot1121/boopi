@@ -19,6 +19,23 @@ class RouterAgent:
         """
         clean = text.lower().strip()
 
+        # Autonomous High-Level Robotic Missions (<1ms fast-pass)
+        if re.search(r"\b(find the human|find human|find person|locate human|locate person|search for human|search the room|search room|patrol|patrol the room|patrol and inspect|patrol area|explore|explore the room|explore room|autonomous mission)\b", clean):
+            return {
+                "type": "autonomous_mission",
+                "payload": {"mission": text}
+            }
+        if re.search(r"\b(abort mission|cancel mission|stop mission)\b", clean):
+            return {
+                "type": "abort_mission",
+                "payload": {}
+            }
+        if re.search(r"\b(what did you find|show mission report|mission report|mission findings|last mission|what happened in last mission|tell me what you found|show debrief|mission debrief)\b", clean):
+            return {
+                "type": "mission_report_query",
+                "payload": {}
+            }
+
         # Hardware E-Stop & Direct Motor Commands
         if re.search(r"\b(stop|halt|freeze|emergency stop|e-stop|stop motors|brake)\b", clean):
             return {
@@ -56,6 +73,42 @@ class RouterAgent:
             return {
                 "type": "hardware_intent",
                 "payload": {"device": "relay", "action": "OFF"}
+            }
+
+        # Quick Sensor Telemetry Queries (<1ms bypass)
+        if re.search(r"\b(gas level|gas reading|smoke level|lpg reading|check gas|gas status)\b", clean):
+            return {
+                "type": "sensor_query",
+                "payload": {"sensor_id": "mq2"}
+            }
+        if re.search(r"\b(room temperature|indoor temp|current temperature|temperature reading)\b", clean):
+            return {
+                "type": "sensor_query",
+                "payload": {"sensor_id": "temp"}
+            }
+        if re.search(r"\b(front distance|obstacle distance|ultrasonic reading)\b", clean):
+            return {
+                "type": "sensor_query",
+                "payload": {"sensor_id": "distance"}
+            }
+        if re.search(r"\b(world state|environment state|robot status|telemetry status)\b", clean):
+            return {
+                "type": "world_state_query",
+                "payload": {}
+            }
+
+        # ESP32 Connection & Node Presence (<1ms bypass)
+        if re.search(r"\b(esp32 connected|esp connected|node connected|nodes connected|active nodes|check esp32|check esp|is esp32 online|is esp online|node status)\b", clean):
+            return {
+                "type": "nodes_query",
+                "payload": {}
+            }
+
+        # Mission Debrief & Reports Query (<1ms bypass)
+        if re.search(r"\b(what did you find|mission report|mission debrief|last mission|mission findings|debrief report|show report|show findings)\b", clean):
+            return {
+                "type": "mission_report_query",
+                "payload": {}
             }
 
         # RAG / Technical Datasheet Search Keywords
@@ -116,6 +169,10 @@ class RouterAgent:
         elif intent_type == "chat_response":
             print(f"[Router Agent] ➡️ Dispatched to CHAT TTS -> {intent_payload.get('text', '')}")
             await bus.publish("tts_intent", {"text": intent_payload.get("text", "")})
+
+        elif intent_type == "mission_report_query":
+            print(f"[Router Agent] ➡️ Dispatched to MISSION REPORT DEBRIEF")
+            await bus.publish("mission_report_query", intent_payload)
 
         else:
             print(f"[Router Agent Warning] Unknown intent type: {intent_type}. Defaulting to TTS.")

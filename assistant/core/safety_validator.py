@@ -3,7 +3,7 @@ import os
 import time
 from core.sensor_translator import translate_sensor_value
 
-TELEMETRY_TTL_SECONDS = 3.0  # Telemetry older than 3 seconds is marked UNKNOWN_STALE
+TELEMETRY_TTL_SECONDS = 7.0  # Telemetry older than 7 seconds is marked UNKNOWN_STALE
 
 def get_current_world_state() -> dict:
     """
@@ -86,10 +86,8 @@ def validate_safety(topic: str, payload: str) -> dict:
         
         is_forward_movement = any(kw in topic_lower or kw in payload_lower for kw in forward_movement_keywords)
         is_evasive_action = any(kw in topic_lower or kw in payload_lower for kw in reverse_evasive_keywords)
-        is_relay_turn_on = "relay_1" in topic_lower and ("turn_on" in payload_lower or "on" in payload_lower or "1" in payload_lower)
-        
-        # Block forward movements or relay turn-on, but permit reverse/turn evasive maneuvers
-        if (is_forward_movement and not is_evasive_action) or is_relay_turn_on:
+        # Block forward movements toward obstacle, but permit reverse/turn evasive maneuvers
+        if is_forward_movement and not is_evasive_action:
             return {
                 "approved": False,
                 "reason": f"Directional Safety Cutoff: Forward action blocked because distance state is {world_state['distance']}."
