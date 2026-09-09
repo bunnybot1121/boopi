@@ -664,6 +664,15 @@
          ipcRenderer.on('mode-changed', (event, mode) => {
             console.log("Updating UI mode to: ", mode);
             setMascotMode(mode);
+            const modeNum = parseInt(mode, 10);
+            if (thoughtBubble) {
+                thoughtBubble.innerText = (modeNum === 2) ? "Mode 2: Robotic Mode 🤖" : "Mode 1: Conversational 💬";
+                thoughtBubble.classList.add('visible');
+                if (bubbleTimeout) clearTimeout(bubbleTimeout);
+                bubbleTimeout = setTimeout(() => {
+                    thoughtBubble.classList.remove('visible');
+                }, 2500);
+            }
          });
 
          // Custom IPC-based window dragging

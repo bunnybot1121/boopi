@@ -67,22 +67,55 @@ def translate_sensor_value(sensor_id: str, value: float) -> dict:
             description = "Air is extremely humid."
             
     elif "distance" in sensor_id or "ultrasonic" in sensor_id or "hcsr04" in sensor_id:
-        if value < 10.0:
+        if value <= 15.0:
             status = "COLLISION_RISK"
-            description = "Immediate collision risk!"
-        elif value < 30.0:
-            status = "VERY_CLOSE"
-            description = "Obstacle detected very close."
-        elif value < 80.0:
+            description = f"Immediate collision barrier hazard ({value:.1f} cm)!"
+        elif value <= 40.0:
+            status = "WARNING_CORRIDOR"
+            description = f"Obstacle detected in active steering corridor ({value:.1f} cm)."
+        elif value <= 80.0:
             status = "NEAR"
-            description = "Obstacle detected nearby."
+            description = f"Obstacle detected ahead ({value:.1f} cm)."
         else:
             status = "CLEAR"
-            description = "Path is clear."
-            
+            description = f"Forward path is clear ({value:.1f} cm)."
+
+    elif "pir" in sensor_id:
+        try:
+            val_int = int(value)
+        except Exception:
+            val_int = 0
+        if val_int == 1:
+            status = "THERMAL_MOTION_DETECTED"
+            description = "Thermal infrared motion flux detected (possible warm moving body)."
+        else:
+            status = "QUIET"
+            description = "No thermal motion flux detected."
+
+    elif "pitch" in sensor_id or "roll" in sensor_id or "tilt" in sensor_id:
+        val_abs = abs(float(value))
+        # Account for inverted MPU6050 chassis mounting (resting roll/tilt ~ -170 deg)
+        if val_abs > 90.0:
+            val_abs = abs(180.0 - val_abs)
+        if val_abs > 35.0:
+            status = "TILT_HAZARD"
+            description = f"Dangerously tilted ({val_abs:.1f}°)! Tipping hazard cutoff active."
+        elif val_abs > 20.0:
+            status = "INCLINED"
+            description = f"Chassis is significantly inclined ({val_abs:.1f}°)."
+        else:
+            status = "LEVEL"
+            description = f"Chassis is level ({val_abs:.1f}°)."
+
+    elif "heading" in sensor_id or "yaw" in sensor_id:
+        deg = float(value) % 360.0
+        status = "HEADING_TRACKING"
+        description = f"Current heading orientation is {deg:.1f}°."
+
     return {
         "sensor": sensor_id,
         "value": value,
         "status": status,
         "description": description
     }
+

@@ -41,6 +41,7 @@ AUDIO_GAIN_BOOST = float(os.getenv("AUDIO_GAIN_BOOST", "1.5"))
 
 # TTS Voice Setting
 TTS_VOICE = os.getenv("TTS_VOICE", "en-US-AnaNeural")
+USE_CLOUD_TTS = os.getenv("USE_CLOUD_TTS", "true").lower() == "true"
 
 # Speech Emotion classification setting (Optional, disable by default for latency optimization)
 ENABLE_SPEECH_EMOTION = os.getenv("ENABLE_SPEECH_EMOTION", "false").lower() == "true"

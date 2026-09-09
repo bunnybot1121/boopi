@@ -1,4 +1,8 @@
 (() => {
+if (typeof require === 'undefined') {
+    window.initializeBWE = () => console.log('BWE 3D Simulator runs in Electron mode.');
+    return;
+}
 const THREE = require('three');
 const eventBus = require('./bwe/core/event_bus');
 const bweEngine = require('./bwe/core/engine');

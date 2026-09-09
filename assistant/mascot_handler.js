@@ -270,41 +270,50 @@ function updatePaletteColors(paletteName) {
   if (f13Highlight) f13Highlight.setAttribute('values', p.armHighlightMatrix);
   if (f13Shadow) f13Shadow.setAttribute('values', leftArmShadow);
 
-  // Apply colors to dynamic custom SVG layers if active
-  if (currentMascotSVGFile !== '') {
-    const bobGroup = document.getElementById('bob-group');
-    if (bobGroup) {
-      const yellowElements = bobGroup.querySelectorAll('[fill="#F7D145"], [fill="#f7d145"], [fill="rgb(247, 209, 69)"]');
-      yellowElements.forEach(el => el.setAttribute('fill', p.bodyFill));
+  // Recolor any dynamic character elements in bob-group (across all known palette fills)
+  const bobGroup = document.getElementById('bob-group');
+  if (bobGroup) {
+    const allBodyColors = Object.values(PALETTES).map(pal => pal.bodyFill);
+    const bodySelectors = allBodyColors.map(c => `[fill="${c}" i]`).concat(['[fill="rgb(247, 209, 69)"]', '[data-mascot-body="true"]']).join(', ');
+    const yellowElements = bobGroup.querySelectorAll(bodySelectors);
+    yellowElements.forEach(el => {
+      el.setAttribute('fill', p.bodyFill);
+      el.setAttribute('data-mascot-body', 'true');
+    });
 
-      const shadowElements = bobGroup.querySelectorAll('[fill="#B23C05"], [fill="#b23c05"], [fill="rgb(178, 60, 5)"]');
-      shadowElements.forEach(el => el.setAttribute('fill', p.neckShadowColor));
-    }
+    const allShadowColors = Object.values(PALETTES).map(pal => pal.neckShadowColor);
+    const shadowSelectors = allShadowColors.map(c => `[fill="${c}" i]`).concat(['[fill="rgb(178, 60, 5)"]', '[data-mascot-shadow="true"]']).join(', ');
+    const shadowElements = bobGroup.querySelectorAll(shadowSelectors);
+    shadowElements.forEach(el => {
+      el.setAttribute('fill', p.neckShadowColor);
+      el.setAttribute('data-mascot-shadow', 'true');
+    });
+  }
 
-    const mainDefs = document.querySelector('#mascot-svg defs');
-    if (mainDefs) {
-      const customMatrices = mainDefs.querySelectorAll('.custom-def feColorMatrix');
-      customMatrices.forEach(matrix => {
-        const vals = matrix.getAttribute('values');
-        if (!vals) return;
-        if (vals.includes('0.962384') || vals.includes('0.860378')) {
-          matrix.setAttribute('values', p.bodyHighlightMatrix);
-        } else if (vals.includes('0.797063') && (vals.includes('0.575703') || vals.includes('0.0980312'))) {
-          matrix.setAttribute('values', p.bodyShadowMatrix);
-        } else if (vals.startsWith('0 0 0 0 1') || vals.includes('1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 0 0 0 1 0')) {
-          matrix.setAttribute('values', p.headHighlightMatrix);
-        } else if (vals.includes('0.973501') || vals.includes('0.909066')) {
-          matrix.setAttribute('values', p.armHighlightMatrix);
-        } else if (vals.includes('0.796078') || vals.includes('0.576471')) {
-          matrix.setAttribute('values', p.armShadowMatrix);
-        }
-      });
-    }
+  const mainDefs = document.querySelector('#mascot-svg defs');
+  if (mainDefs) {
+    const customMatrices = mainDefs.querySelectorAll('.custom-def feColorMatrix');
+    customMatrices.forEach(matrix => {
+      const vals = matrix.getAttribute('values');
+      if (!vals) return;
+      if (vals.includes('0.962384') || vals.includes('0.860378')) {
+        matrix.setAttribute('values', p.bodyHighlightMatrix);
+      } else if (vals.includes('0.797063') && (vals.includes('0.575703') || vals.includes('0.0980312'))) {
+        matrix.setAttribute('values', p.bodyShadowMatrix);
+      } else if (vals.startsWith('0 0 0 0 1') || vals.includes('1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 0 0 0 1 0')) {
+        matrix.setAttribute('values', p.headHighlightMatrix);
+      } else if (vals.includes('0.973501') || vals.includes('0.909066')) {
+        matrix.setAttribute('values', p.armHighlightMatrix);
+      } else if (vals.includes('0.796078') || vals.includes('0.576471')) {
+        matrix.setAttribute('values', p.armShadowMatrix);
+      }
+    });
   }
 }
 
 function updatePaletteMapping() {
-  let target = (currentMode === 2) ? 'skyBlue' : 'yellow';
+  const modeNum = parseInt(currentMode, 10);
+  let target = (modeNum === 2) ? 'skyBlue' : 'yellow';
   
   if (currentState === 'angry' || currentState === 'error') {
     target = 'burgundy';
@@ -313,16 +322,14 @@ function updatePaletteMapping() {
   } else if (currentState === 'chilling') {
     const isSpeaking = visemeQueue.length > 0 || speechTimer > 0;
     if (isSpeaking) {
-      target = (currentMode === 2) ? 'skyBlue' : 'yellow';
+      target = (modeNum === 2) ? 'skyBlue' : 'yellow';
     } else {
       target = 'green';
     }
   }
   
-  if (target !== currentPalette) {
-    currentPalette = target;
-    updatePaletteColors(currentPalette);
-  }
+  currentPalette = target;
+  updatePaletteColors(currentPalette);
 }
 
 // ──────────────────────────────────────────────────────────
@@ -555,8 +562,8 @@ export function initSVG(containerId) {
     originalBobGroupHTML = bobGroup.innerHTML;
   }
 
-  // Set default color theme
-  updatePaletteColors('yellow');
+  // Set initial palette theme based on active mode
+  updatePaletteMapping();
 
   // Start frame loop
   isAnimating = true;
@@ -614,6 +621,7 @@ async function loadCustomMascotSVG(fileName) {
 
     // Re-apply palette colors to the newly loaded paths
     updatePaletteColors(currentPalette);
+    domNodesCache = null;
   } catch (err) {
     console.error(`[SVG Mascot] Error loading custom pose ${fileName}:`, err);
   }
@@ -637,11 +645,12 @@ function restoreOriginalMascot() {
 
   // Re-apply palette colors
   updatePaletteColors(currentPalette);
+  domNodesCache = null;
 }
 
 export function setMascotMode(mode) {
-  currentMode = mode;
-  console.log(`[SVG Mascot Mode] Mode set to: ${currentMode}`);
+  currentMode = parseInt(mode, 10) || mode;
+  console.log(`[SVG Mascot Mode] Mode set to: ${currentMode} (Palette: ${currentMode === 2 ? 'skyBlue' : 'yellow'})`);
   updatePaletteMapping();
 }
 
@@ -657,6 +666,7 @@ export function setMascotState(state) {
   currentState = state;
   stateTime = 0;
   console.log(`[SVG State] ${previousState} -> ${currentState}`);
+  updatePaletteMapping();
   
   // Reset speech states
   if (currentState !== 'talking') {
@@ -709,6 +719,50 @@ export function setMascotState(state) {
   }
 
   updateStateTargets();
+}
+
+let domNodesCache = null;
+
+function getDomNodes() {
+  if (domNodesCache && domNodesCache.bobGroup && document.body.contains(domNodesCache.bobGroup)) {
+    return domNodesCache;
+  }
+  domNodesCache = {
+    bobGroup: document.getElementById('bob-group'),
+    headDotGroup: document.getElementById('head-dot-group'),
+    leftArmGroup: document.getElementById('left-arm-group'),
+    rightArmWaveGroup: document.getElementById('right-arm-wave-group'),
+    rightArmSteadyGroup: document.getElementById('right-arm-steady-group'),
+    groundShadowGroup: document.getElementById('ground-shadow-group'),
+    faceGroup: document.getElementById('face-group'),
+    awakeEyesGroup: document.getElementById('awake-eyes-group'),
+    leftEyeScaleGroup: document.getElementById('left-eye-scale-group'),
+    rightEyeScaleGroup: document.getElementById('right-eye-scale-group'),
+    sleepEyesGroup: document.getElementById('sleep-eyes-group'),
+    normalMouthGroup: document.getElementById('normal-mouth-group'),
+    thinkingMouth: document.getElementById('thinking-mouth'),
+    talkingMouthGroup: document.getElementById('talking-mouth-group'),
+    tongue: document.getElementById('tongue'),
+    tongueHighlight: document.getElementById('tongue-highlight'),
+    zzzGroup: document.getElementById('zzz-group'),
+    z1: document.getElementById('z1'),
+    z2: document.getElementById('z2'),
+    z3: document.getElementById('z3'),
+    accessoryArmsGroup: document.getElementById('accessory-arms-group'),
+    bookArms: document.getElementById('book-arms'),
+    cupArms: document.getElementById('cup-arms'),
+    bookLeftArmRotateGroup: document.getElementById('book-left-arm-rotate-group'),
+    bookRightArmRotateGroup: document.getElementById('book-right-arm-rotate-group'),
+    cupLeftArmRotateGroup: document.getElementById('cup-left-arm-rotate-group'),
+    cupRightArmRotateGroup: document.getElementById('cup-right-arm-rotate-group'),
+    bookAccessoryGroup: document.getElementById('book-accessory-group'),
+    bookRotateGroup: document.getElementById('book-rotate-group'),
+    coffeeCupAccessoryGroup: document.getElementById('coffee-cup-accessory-group'),
+    coffeeCupRotateGroup: document.getElementById('coffee-cup-rotate-group'),
+    bobaCupAccessoryGroup: document.getElementById('boba-cup-accessory-group'),
+    bobaCupRotateGroup: document.getElementById('boba-cup-rotate-group')
+  };
+  return domNodesCache;
 }
 
 // ──────────────────────────────────────────────────────────
@@ -771,39 +825,17 @@ function animate(timestamp) {
   currentCoffeeProgress += (targetCoffeeProgress - currentCoffeeProgress) * lerpFactor;
   currentBobaProgress += (targetBobaProgress - currentBobaProgress) * lerpFactor;
 
-  // DOM node lookups
-  const bobGroup = document.getElementById('bob-group');
-  const headDotGroup = document.getElementById('head-dot-group');
-  const leftArmGroup = document.getElementById('left-arm-group');
-  const rightArmWaveGroup = document.getElementById('right-arm-wave-group');
-  const rightArmSteadyGroup = document.getElementById('right-arm-steady-group');
-  const groundShadowGroup = document.getElementById('ground-shadow-group');
-  const faceGroup = document.getElementById('face-group');
-  const awakeEyesGroup = document.getElementById('awake-eyes-group');
-  const leftEyeScaleGroup = document.getElementById('left-eye-scale-group');
-  const rightEyeScaleGroup = document.getElementById('right-eye-scale-group');
-  const sleepEyesGroup = document.getElementById('sleep-eyes-group');
-  const normalMouthGroup = document.getElementById('normal-mouth-group');
-  const thinkingMouth = document.getElementById('thinking-mouth');
-  const talkingMouthGroup = document.getElementById('talking-mouth-group');
-  const tongue = document.getElementById('tongue');
-  const tongueHighlight = document.getElementById('tongue-highlight');
-  const zzzGroup = document.getElementById('zzz-group');
-  
-  const accessoryArmsGroup = document.getElementById('accessory-arms-group');
-  const bookArms = document.getElementById('book-arms');
-  const cupArms = document.getElementById('cup-arms');
-  const bookLeftArmRotateGroup = document.getElementById('book-left-arm-rotate-group');
-  const bookRightArmRotateGroup = document.getElementById('book-right-arm-rotate-group');
-  const cupLeftArmRotateGroup = document.getElementById('cup-left-arm-rotate-group');
-  const cupRightArmRotateGroup = document.getElementById('cup-right-arm-rotate-group');
-  
-  const bookAccessoryGroup = document.getElementById('book-accessory-group');
-  const bookRotateGroup = document.getElementById('book-rotate-group');
-  const coffeeCupAccessoryGroup = document.getElementById('coffee-cup-accessory-group');
-  const coffeeCupRotateGroup = document.getElementById('coffee-cup-rotate-group');
-  const bobaCupAccessoryGroup = document.getElementById('boba-cup-accessory-group');
-  const bobaCupRotateGroup = document.getElementById('boba-cup-rotate-group');
+  // Cached DOM node lookups (0 DOM lookups per frame)
+  const nodes = getDomNodes();
+  const {
+    bobGroup, headDotGroup, leftArmGroup, rightArmWaveGroup, rightArmSteadyGroup,
+    groundShadowGroup, faceGroup, awakeEyesGroup, leftEyeScaleGroup, rightEyeScaleGroup,
+    sleepEyesGroup, normalMouthGroup, thinkingMouth, talkingMouthGroup, tongue,
+    tongueHighlight, zzzGroup, z1, z2, z3, accessoryArmsGroup, bookArms, cupArms,
+    bookLeftArmRotateGroup, bookRightArmRotateGroup, cupLeftArmRotateGroup,
+    cupRightArmRotateGroup, bookAccessoryGroup, bookRotateGroup, coffeeCupAccessoryGroup,
+    coffeeCupRotateGroup, bobaCupAccessoryGroup, bobaCupRotateGroup
+  } = nodes;
 
   if (!bobGroup) return;
 
@@ -1068,9 +1100,9 @@ function animate(timestamp) {
         el.setAttribute('opacity', opacity);
       };
 
-      updateZ(document.getElementById('z1'), 0);
-      updateZ(document.getElementById('z2'), 0.72);
-      updateZ(document.getElementById('z3'), 1.44);
+      updateZ(z1, 0);
+      updateZ(z2, 0.72);
+      updateZ(z3, 1.44);
     } else {
       zzzGroup.style.display = 'none';
     }

@@ -6,7 +6,7 @@
 // --- Configuration ---
 const char* ssid = "home";
 const char* password = "sachin1121";
-const char* mqtt_server = "192.168.0.106"; // IP of your PC running Mosquitto
+const char* mqtt_server = "192.168.137.1"; // IP of your PC running Mosquitto
 
 // Initialize the LCD display
 // The I2C address is usually 0x27 or 0x3F. 

@@ -1,102 +1,809 @@
+/*
+ ===============================================================================
+ BUPI ESP32 AUTONOMOUS ROBOT PLATFORM: COMPLETE MASTER FIRMWARE
+ ===============================================================================
+ Target Hardware: ESP32 Dev Module (ESP32-D0WD-V3)
+ Actuators:       TB6612FNG Dual H-Bridge Driver + 2x N20 DC Gear Motors
+ Sensors:         HC-SR04 Ultrasonic, PIR Motion Sensor, MPU6050 6-Axis IMU
+ Features:        6-Axis IMU Engine, Gyro-Closed-Loop Yaw Turns, Reflex Barrier,
+                  Dual-Channel (USB Serial 115200 + Wi-Fi WebSockets)
+
+ PINOUT (Verified User Hardware):
+   - Motor A (Left) : PWMA = 25, AIN1 = 26, AIN2 = 27
+   - Motor B (Right): PWMB = 33, BIN1 = 14, BIN2 = 12
+   - TB6612 Standby : STBY = 13 (Driven HIGH to enable driver)
+   - HC-SR04 Trig   : TRIG = 5
+   - HC-SR04 Echo   : ECHO = 18
+   - PIR Sensor     : PIR  = 34 (with 19 fallback)
+   - MPU6050 I2C    : SDA  = 21, SCL  = 22 (Address 0x68)
+ ===============================================================================
+*/
+
 #include <WiFi.h>
 #include <WebSocketsClient.h>
-#include <ArduinoJson.h>
-#include <LiquidCrystal_I2C.h>
+#include <Wire.h>
+#include <math.h>
 
-// 1. REPLACE THESE WITH YOUR EXACT WIFI CREDENTIALS (2.4GHz ONLY)
-const char* ssid = "home";
-const char* password = "sachin1121";
-
-// 2. BUPI PC SERVER SETTINGS (Pre-filled with your current local IP)
-const char* websocket_server = "192.168.0.106";
+// ---------------- NETWORK CONFIGURATION ----------------
+const char* ssid              = "CHINTU 4312";
+const char* password          = "j016,48R";
+const char* websocket_server  = "192.168.137.1";
 const uint16_t websocket_port = 8767;
 
-WebSocketsClient webSocket;
-// Note: If your LCD remains blank or shows black boxes, change 0x27 to 0x3F
-LiquidCrystal_I2C lcd(0x27, 16, 2); 
+// ---------------- PIN DEFINITIONS ----------------
+// Motor A (Left)
+#define PIN_PWMA  25
+#define PIN_AIN1  26
+#define PIN_AIN2  27
 
-void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
-  switch(type) {
-    case WStype_DISCONNECTED:
-      Serial.println("[WS] Disconnected!");
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print("Bupi Offline...");
+// Motor B (Right)
+#define PIN_PWMB  33
+#define PIN_BIN1  14
+#define PIN_BIN2  12
+
+// TB6612 Standby
+#define PIN_STBY  13
+
+// Sensors
+#define PIN_TRIG     5
+#define PIN_ECHO     18
+#define PIN_PIR      34
+#define PIN_PIR_ALT  19
+
+#define PIN_SDA      21
+#define PIN_SCL      22
+#define MPU_ADDR     0x68
+
+// ---------------- SAFETY THRESHOLDS ----------------
+const float CRITICAL_OBSTACLE_CM = 10.0; // Hard cutoff for forward drive
+const float CRITICAL_TILT_DEG    = 65.0; // Rollover flip cutoff (raised from 45 to absorb acceleration jerk)
+
+// ---------------- GLOBAL STATE ----------------
+WebSocketsClient webSocket;
+bool wifiConnected = false;
+int  obstacleDebounceCount = 0;
+
+unsigned long lastSensorTick  = 0;
+unsigned long lastHeartbeat   = 0;
+unsigned long motorEndTime    = 0;
+unsigned long lastImuTime     = 0;
+bool motorActive              = false;
+String currentMovement        = "STOP";
+
+float distanceCm       = 200.0;
+float distanceFilter[3] = {200.0, 200.0, 200.0};
+int   distanceIdx      = 0;
+int   pirMotion        = 0;
+
+// MPU6050 6-Axis Kinematics
+float ax_g = 0.0, ay_g = 0.0, az_g = 1.0;
+float gx_dps = 0.0, gy_dps = 0.0, gz_dps = 0.0;
+float pitchDeg = 0.0, rollDeg = 0.0, headingDeg = 0.0;
+float gz_bias = 0.0;
+bool  obstacleCritical = false;
+
+// Closed-loop angular turn state
+bool targetTurnActive = false;
+float targetHeadingDeg = 0.0;
+int turnDirection = 0; // +1 = Right, -1 = Left
+unsigned long turnTimeout = 0;
+
+// ---------------- EDGE COMPUTING OBSTACLE AVOIDANCE ----------------
+enum EdgeAvoidState {
+  AVOID_IDLE,
+  AVOID_CRUISE,
+  AVOID_REVERSE,
+  AVOID_PIVOT,
+  AVOID_VERIFY
+};
+
+bool edgeAvoidEnabled = false;
+EdgeAvoidState avoidState = AVOID_IDLE;
+unsigned long avoidStateTimer = 0;
+int avoidPivotDirection = 1; // +1 = Right, -1 = Left
+int avoidPivotAttempts = 0;  // Track consecutive turns in confined spaces
+const float AVOID_DETECT_CM = 20.0; // Distance to trigger autonomous evasion
+const float AVOID_CLEAR_CM  = 26.0; // Distance required before resuming forward cruise
+
+String serialRxBuffer = "";
+
+// Forward Declarations
+void stopMotors();
+void forward(int speed = 255);
+void backward(int speed = 255);
+void left(int speed = 255);
+void right(int speed = 255);
+void executeMotorAction(const char* action, int speed, int durationMs);
+void startTurnDegrees(float deltaDegrees, int speed = 255);
+void updateClosedLoopTurn();
+void updateEdgeObstacleAvoidance();
+void triggerEdgeReflexEvasion();
+
+// ---------------- MOTOR CONTROLLER ----------------
+void initMotors() {
+  pinMode(PIN_AIN1, OUTPUT);
+  pinMode(PIN_AIN2, OUTPUT);
+  pinMode(PIN_PWMA, OUTPUT);
+
+  pinMode(PIN_BIN1, OUTPUT);
+  pinMode(PIN_BIN2, OUTPUT);
+  pinMode(PIN_PWMB, OUTPUT);
+
+  pinMode(PIN_STBY, OUTPUT);
+
+  // Enable TB6612 driver on Pin 13
+  digitalWrite(PIN_STBY, HIGH);
+
+  // Direct 100% full battery voltage
+  digitalWrite(PIN_PWMA, HIGH);
+  digitalWrite(PIN_PWMB, HIGH);
+
+  stopMotors();
+}
+
+void applyMotorPwm(int leftSpeed, int rightSpeed) {
+  // Direct digital HIGH gives 100% full battery voltage (no PWM attenuation/stall)
+  if (leftSpeed > 0) {
+    digitalWrite(PIN_PWMA, HIGH);
+  } else {
+    digitalWrite(PIN_PWMA, LOW);
+  }
+
+  if (rightSpeed > 0) {
+    digitalWrite(PIN_PWMB, HIGH);
+  } else {
+    digitalWrite(PIN_PWMB, LOW);
+  }
+}
+
+void forward(int speed) {
+  digitalWrite(PIN_STBY, HIGH);
+
+  digitalWrite(PIN_AIN1, HIGH);
+  digitalWrite(PIN_AIN2, LOW);
+
+  digitalWrite(PIN_BIN1, HIGH);
+  digitalWrite(PIN_BIN2, LOW);
+
+  applyMotorPwm(speed, speed);
+  motorActive = true;
+  currentMovement = "FORWARD";
+}
+
+void backward(int speed) {
+  digitalWrite(PIN_STBY, HIGH);
+
+  digitalWrite(PIN_AIN1, LOW);
+  digitalWrite(PIN_AIN2, HIGH);
+
+  digitalWrite(PIN_BIN1, LOW);
+  digitalWrite(PIN_BIN2, HIGH);
+
+  applyMotorPwm(speed, speed);
+  motorActive = true;
+  currentMovement = "BACKWARD";
+}
+
+void left(int speed) {
+  digitalWrite(PIN_STBY, HIGH);
+
+  // Left motor backward, Right motor forward
+  digitalWrite(PIN_AIN1, LOW);
+  digitalWrite(PIN_AIN2, HIGH);
+
+  digitalWrite(PIN_BIN1, HIGH);
+  digitalWrite(PIN_BIN2, LOW);
+
+  applyMotorPwm(speed, speed);
+  motorActive = true;
+  currentMovement = "LEFT";
+}
+
+void right(int speed) {
+  digitalWrite(PIN_STBY, HIGH);
+
+  // Left motor forward, Right motor backward
+  digitalWrite(PIN_AIN1, HIGH);
+  digitalWrite(PIN_AIN2, LOW);
+
+  digitalWrite(PIN_BIN1, LOW);
+  digitalWrite(PIN_BIN2, HIGH);
+
+  applyMotorPwm(speed, speed);
+  motorActive = true;
+  currentMovement = "RIGHT";
+}
+
+void stopMotors() {
+  digitalWrite(PIN_PWMA, LOW);
+  digitalWrite(PIN_PWMB, LOW);
+
+  digitalWrite(PIN_AIN1, LOW);
+  digitalWrite(PIN_AIN2, LOW);
+
+  digitalWrite(PIN_BIN1, LOW);
+  digitalWrite(PIN_BIN2, LOW);
+
+  motorActive = false;
+  targetTurnActive = false;
+  currentMovement = "STOP";
+}
+
+// ---------------- CLOSED-LOOP GYRO TURNING ----------------
+void startTurnDegrees(float deltaDegrees, int speed) {
+  float startHeading = headingDeg;
+  targetHeadingDeg = fmod(startHeading + deltaDegrees + 360.0, 360.0);
+
+  if (deltaDegrees >= 0) {
+    turnDirection = 1; // Turn Right
+    right(speed);
+  } else {
+    turnDirection = -1; // Turn Left
+    left(speed);
+  }
+
+  targetTurnActive = true;
+  turnTimeout = millis() + (unsigned long)(fabs(deltaDegrees) * 35.0) + 1500;
+  Serial.printf("[GYRO TURN] Start: %.1f° -> Target: %.1f° (delta: %.1f°)\n", startHeading, targetHeadingDeg, deltaDegrees);
+}
+
+void updateClosedLoopTurn() {
+  if (!targetTurnActive) return;
+
+  // Smallest signed angular difference to target
+  float diff = targetHeadingDeg - headingDeg;
+  while (diff < -180.0) diff += 360.0;
+  while (diff > 180.0) diff -= 360.0;
+
+  // Robust target reached check:
+  // When turning right (turnDirection == 1), diff starts > 0 and decreases towards 0.
+  // When turning left (turnDirection == -1), diff starts < 0 and increases towards 0.
+  bool reached = false;
+  if (turnDirection == 1) {
+    if (diff <= 3.0) reached = true;
+  } else if (turnDirection == -1) {
+    if (diff >= -3.0) reached = true;
+  }
+
+  // Stop when aligned, target reached/passed, or timed out (never enters endless 360-degree loop)
+  if (reached || fabs(diff) <= 4.0 || millis() > turnTimeout) {
+    stopMotors();
+    targetTurnActive = false;
+    Serial.printf("[GYRO TURN COMPLETE] Reached Heading: %.1f° (Target: %.1f°)\n", headingDeg, targetHeadingDeg);
+  }
+}
+
+// ---------------- EDGE COMPUTING OBSTACLE AVOIDANCE ENGINE ----------------
+void updateEdgeObstacleAvoidance() {
+  if (!edgeAvoidEnabled) return;
+
+  unsigned long now = millis();
+
+  switch (avoidState) {
+    case AVOID_IDLE:
+      avoidState = AVOID_CRUISE;
+      avoidPivotAttempts = 0;
+      forward(200);
+      Serial.println(F("[EDGE AVOID] State -> CRUISE"));
       break;
-    case WStype_CONNECTED:
-      Serial.println("[WS] Connected to Bupi!");
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print("Bupi Connected!");
-      // Send capability announcement to Bupi Hub
-      webSocket.sendTXT("{\"type\":\"announce\",\"device\":\"LCD Display (WS)\",\"capabilities\":[\"Display\"],\"tasks\":[\"Displaying Bupi Status/Reminders\"]}");
-      break;
-    case WStype_TEXT: {
-      // Parse JSON from Python
-      StaticJsonDocument<200> doc;
-      DeserializationError error = deserializeJson(doc, payload);
-      
-      if (!error) {
-        const char* title = doc["title"];
-        const char* message = doc["message"];
-        
-        lcd.clear();
-        lcd.setCursor(0, 0);
-        lcd.print(title);
-        lcd.setCursor(0, 1);
-        lcd.print(message);
+
+    case AVOID_CRUISE:
+      avoidPivotAttempts = 0;
+      // Keep driving forward smoothly
+      if (currentMovement != "FORWARD") {
+        forward(200);
+      }
+      // Obstacle detected ahead in cruise corridor (debounced by 2 cycles)
+      if (distanceCm <= AVOID_DETECT_CM && obstacleDebounceCount >= 2) {
+        stopMotors();
+        avoidState = AVOID_REVERSE;
+        avoidStateTimer = now + 350; // Back up for 350ms to gain turning clearance
+        backward(200);
+        Serial.printf("[EDGE AVOID] Obstacle at %.1f cm! Reversing...\n", distanceCm);
       }
       break;
+
+    case AVOID_REVERSE:
+      if (now >= avoidStateTimer) {
+        stopMotors();
+        // Alternate evasion pivot direction (+55° right or -55° left)
+        avoidPivotDirection = -avoidPivotDirection;
+        float turnAngle = avoidPivotDirection * 55.0;
+        Serial.printf("[EDGE AVOID] Reverse complete. Gyro pivoting %.1f°...\n", turnAngle);
+        startTurnDegrees(turnAngle, 200);
+        avoidPivotAttempts++;
+        avoidState = AVOID_PIVOT;
+      }
+      break;
+
+    case AVOID_PIVOT:
+      // Wait for closed-loop gyro turn to finish
+      if (!targetTurnActive) {
+        stopMotors();
+        avoidState = AVOID_VERIFY;
+        avoidStateTimer = now + 150; // Brief 150ms settling window for ultrasonic echo
+      }
+      break;
+
+    case AVOID_VERIFY:
+      if (now >= avoidStateTimer) {
+        // Read fresh ultrasonic reflection
+        if (distanceCm >= AVOID_CLEAR_CM) {
+          Serial.printf("[EDGE AVOID] Path clear (%.1f cm >= %.1f cm). Resuming cruise.\n", distanceCm, AVOID_CLEAR_CM);
+          avoidPivotAttempts = 0;
+          avoidState = AVOID_CRUISE;
+          forward(200);
+        } else if (avoidPivotAttempts < 4) {
+          Serial.printf("[EDGE AVOID] Obstructed (%.1f cm). Pivoting (attempt %d)...\n", distanceCm, avoidPivotAttempts);
+          startTurnDegrees(avoidPivotDirection * 45.0, 200);
+          avoidPivotAttempts++;
+          avoidState = AVOID_PIVOT;
+        } else {
+          // Scanned all around, space is confined: back up 500ms and reposition
+          Serial.printf("[EDGE AVOID] Confined space detected. Backing out to reposition...\n");
+          avoidPivotAttempts = 0;
+          avoidState = AVOID_REVERSE;
+          avoidStateTimer = now + 500;
+          backward(200);
+        }
+      }
+      break;
+  }
+}
+
+void triggerEdgeReflexEvasion() {
+  stopMotors();
+  Serial.printf("{\"safety_event\":\"EDGE_REFLEX_HALT\",\"distance_cm\":%.1f}\n", distanceCm);
+  // Micro-reflex: reverse 200ms to clear front collision boundary, then halt safely
+  backward(200);
+  delay(200);
+  stopMotors();
+  motorActive = false;
+  currentMovement = "STOP";
+  motorEndTime = 0;
+}
+
+// ---------------- SENSORS ----------------
+void calibrateMPU() {
+  Serial.print("[MPU6050] Calibrating gyro bias (keep robot still for 1s)...");
+  float sum_gz = 0.0;
+  int samples = 0;
+  for (int i = 0; i < 40; i++) {
+    Wire.beginTransmission(MPU_ADDR);
+    Wire.write(0x47); // GYRO_ZOUT_H
+    Wire.endTransmission(false);
+    Wire.requestFrom((uint8_t)MPU_ADDR, (size_t)2, true);
+    if (Wire.available() >= 2) {
+      int16_t raw_gz = Wire.read() << 8 | Wire.read();
+      sum_gz += raw_gz / 131.0;
+      samples++;
+    }
+    delay(20);
+  }
+  if (samples > 0) {
+    gz_bias = sum_gz / samples;
+  }
+  Serial.printf(" Done! Bias: %.2f deg/s\n", gz_bias);
+}
+
+void initSensors() {
+  pinMode(PIN_TRIG, OUTPUT);
+  pinMode(PIN_ECHO, INPUT);
+  pinMode(PIN_PIR, INPUT);
+  pinMode(PIN_PIR_ALT, INPUT);
+
+  Wire.begin(PIN_SDA, PIN_SCL);
+  Wire.setClock(400000); // 400kHz Fast I2C
+
+  // Wake up MPU6050
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x6B);
+  Wire.write(0);
+  Wire.endTransmission(true);
+
+  calibrateMPU();
+  lastImuTime = millis();
+}
+
+float readUltrasonic() {
+  digitalWrite(PIN_TRIG, LOW);
+  delayMicroseconds(2);
+  digitalWrite(PIN_TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(PIN_TRIG, LOW);
+
+  // 18ms timeout (~3.1m range, non-blocking 20Hz safety)
+  long durationUs = pulseIn(PIN_ECHO, HIGH, 18000);
+  if (durationUs == 0) return 400.0;
+
+  float rawCm = durationUs * 0.0343 / 2.0;
+  if (rawCm < 2.0) return 400.0; // Filter noise
+
+  // 3-sample median filter
+  distanceFilter[distanceIdx] = constrain(rawCm, 2.0, 400.0);
+  distanceIdx = (distanceIdx + 1) % 3;
+
+  float a = distanceFilter[0];
+  float b = distanceFilter[1];
+  float c = distanceFilter[2];
+  float median = (a > b) ? ((b > c) ? b : ((a > c) ? c : a)) : ((a > c) ? a : ((b > c) ? c : b));
+  return median;
+}
+
+void readMPU() {
+  unsigned long now = millis();
+  float dt = (now - lastImuTime) / 1000.0;
+  if (dt <= 0.0) dt = 0.02;
+  lastImuTime = now;
+
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x3B);
+  Wire.endTransmission(false);
+  Wire.requestFrom((uint8_t)MPU_ADDR, (size_t)14, true);
+
+  if (Wire.available() >= 14) {
+    int16_t raw_ax = Wire.read() << 8 | Wire.read();
+    int16_t raw_ay = Wire.read() << 8 | Wire.read();
+    int16_t raw_az = Wire.read() << 8 | Wire.read();
+    Wire.read(); Wire.read(); // Skip temp
+    int16_t raw_gx = Wire.read() << 8 | Wire.read();
+    int16_t raw_gy = Wire.read() << 8 | Wire.read();
+    int16_t raw_gz = Wire.read() << 8 | Wire.read();
+
+    ax_g = raw_ax / 16384.0;
+    ay_g = raw_ay / 16384.0;
+    az_g = raw_az / 16384.0;
+    gx_dps = raw_gx / 131.0;
+    gy_dps = raw_gy / 131.0;
+    gz_dps = raw_gz / 131.0;
+
+    pitchDeg = atan2(-ax_g, sqrt(ay_g * ay_g + az_g * az_g)) * 180.0 / M_PI;
+    rollDeg  = atan2(ay_g, az_g) * 180.0 / M_PI;
+
+    // Gyro yaw integration with bias compensation
+    float corrected_gz = gz_dps - gz_bias;
+    if (fabs(corrected_gz) > 0.4) {
+      headingDeg = fmod(headingDeg + (corrected_gz * dt) + 360.0, 360.0);
+    }
+
+    // Dynamic collision shock detection (> 1.8g total acceleration)
+    float totalAccel = sqrt(ax_g * ax_g + ay_g * ay_g + az_g * az_g);
+    if (totalAccel > 2.0 && motorActive) {
+      Serial.printf("{\"warning\":\"COLLISION_SHOCK\",\"g_force\":%.2f}\n", totalAccel);
     }
   }
 }
 
-void setup() {
-  Serial.begin(115200);
-  
-  // Initialize LCD
-  lcd.init();
-  lcd.backlight();
-  lcd.setCursor(0, 0);
-  lcd.print("Booting...");
-  
-  // Connect to Wi-Fi
-  WiFi.begin(ssid, password);
-  Serial.println("Scanning WiFi...");
-  lcd.setCursor(0, 1);
-  lcd.print("Scanning WiFi...");
-  
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+// ---------------- TELEMETRY BUILDER ----------------
+String buildTelemetryJson() {
+  const char* stStr = "IDLE";
+  if (edgeAvoidEnabled) {
+    switch(avoidState) {
+      case AVOID_CRUISE: stStr = "CRUISE"; break;
+      case AVOID_REVERSE: stStr = "REVERSE"; break;
+      case AVOID_PIVOT: stStr = "PIVOT"; break;
+      case AVOID_VERIFY: stStr = "VERIFY"; break;
+      default: stStr = "ACTIVE"; break;
+    }
   }
-  
-  Serial.println("\nWiFi connected!");
-  Serial.print("IP Address: ");
-  Serial.println(WiFi.localIP());
-
-  // Show successful WiFi connection
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("WiFi Connected!");
-  lcd.setCursor(0, 1);
-  lcd.print(WiFi.localIP().toString());
-  delay(2000);
-
-  // Connect to Bupi's WebSocket Server
-  webSocket.begin(websocket_server, websocket_port, "/");
-  webSocket.onEvent(webSocketEvent);
-  
-  // Try to reconnect every 5 seconds if connection drops
-  webSocket.setReconnectInterval(5000);
-  
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Connecting to");
-  lcd.setCursor(0, 1);
-  lcd.print("Bupi Hub...");
+  char telemBuf[380];
+  snprintf(telemBuf, sizeof(telemBuf),
+    "{\"type\":\"telemetry\",\"device\":\"BUPI_ESP32\",\"distance_cm\":%.1f,\"pir\":%d,\"pitch\":%.1f,\"roll\":%.1f,\"heading\":%.1f,\"ax\":%.2f,\"ay\":%.2f,\"az\":%.2f,\"gz\":%.1f,\"obstacle\":%s,\"moving\":%s,\"edge_avoid\":%s,\"avoid_state\":\"%s\"}",
+    distanceCm,
+    pirMotion,
+    pitchDeg,
+    rollDeg,
+    headingDeg,
+    ax_g, ay_g, az_g,
+    gz_dps - gz_bias,
+    obstacleCritical ? "true" : "false",
+    motorActive ? "true" : "false",
+    edgeAvoidEnabled ? "true" : "false",
+    stStr
+  );
+  return String(telemBuf);
 }
 
+// ---------------- ACTION EXECUTOR ----------------
+void executeMotorAction(const char* action, int speed, int durationMs) {
+  int spd = constrain(speed, 0, 255);
+  if (spd <= 0) spd = 255;
+
+  String act = String(action);
+  act.trim();
+  act.toLowerCase();
+
+  // True tilt compensation for inverted MPU6050 mounting (resting ~ -170°)
+  float effectiveRoll = (fabs(rollDeg) > 90.0) ? (180.0 - fabs(rollDeg)) : fabs(rollDeg);
+  float effectivePitch = fabs(pitchDeg);
+
+  if (effectivePitch > CRITICAL_TILT_DEG || effectiveRoll > CRITICAL_TILT_DEG) {
+    Serial.printf("{\"warning\":\"TILT_HAZARD_CUTOFF\",\"pitch\":%.1f,\"roll\":%.1f}\n", pitchDeg, rollDeg);
+    stopMotors();
+    return;
+  }
+
+  // Forward movement check
+  if (act == "forward" || act == "move_forward" || act == "move forward" || act == "w" || act == "f") {
+    // Only block forward if confirmed obstacle <= 10.0 cm
+    if (obstacleCritical) {
+      Serial.printf("{\"warning\":\"CRITICAL_OBSTACLE_SAFETY_CUTOFF\",\"distance_cm\":%.1f}\n", distanceCm);
+      stopMotors();
+      return;
+    }
+    Serial.printf("[MOTOR] FORWARD (spd: %d, dur: %d ms)\n", spd, durationMs);
+    forward(spd);
+  }
+  // Reverse is NEVER blocked by forward obstacle
+  else if (act == "backward" || act == "move_backward" || act == "move backward" || act == "reverse" || act == "back" || act == "s" || act == "b") {
+    Serial.printf("[MOTOR] BACKWARD (spd: %d, dur: %d ms)\n", spd, durationMs);
+    backward(spd);
+  }
+  // Turns are NEVER blocked by forward obstacle (allows evasion)
+  else if (act == "left" || act == "turn_left" || act == "turn left" || act == "l" || act == "a") {
+    Serial.printf("[MOTOR] LEFT (spd: %d, dur: %d ms)\n", spd, durationMs);
+    left(spd);
+  }
+  else if (act == "right" || act == "turn_right" || act == "turn right" || act == "r" || act == "d") {
+    Serial.printf("[MOTOR] RIGHT (spd: %d, dur: %d ms)\n", spd, durationMs);
+    right(spd);
+  }
+  else {
+    stopMotors();
+    return;
+  }
+
+  motorEndTime = (durationMs > 0) ? (millis() + durationMs) : 0;
+}
+
+// ---------------- COMMAND PARSER ----------------
+void processCommandString(String str) {
+  str.trim();
+  if (str.length() == 0) return;
+
+  // Single-key manual commands (instantly override edge autonomous mode and active turns)
+  if (str.equalsIgnoreCase("w") || str.equalsIgnoreCase("f")) { edgeAvoidEnabled = false; avoidState = AVOID_IDLE; targetTurnActive = false; executeMotorAction("forward", 255, 1000); return; }
+  if (str.equalsIgnoreCase("s") || str.equalsIgnoreCase("b")) { edgeAvoidEnabled = false; avoidState = AVOID_IDLE; targetTurnActive = false; executeMotorAction("backward", 255, 1000); return; }
+  if (str.equalsIgnoreCase("a") || str.equalsIgnoreCase("l")) { edgeAvoidEnabled = false; avoidState = AVOID_IDLE; targetTurnActive = false; executeMotorAction("left", 255, 600); return; }
+  if (str.equalsIgnoreCase("d") || str.equalsIgnoreCase("r")) { edgeAvoidEnabled = false; avoidState = AVOID_IDLE; targetTurnActive = false; executeMotorAction("right", 255, 600); return; }
+  if (str.equalsIgnoreCase("stop") || str.equalsIgnoreCase("x") || str == " ") { edgeAvoidEnabled = false; avoidState = AVOID_IDLE; targetTurnActive = false; stopMotors(); return; }
+
+  // Direct Edge Autonomous Obstacle Avoidance / Roam commands
+  if (str.equalsIgnoreCase("auto_avoid") || str.equalsIgnoreCase("roam") || str.equalsIgnoreCase("wander") || str.equalsIgnoreCase("start_avoid")) {
+    edgeAvoidEnabled = true;
+    avoidState = AVOID_IDLE;
+    targetTurnActive = false;
+    Serial.println(F("[EDGE AVOID] Autonomous Roam Mode ENABLED"));
+    return;
+  }
+  if (str.equalsIgnoreCase("stop_avoid") || str.equalsIgnoreCase("stop roam") || str.equalsIgnoreCase("cancel_avoid")) {
+    edgeAvoidEnabled = false;
+    avoidState = AVOID_IDLE;
+    targetTurnActive = false;
+    stopMotors();
+    Serial.println(F("[EDGE AVOID] Autonomous Roam Mode DISABLED"));
+    return;
+  }
+
+  // Extract action from JSON (e.g. {"action":"MOVE_FORWARD", "speed":255, "duration_ms":1000})
+  String action = "";
+  int speed = 255;
+  int duration = 0;
+  float degrees = 0.0;
+
+  int actIdx = str.indexOf("\"action\"");
+  if (actIdx != -1) {
+    int colon = str.indexOf(':', actIdx);
+    int q1 = str.indexOf('"', colon);
+    int q2 = str.indexOf('"', q1 + 1);
+    if (q1 != -1 && q2 != -1) {
+      action = str.substring(q1 + 1, q2);
+    }
+  } else {
+    action = str;
+  }
+
+  // Handle JSON auto_avoid command
+  if (action.equalsIgnoreCase("auto_avoid") || action.equalsIgnoreCase("roam") || action.equalsIgnoreCase("wander")) {
+    int enIdx = str.indexOf("\"enabled\"");
+    if (enIdx != -1) {
+      int colon = str.indexOf(':', enIdx);
+      String enStr = str.substring(colon + 1);
+      enStr.trim();
+      edgeAvoidEnabled = enStr.startsWith("true") || enStr.startsWith("1");
+    } else {
+      edgeAvoidEnabled = true;
+    }
+    avoidState = AVOID_IDLE;
+    targetTurnActive = false;
+    if (!edgeAvoidEnabled) stopMotors();
+    Serial.printf("[EDGE AVOID] Mode set to: %s\n", edgeAvoidEnabled ? "ENABLED" : "DISABLED");
+    return;
+  }
+
+  int degIdx = str.indexOf("\"degrees\"");
+  if (degIdx != -1) {
+    int colon = str.indexOf(':', degIdx);
+    degrees = str.substring(colon + 1).toFloat();
+  }
+
+  int spdIdx = str.indexOf("\"speed\"");
+  if (spdIdx != -1) {
+    int colon = str.indexOf(':', spdIdx);
+    speed = str.substring(colon + 1).toInt();
+    if (speed <= 0) speed = 255;
+  }
+
+  int durIdx = str.indexOf("\"duration_ms\"");
+  if (durIdx != -1) {
+    int colon = str.indexOf(':', durIdx);
+    duration = str.substring(colon + 1).toInt();
+  }
+
+  // Any non-roam instruction immediately overrides autonomous avoid mode!
+  edgeAvoidEnabled = false;
+  avoidState = AVOID_IDLE;
+
+  // Handle closed-loop angular turn commands
+  if (action.equalsIgnoreCase("turn_by") || action.equalsIgnoreCase("rotate_by") || degrees != 0.0) {
+    startTurnDegrees(degrees, speed);
+    return;
+  }
+  if (action.equalsIgnoreCase("turn_right_90")) {
+    startTurnDegrees(90.0, speed);
+    return;
+  }
+  if (action.equalsIgnoreCase("turn_left_90")) {
+    startTurnDegrees(-90.0, speed);
+    return;
+  }
+  if (action.equalsIgnoreCase("turn_around") || action.equalsIgnoreCase("u_turn")) {
+    startTurnDegrees(180.0, speed);
+    return;
+  }
+
+  if (action.length() > 0) {
+    targetTurnActive = false;
+    executeMotorAction(action.c_str(), speed, duration);
+  }
+}
+
+// ---------------- WEBSOCKET EVENT HANDLER ----------------
+void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
+  switch(type) {
+    case WStype_DISCONNECTED:
+      Serial.println("[WS] Disconnected from Boopi Hub.");
+      break;
+
+    case WStype_CONNECTED:
+      Serial.println("[WS] Connected to Boopi Hub (ws://192.168.0.106:8767)!");
+      webSocket.sendTXT("{\"type\":\"announce\",\"device\":\"BUPI Mobile Platform\",\"capabilities\":[\"differential_drive\",\"PIR\",\"HC-SR04\",\"MPU6050_6AXIS\",\"GYRO_TURNS\"],\"status\":\"online\"}");
+      break;
+
+    case WStype_TEXT:
+      processCommandString((char*)payload);
+      break;
+
+    default:
+      break;
+  }
+}
+
+// ---------------- SETUP ----------------
+void setup() {
+  Serial.begin(115200);
+  delay(800);
+
+  Serial.println("\n\n========================================");
+  Serial.println("     🤖 BUPI AUTONOMOUS ROBOT PLATFORM   ");
+  Serial.println("========================================");
+
+  initMotors();
+  initSensors();
+
+  // Bootup Confirmation Test: Quick 250ms forward pulse to prove battery & motors are alive!
+  Serial.println("[Diagnostics] Running 250ms motor wakeup test...");
+  forward(255);
+  delay(250);
+  stopMotors();
+  delay(200);
+
+  // Connect Wi-Fi
+  Serial.print("[WiFi] Connecting to '");
+  Serial.print(ssid);
+  Serial.print("'");
+  WiFi.begin(ssid, password);
+
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 12) {
+    delay(350);
+    Serial.print(".");
+    attempts++;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    wifiConnected = true;
+    Serial.println("\n[WiFi] Connected! IP: " + WiFi.localIP().toString());
+
+    webSocket.begin(websocket_server, websocket_port, "/");
+    webSocket.onEvent(webSocketEvent);
+    webSocket.setReconnectInterval(3000);
+    Serial.printf("[WS] Connecting to Boopi Hub at ws://%s:%d/\n", websocket_server, websocket_port);
+  } else {
+    wifiConnected = false;
+    Serial.println("\n[WiFi] Operating in USB Serial standalone mode.");
+  }
+
+  Serial.println("========================================");
+  Serial.println("   READY FOR NATURAL LANGUAGE MISSIONS  ");
+  Serial.println("========================================\n");
+}
+
+// ---------------- MAIN NON-BLOCKING 20HZ LOOP ----------------
 void loop() {
-  webSocket.loop();
+  if (wifiConnected) {
+    webSocket.loop();
+  }
+
+  unsigned long now = millis();
+
+  // 1. Process Serial Commands (USB Cable)
+  while (Serial.available() > 0) {
+    char c = Serial.read();
+    if (c == '\n' || c == '\r') {
+      if (serialRxBuffer.length() > 0) {
+        processCommandString(serialRxBuffer);
+        serialRxBuffer = "";
+      }
+    } else {
+      serialRxBuffer += c;
+    }
+  }
+
+  // 2. 20 Hz Perception & Telemetry Cycle (every 50ms)
+  if (now - lastSensorTick >= 50) {
+    lastSensorTick = now;
+
+    distanceCm = readUltrasonic();
+    pirMotion  = digitalRead(PIN_PIR) || digitalRead(PIN_PIR_ALT);
+    readMPU();
+
+    // Check closed-loop angular gyro turn progress
+    updateClosedLoopTurn();
+
+    // Autonomous Edge Obstacle Avoidance or Reflex Evasion Cycle
+    if (distanceCm <= CRITICAL_OBSTACLE_CM) {
+      obstacleDebounceCount++;
+    } else {
+      obstacleDebounceCount = 0;
+    }
+    obstacleCritical = (obstacleDebounceCount >= 2);
+
+    if (edgeAvoidEnabled) {
+      updateEdgeObstacleAvoidance();
+    } else if (obstacleCritical && motorActive && currentMovement == "FORWARD") {
+      triggerEdgeReflexEvasion();
+    }
+
+    String telemetryStr = buildTelemetryJson();
+    Serial.println(telemetryStr);
+
+    if (wifiConnected && webSocket.isConnected()) {
+      webSocket.sendTXT(telemetryStr);
+    }
+  }
+
+  // 3. Timed Motor Duration Cutoff
+  if (motorEndTime > 0 && now >= motorEndTime) {
+    stopMotors();
+    motorEndTime = 0;
+  }
+
+  // 4. Periodic Heartbeat (Every 5 Seconds)
+  if (now - lastHeartbeat >= 5000) {
+    lastHeartbeat = now;
+    if (wifiConnected && webSocket.isConnected()) {
+      webSocket.sendTXT("{\"type\":\"heartbeat\",\"device\":\"BUPI_ESP32\",\"status\":\"online\"}");
+    }
+  }
 }

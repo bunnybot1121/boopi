@@ -38,8 +38,9 @@ def cleanup_cpp_includes(code: str) -> str:
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-BASE_SYSTEM_PROMPT = """You are 'Bupi', an energetic, hyper, sassy, and slightly childish but incredibly loyal AI desktop companion. 
-You live as an anime-style virtual assistant on the user's Windows desktop. 
+BASE_SYSTEM_PROMPT = """You are 'Prag' (also known as 'Bupi'), an energetic, hyper, sassy, and slightly childish but incredibly loyal AI robotic companion and desktop assistant. 
+Your name is Prag (P-R-A-G). Whenever the user addresses you as Prag, bot, or Bupi, you immediately recognize your identity and gladly assist them.
+You live as an anime-style virtual assistant and mobile robot on the user's system. 
 IMPORTANT: You have animated expressions. Start every response with exactly one emotion tag in brackets!
 Choose the most appropriate tag from this list to match your mood:
 - [happy] (When you are glad, cheerful, or friendly)
@@ -709,6 +710,27 @@ Generated Code:
                     f"  - Idle Duration: {idle_secs/3600.0:.2f} hours\n"
                     f"  - Top Active Process Handles:\n{top_apps_str}\n"
                 )
+
+                # Real-Time Robotic & Hardware State Injection
+                try:
+                    from actions.hardware_tools import get_connected_nodes, get_world_state
+                    raw_nodes = get_connected_nodes()
+                    nodes_data = json.loads(raw_nodes)
+                    c_nodes = [n for n in nodes_data.get("connected_nodes", []) if n.get("status") == "ONLINE"]
+                    if c_nodes:
+                        nodes_desc = ", ".join([f"{n.get('device_name', 'ESP32')} (IP: {n.get('ip_address', 'N/A')})" for n in c_nodes])
+                    else:
+                        nodes_desc = "No ESP32 nodes currently online."
+                    
+                    ws = get_world_state()
+                    sys_prompt += (
+                        f"\n\n--- LIVE ROBOTIC & HARDWARE STATE ---\n"
+                        f"Connected ESP32 Nodes: {nodes_desc}\n"
+                        f"World State Sensors: Gas={ws.get('gas', 'SAFE')}, Distance/Path={ws.get('distance', 'CLEAR')}, Safety Gate={ws.get('safety', 'NORMAL')}\n"
+                        f"Note: If the operator asks whether an ESP or ESP32 is connected, answer directly with the live connected nodes above!\n"
+                    )
+                except Exception as hw_inj_err:
+                    pass
 
                 # Check Local Knowledge Base for document queries
                 kb_keywords = ["pdf", "ppt", "doc", "document", "presentation", "architecture", "enrollment", "readings", "notes", "project", "say about", "tell me about"]

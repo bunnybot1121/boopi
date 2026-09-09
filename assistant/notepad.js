@@ -1,7 +1,10 @@
 (() => {
-const { ipcRenderer } = require('electron');
-const fs = require('fs');
-const path = require('path');
+const ipcRenderer = (typeof require !== 'undefined') ? require('electron').ipcRenderer : {
+    send: (c, ...a) => console.log('[IPC Mock]', c, ...a),
+    on: (c, fn) => console.log('[IPC Mock on]', c)
+};
+const fs = (typeof require !== 'undefined') ? require('fs') : null;
+const path = (typeof require !== 'undefined') ? require('path') : null;
 
 document.addEventListener('DOMContentLoaded', () => {
     // Window controls
@@ -200,6 +203,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 const iframe = document.getElementById('footmo2-iframe');
                 if (iframe) {
                     iframe.src = iframe.src; // Force refresh iframe
+                }
+            } else if (targetId === 'panel-autonomous') {
+                const canvas = document.getElementById('bupiArenaCanvas');
+                if (canvas && canvas.parentElement) {
+                    canvas.width = canvas.parentElement.clientWidth || 500;
+                    canvas.height = canvas.parentElement.clientHeight || 340;
                 }
             } else if (targetId === 'panel-bwe') {
                 if (typeof initializeBWE === 'function') {

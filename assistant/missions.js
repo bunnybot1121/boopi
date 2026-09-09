@@ -4,7 +4,10 @@
  */
 
 (() => {
-    const { ipcRenderer } = require('electron');
+    const ipcRenderer = (typeof require !== 'undefined') ? require('electron').ipcRenderer : {
+        send: (c, ...a) => console.log('[IPC Mock]', c, ...a),
+        on: (c, fn) => console.log('[IPC Mock on]', c)
+    };
 
     // -------------------------------------------------------------
     // State
@@ -430,29 +433,28 @@
             }
         }
 
-        // Gas / Air Quality
-        const gasVal = document.getElementById('hudGasVal');
-        const gasStatus = document.getElementById('hudGasStatus');
-        const gas = sensors['mq2_gas'] !== undefined ? sensors['mq2_gas'] : 
-                    (sensors['gas'] !== undefined ? sensors['gas'] : null);
+        // PIR Motion Sensor
+        const pirVal = document.getElementById('hudPirVal');
+        const pirStatus = document.getElementById('hudPirStatus');
+        const pir = sensors['pir'] !== undefined ? sensors['pir'] : 
+                    (sensors['motion'] !== undefined ? sensors['motion'] : 
+                    (sensors['pir_pin'] !== undefined ? sensors['pir_pin'] : null));
 
-        if (gasVal && gasStatus) {
-            if (gas !== null) {
-                gasVal.textContent = Math.round(gas);
-                if (gas > 400) {
-                    gasStatus.textContent = '🚨 Hazard Alert!';
-                    gasStatus.style.color = '#f56565';
-                } else if (gas > 250) {
-                    gasStatus.textContent = '🟡 Elevated Gas';
-                    gasStatus.style.color = '#ed8936';
+        if (pirVal && pirStatus) {
+            if (pir !== null) {
+                const isMotion = (pir === 1 || pir === true || pir === 'HIGH' || pir === 'DETECTED');
+                pirVal.textContent = isMotion ? 'HIGH' : 'LOW';
+                if (isMotion) {
+                    pirStatus.textContent = '🔥 Motion Detected';
+                    pirStatus.style.color = '#ed8936';
                 } else {
-                    gasStatus.textContent = '🟢 Normal';
-                    gasStatus.style.color = 'var(--accent-green)';
+                    pirStatus.textContent = '🟢 Quiescent';
+                    pirStatus.style.color = 'var(--accent-green)';
                 }
             } else {
-                gasVal.textContent = '--';
-                gasStatus.textContent = '⚪ Normal Air';
-                gasStatus.style.color = 'var(--text-light)';
+                pirVal.textContent = 'LOW';
+                pirStatus.textContent = '⚪ Quiescent';
+                pirStatus.style.color = 'var(--text-light)';
             }
         }
 

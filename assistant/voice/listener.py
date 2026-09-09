@@ -22,7 +22,7 @@ from state_manager import state_mgr
 SAMPLE_RATE = 16000
 FRAME_MS = 30
 FRAME_SAMPLES = int(SAMPLE_RATE * FRAME_MS / 1000) # 480 samples
-VAD_AGGRESSIVENESS = 2
+VAD_AGGRESSIVENESS = 2 # Balanced mode (filters hum while reliably catching voice)
 MIN_SPEECH_FRAMES = 10
 PRE_ROLL_FRAMES = 20
 
@@ -31,13 +31,16 @@ USE_CLOUD_STT = os.environ.get("USE_CLOUD_STT", "true").lower() == "true"
 LOCAL_WHISPER_MODEL = os.environ.get("LOCAL_WHISPER_MODEL", "base")
 GROQ_STT_MODEL = os.environ.get("GROQ_STT_MODEL", "whisper-large-v3")
 AUDIO_GAIN_BOOST = float(os.environ.get("AUDIO_GAIN_BOOST", "1.5"))
-SILENCE_FRAMES = int(os.environ.get("SILENCE_FRAMES", "18")) # Wait 540ms (18 frames) of continuous silence matching Hackathon
+SILENCE_FRAMES = int(os.environ.get("SILENCE_FRAMES", "13")) # Wait 390ms (13 frames) of continuous silence for fast snappy response
 
 PROMPT_CONTEXT = (
+    "Prag, prag, PRAG, bot, robot, move the bot 10 cm, move 12 cm, move 20 cm, scan the room, scan, "
     "Boopi, Bupi, Boopy, Boopie, find the human in the room, find human, locate person, search room, "
-    "patrol area, patrol and inspect, explore, avoid obstacles, move forward, drive reverse, turn left, turn right, "
-    "stop, halt, freeze, emergency stop, e-stop, relay on, relay off, gas reading, mq2 gas sensor, "
-    "ultrasonic distance, front distance, status, world state, esp32 connected, active nodes."
+    "turn 90 degrees, turn left, turn right, spin, rotate 180 degrees, turn around, walk until obstacle, approach person, "
+    "patrol area, patrol and inspect, explore, start obstacle avoidance, stop obstacle avoidance, auto avoid, roam around, "
+    "move forward, move backward, drive reverse, turn left, turn right, stop, halt, freeze, emergency stop, e-stop, "
+    "what did you find, mission report, debrief, relay on, relay off, gas reading, mq2 gas sensor, check gas sensor, "
+    "ultrasonic distance, front distance, check distance, check temperature, status, world state, esp32 connected, active nodes."
 )
 
 class SimpleLogger:
@@ -225,6 +228,24 @@ class ListenerThread(QThread):
         log.info("ListenerThread: run() started.")
         self._running = True
         
+        # Ensure Windows microphone is unmuted and volume is healthy
+        try:
+            from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+            from comtypes import CLSCTX_ALL
+            import ctypes
+            mic_dev = AudioUtilities.GetMicrophone()
+            if mic_dev:
+                interface = mic_dev.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+                vol = ctypes.cast(interface, ctypes.POINTER(IAudioEndpointVolume))
+                if vol.GetMute():
+                    vol.SetMute(0, None)
+                    log.info("Windows microphone was MUTED. Automatically unmuted it!")
+                if vol.GetMasterVolumeLevelScalar() < 0.7:
+                    vol.SetMasterVolumeLevelScalar(1.0, None)
+                    log.info("Microphone volume was low. Automatically raised to 100%!")
+        except Exception as e:
+            log.warning(f"Could not check/unmute Windows mic via pycaw: {e}")
+        
         def callback(indata, frames, time_info, status):
             if status:
                 log.warning(f"Audio input status warning: {status}")
@@ -290,11 +311,11 @@ class ListenerThread(QThread):
                   
                 if ambient_frames:
                     avg_ambient = sum(ambient_frames) / len(ambient_frames)
-                    lower_clamp = 1.5 if avg_ambient < 5.0 else 15.0
-                    self._energy_threshold = np.clip(avg_ambient * AUDIO_GAIN_BOOST, lower_clamp, 45.0)
+                    lower_clamp = 1.0 if avg_ambient < 5.0 else 6.0
+                    self._energy_threshold = np.clip(avg_ambient * AUDIO_GAIN_BOOST, lower_clamp, 25.0)
                 else:
                     avg_ambient = 0.0
-                    self._energy_threshold = 15.0
+                    self._energy_threshold = 6.0
                 log.info(f"Calibration complete. Ambient baseline: {avg_ambient:.2f}, Threshold: {self._energy_threshold:.2f}")
 
                 ring_buffer = collections.deque(maxlen=PRE_ROLL_FRAMES)
@@ -342,11 +363,8 @@ class ListenerThread(QThread):
                             continue
 
                         # Standard WebRTC VAD pre-filtering & trigger
-                        if len(data) > 1:
-                            hpf_data = data.astype(np.float32)
-                            hpf_data[1:] = hpf_data[1:] - 0.97 * hpf_data[:-1]
-                            hpf_data[0] = hpf_data[0] * 0.03
-                            rms = np.sqrt(np.mean(np.square(hpf_data, dtype=np.float32)))
+                        if len(data) > 0:
+                            rms = float(np.sqrt(np.mean(np.square(data, dtype=np.float32))))
                         else:
                             rms = 0.0
                           
@@ -354,30 +372,37 @@ class ListenerThread(QThread):
 
                         # Energy pre-filtering (threshold is boosted while speaking to reduce self-trigger)
                         current_threshold = self._energy_threshold
-                        if self.is_speaking:
+                        if getattr(self, "is_speaking", False):
                             current_threshold *= 2.8
 
+                        # SNR-aware candidate gating (dynamically adapts to ambient room noise)
+                        snr_gate = max(avg_ambient * 2.2, 12.0)
                         if rms > current_threshold:
-                            max_val = np.percentile(np.abs(hpf_data), 98) if len(hpf_data) > 0 else 0
-                            if 0 < max_val < 24000:
-                                gain = min(24000.0 / max_val, 100.0)
-                                data_float = hpf_data * gain
-                                np.clip(data_float, -32768.0, 32767.0, out=data_float)
-                                amplified = data_float.astype(np.int16)
+                            max_val = float(np.percentile(np.abs(data), 98)) if len(data) > 0 else 0.0
+                            # Only treat as speech candidate if above adaptive background noise floor
+                            if max_val >= snr_gate:
+                                gain = min(22000.0 / max(max_val, 1.0), 15.0)
+                                amplified = np.clip(data.astype(np.float32) * gain, -32768, 32767).astype(np.int16)
+                                frame = amplified.flatten().tobytes()
+                                try:
+                                    is_speech = vad.is_speech(frame, SAMPLE_RATE)
+                                except Exception:
+                                    is_speech = False
                             else:
-                                amplified = hpf_data.astype(np.int16)
-                            frame = amplified.flatten().tobytes()
-                            
-                            try:
-                                is_speech = vad.is_speech(frame, SAMPLE_RATE)
-                            except Exception:
                                 is_speech = False
+                        else:
+                            is_speech = False
+
+                        # Continuous ambient noise tracking when idle (dynamically adapts to AC, fan, or room noise)
+                        if not is_speech and not triggered and not getattr(self, "is_speaking", False):
+                            avg_ambient = 0.96 * avg_ambient + 0.04 * rms
+                            self._energy_threshold = np.clip(avg_ambient * AUDIO_GAIN_BOOST + 1.0, 1.5, 35.0)
 
                         if not triggered:
                             # Standard VAD trigger when VAD thresholds met
                             ring_buffer.append((data.flatten().tobytes(), is_speech))
                             num_voiced = sum(1 for _, s in ring_buffer if s)
-                            if num_voiced >= 0.4 * ring_buffer.maxlen:
+                            if num_voiced >= 0.25 * ring_buffer.maxlen: # 5 out of 20 frames = ~150ms of natural speech
                                 triggered = True
                                 voiced_frames.extend([f for f, _ in ring_buffer])
                                 ring_buffer.clear()
@@ -388,7 +413,8 @@ class ListenerThread(QThread):
                         else:
                             # Once triggered, record voiced frames
                             voiced_frames.append(data.flatten().tobytes())
-                            if is_speech:
+                            # Energy-verified speech hangover: only reset silence counter if actual voice energy
+                            if is_speech and rms > current_threshold * 1.1:
                                 silence_count = 0
                             else:
                                 silence_count += 1
@@ -411,22 +437,29 @@ class ListenerThread(QThread):
                         
                         if len(voiced_frames) >= MIN_SPEECH_FRAMES:
                             audio = np.frombuffer(b''.join(voiced_frames), dtype=np.int16)
-                            self.listening_stopped.emit()
+                            orig_max = float(np.percentile(np.abs(audio), 98)) if len(audio) > 0 else 0.0
                             
-                            transcribe_thread = threading.Thread(
-                                target=self._transcribe_and_emit,
-                                args=(audio,),
-                                daemon=True
-                            )
-                            transcribe_thread.start()
-                            
-                            def watchdog():
-                                transcribe_thread.join(timeout=8.0)
-                                if transcribe_thread.is_alive():
-                                    log.warning("Transcription timed out after 8 seconds. Resetting listener state.")
-                                    self.transcription_ready.emit("")
-                            
-                            threading.Thread(target=watchdog, daemon=True).start()
+                            # Only transition to thinking if audio has confirmed vocal energy
+                            if orig_max >= 15:
+                                self.listening_stopped.emit()
+                                
+                                transcribe_thread = threading.Thread(
+                                    target=self._transcribe_and_emit,
+                                    args=(audio,),
+                                    daemon=True
+                                )
+                                transcribe_thread.start()
+                                
+                                def watchdog():
+                                    transcribe_thread.join(timeout=8.0)
+                                    if transcribe_thread.is_alive():
+                                        log.warning("Transcription timed out after 8 seconds. Resetting listener state.")
+                                        self.transcription_ready.emit("")
+                                
+                                threading.Thread(target=watchdog, daemon=True).start()
+                            else:
+                                log.info(f"Discarded low-energy audio without thinking (peak: {orig_max:.1f} < 15)")
+                                self.transcription_ready.emit("")
                         else:
                             self.transcription_ready.emit("")
 
@@ -436,15 +469,15 @@ class ListenerThread(QThread):
 
     def _transcribe_and_emit(self, audio: np.ndarray):
         # Verify peak value before boosting to discard absolute silence
-        orig_max = np.percentile(np.abs(audio), 98) if len(audio) > 0 else 0
-        if orig_max < 38:
-            log.info(f"Discarded silent audio (peak: {orig_max} < 38)")
+        orig_max = float(np.percentile(np.abs(audio), 98)) if len(audio) > 0 else 0.0
+        if orig_max < 15:
+            log.info(f"Discarded silent audio (peak: {orig_max} < 15)")
             self.transcription_ready.emit("")
             return
 
         # Soft peak normalization for quiet microphones
-        if 0 < orig_max < 24000:
-            gain = min(24000.0 / orig_max, 8.0)
+        if 0 < orig_max < 22000:
+            gain = min(22000.0 / orig_max, 25.0)
             log.info(f"Soft peak normalization: peak={orig_max:.1f}, gain boost={gain:.2f}x")
             audio_boosted = audio.astype(np.float32) * gain
             np.clip(audio_boosted, -32768.0, 32767.0, out=audio_boosted)
@@ -521,7 +554,7 @@ class ListenerThread(QThread):
             is_exact_prompt = (clean_text == clean_prompt) or (prompt_density > 0.6 and len(clean_text) > 40)
             is_hallucination = any(h in clean_text for h in hallucinations) or is_exact_prompt or is_hallucinated_output(text)
             
-            if is_hallucination or (len(clean_text) <= 2 and clean_text not in ["hi", "go"]):
+            if is_hallucination or (len(clean_text) <= 2 and clean_text not in ["hi", "go", "ok", "no"]):
                 log.info(f"Filtered silence/hallucination (prompt density: {prompt_density:.2f}, robust check: {is_hallucinated_output(text)})")
                 text = ""
 
@@ -547,7 +580,7 @@ class ListenerThread(QThread):
                     "response_format": "json"
                 }
                 
-                response = requests.post(url, headers=headers, files=files, data=data, timeout=3.0)
+                response = requests.post(url, headers=headers, files=files, data=data, timeout=4.0)
                 if response.status_code == 200:
                     result = response.json()
                     transcription = result.get("text", "").strip()

@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BUPI — Autonomous Sensor-Fusion System</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="header">
+      <div class="logo-area">
+        <div class="bupi-badge">BUPI</div>
+        <div class="header-titles">
+          <h1>Autonomous Sensor-Fusion System</h1>
+          <p class="subtitle">ESP32 Closed-Loop Goal-Based Robotic Intelligence</p>
+        </div>
+      </div>
+      <div class="header-controls">
+        <div class="status-pill" id="connStatus"><span class="dot"></span> Connecting...</div>
+        <div class="mode-toggle">
+          <button class="toggle-btn active" id="btnSimMode">Simulated Arena</button>
+          <button class="toggle-btn" id="btnPhysMode">Physical ESP32</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Top Command & Intent Bar -->
+    <section class="command-section card">
+      <form id="commandForm" class="command-form">
+        <div class="input-wrapper">
+          <span class="cmd-prefix">PROMPT &gt;</span>
+          <input type="text" id="commandInput" placeholder="Give BUPI a high-level instruction (e.g. 'BUPI, find a person in this room.')" value="BUPI, find a person in this room.">
+          <button type="submit" class="send-btn" id="sendCmdBtn">Execute Goal</button>
+        </div>
+      </form>
+      <div class="quick-chips">
+        <span class="chips-label">Quick Scenarios:</span>
+        <button class="chip" data-cmd="BUPI, find a person in this room.">🔍 Find Person</button>
+        <button class="chip" data-cmd="Explore this area safely.">🛡️ Explore Safely</button>
+        <button class="chip" data-cmd="Watch for motion and alert me.">👁️ Monitor Motion</button>
+        <button class="chip" data-cmd="Patrol the perimeter.">🚨 Patrol</button>
+        <button class="chip danger-chip" data-cmd="Stop moving.">🛑 Stop &amp; Wait</button>
+      </div>
+    </section>
+
+    <!-- Epistemic Pipeline Visualization -->
+    <section class="pipeline-section card">
+      <div class="card-header">
+        <h2>Closed-Loop Epistemic Ladder &amp; Decision Pipeline</h2>
+        <span class="card-tag">Real-Time Flow</span>
+      </div>
+      <div class="pipeline-grid">
+        <div class="pipe-step" id="stepCommand">
+          <div class="step-num">1</div>
+          <div class="step-label">COMMAND</div>
+          <div class="step-content" id="pipeCmdText">Find a person in this room.</div>
+        </div>
+        <div class="pipe-arrow">&rarr;</div>
+        <div class="pipe-step" id="stepUnderstanding">
+          <div class="step-num">2</div>
+          <div class="step-label">UNDERSTANDING</div>
+          <div class="step-content" id="pipeGoalText">SEARCH_FOR_PRESENCE</div>
+        </div>
+        <div class="pipe-arrow">&rarr;</div>
+        <div class="pipe-step" id="stepObservation">
+          <div class="step-num">3</div>
+          <div class="step-label">OBSERVATION &amp; MEASUREMENT</div>
+          <div class="step-content" id="pipeObsText">PIR=LOW; Ping=125cm; IMU=STATIONARY</div>
+        </div>
+        <div class="pipe-arrow">&rarr;</div>
+        <div class="pipe-step" id="stepInterpretation">
+          <div class="step-num">4</div>
+          <div class="step-label">INTERPRETATION &amp; INFERENCE</div>
+          <div class="step-content" id="pipeInterpText">Quiescent environment.</div>
+        </div>
+        <div class="pipe-arrow">&rarr;</div>
+        <div class="pipe-step" id="stepDecision">
+          <div class="step-num">5</div>
+          <div class="step-label">DECISION &amp; SAFETY GATE</div>
+          <div class="step-content" id="pipeDecisionText">ADVANCE_SEARCH</div>
+        </div>
+        <div class="pipe-arrow">&rarr;</div>
+        <div class="pipe-step" id="stepAction">
+          <div class="step-num">6</div>
+          <div class="step-label">ACTION</div>
+          <div class="step-content" id="pipeActionText">MOVE_FORWARD (60%)</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Workspace: Arena on Left, Telemetry & Safety on Right -->
+    <div class="workspace-grid">
+      <!-- 2D Physics Arena Simulator -->
+      <section class="arena-section card">
+        <div class="card-header">
+          <h2>Interactive 2D Room Arena</h2>
+          <div class="arena-legend">
+            <span class="legend-item"><span class="legend-box ultrasonic-box"></span> Ultrasonic Cone (25°)</span>
+            <span class="legend-item"><span class="legend-box pir-box"></span> PIR FOV (100°)</span>
+            <span class="legend-item"><span class="legend-dot human-dot"></span> Warm Target</span>
+          </div>
+        </div>
+        <div class="canvas-wrapper">
+          <canvas id="arenaCanvas" width="500" height="400"></canvas>
+          <div class="arena-overlay-hints">
+            <span>💡 Drag the <strong>Human (Warm Target)</strong> or <strong>Obstacles</strong> to test live detection!</span>
+          </div>
+        </div>
+        <div class="arena-actions">
+          <button class="tool-btn" id="btnSpawnObstacle">+ Add Obstacle in Path</button>
+          <button class="tool-btn warn-btn" id="btnTestSafetyOverride">⚠️ Test Emergency Safety Override (&lt;15cm)</button>
+          <button class="tool-btn" id="btnResetArena">↺ Reset Positions</button>
+        </div>
+      </section>
+
+      <!-- Right Column: Live Telemetry & Safety Supervisor -->
+      <div class="sidebar-column">
+        <!-- Live Robot Situation Dashboard (Section 12) -->
+        <section class="telemetry-section card">
+          <div class="card-header">
+            <h2>BUPI State Dashboard</h2>
+            <span class="badge" id="modeBadge">SEARCHING</span>
+          </div>
+          <div class="telemetry-table">
+            <div class="tele-row">
+              <span class="tele-label">Active Goal:</span>
+              <span class="tele-val highlight" id="stateGoal">Find a person in this room.</span>
+            </div>
+            <div class="tele-row">
+              <span class="tele-label">Operating Mode:</span>
+              <span class="tele-val" id="stateMode">SEARCHING</span>
+            </div>
+            <div class="tele-row">
+              <span class="tele-label">Ultrasonic Distance:</span>
+              <span class="tele-val mono" id="stateDistance">125 cm</span>
+            </div>
+            <div class="tele-row">
+              <span class="tele-label">PIR Infrared Motion:</span>
+              <span class="tele-val" id="stateMotion">NO MOTION</span>
+            </div>
+            <div class="tele-row">
+              <span class="tele-label">MPU6050 Orientation:</span>
+              <span class="tele-val" id="stateOrientation">NORMAL (0.0°)</span>
+            </div>
+            <div class="tele-row">
+              <span class="tele-label">Current Situation:</span>
+              <span class="tele-val highlight-blue" id="stateSituation">Area clear. Advancing search.</span>
+            </div>
+            <div class="tele-row">
+              <span class="tele-label">Planner Decision:</span>
+              <span class="tele-val" id="stateDecision">ADVANCE_SEARCH</span>
+            </div>
+            <div class="tele-row">
+              <span class="tele-label">Actuator Action:</span>
+              <span class="tele-val mono" id="stateAction">MOVE_FORWARD</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Safety Layer Supervisor Card (Section 7) -->
+        <section class="safety-section card">
+          <div class="card-header">
+            <h2>Hardware Safety Supervisor</h2>
+            <span class="badge badge-success" id="safetyBadge">SAFE</span>
+          </div>
+          <div class="safety-content">
+            <p class="safety-desc" id="safetyMessage">Safety layer nominal. No overrides active.</p>
+            <div class="safety-stats">
+              <div class="stat-item">
+                <span class="stat-num" id="safetyOverridesCount">0</span>
+                <span class="stat-name">Overrides Enforced</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-num" id="safetyCritDist">15 cm</span>
+                <span class="stat-name">Critical Barrier</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-num" id="safetySafeDist">40 cm</span>
+                <span class="stat-name">Safe Margin</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Live Audio & Speech Reports (Section 13) -->
+        <section class="report-section card">
+          <div class="card-header">
+            <h2>Audio Report &amp; Findings</h2>
+            <button class="mute-btn" id="btnToggleSpeech">🔊 Voice On</button>
+          </div>
+          <div class="report-box" id="latestReport">
+            "Possible human presence detected approximately 1.25 meters away."
+          </div>
+          <div class="events-log" id="eventsLog">
+            <div class="log-entry"><span class="time">00:00</span> System initialized in Search &amp; Rescue mode.</div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <script src="dashboard.js"></script>
+</body>
+</html>

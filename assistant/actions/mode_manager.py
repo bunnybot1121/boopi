@@ -18,6 +18,7 @@ class ModeManager:
 
   def _set_mascot_mode(self, mode_num: int):
     import json
+    sys.stdout.write(json.dumps({"type": "mode_changed", "value": mode_num}) + "\n")
     sys.stdout.write(json.dumps({"type": "mode-changed", "value": mode_num}) + "\n")
     sys.stdout.flush()
 

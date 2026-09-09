@@ -110,13 +110,14 @@ LOCAL_TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "control_motors",
-            "description": "Drives the robot mobile base (forward, reverse, left, right, stop) with optional speed (0-255) and duration in seconds.",
+            "description": "Drives the robot mobile base (forward, reverse, left, right, stop, turn_by) with optional speed (0-255), duration in seconds, and precision gyro turn degrees.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "direction": {"type": "string", "enum": ["forward", "reverse", "left", "right", "stop"], "description": "Direction to drive"},
-                    "speed": {"type": "integer", "description": "Motor PWM speed 0 to 255 (default 200)"},
-                    "duration_seconds": {"type": "number", "description": "Optional seconds to run before auto-stopping (0 for continuous)"}
+                    "direction": {"type": "string", "enum": ["forward", "reverse", "backward", "left", "right", "stop", "turn_by"], "description": "Direction to drive (forward, reverse/backward, left, right, stop)"},
+                    "speed": {"type": "integer", "description": "Motor PWM speed 0 to 255 (default 255 for full battery torque, do NOT use 0 unless stopping)"},
+                    "duration_seconds": {"type": "number", "description": "Seconds to run before auto-stopping (default 1.5)"},
+                    "degrees": {"type": "number", "description": "Optional precision turn degrees using MPU6050 gyro (e.g. 90.0 for right, -90.0 for left)"}
                 },
                 "required": ["direction"]
             }
@@ -171,6 +172,20 @@ LOCAL_TOOLS_SCHEMA = [
                 "properties": {}
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "toggle_edge_avoidance",
+            "description": "Enables or disables onboard autonomous edge obstacle avoidance and roaming on the ESP32. Set enabled=true to start autonomous roaming/obstacle evasion, enabled=false to stop and return to manual standby.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "enabled": {"type": "boolean", "description": "True to activate autonomous edge obstacle avoidance/roam, False to stop and standby."}
+                },
+                "required": ["enabled"]
+            }
+        }
     }
 ]
 
@@ -186,6 +201,7 @@ TOOL_DISPATCH_MAP = {
     "get_connected_nodes": _get_raw_tool(hw_tools.get_connected_nodes),
     "start_autonomous_mission": _get_raw_tool(hw_tools.start_autonomous_mission),
     "stop_current_mission": _get_raw_tool(hw_tools.stop_current_mission),
+    "toggle_edge_avoidance": _get_raw_tool(hw_tools.toggle_edge_avoidance),
 }
 
 class LocalAgentOrchestrator:
@@ -228,7 +244,7 @@ REGISTERED HARDWARE KNOWLEDGE:
 {hw_knowledge}
 
 RULES:
-1. For high-level autonomous tasks (e.g. 'find the human in the room', 'patrol the room', 'explore the area'), ALWAYS invoke start_autonomous_mission. Do NOT try to micromanage single wheel turns.
+1. For high-level autonomous or conditional tasks (e.g. 'walk until an obstacle comes in front of you', 'find the human in the room', 'patrol the room', 'explore the area', 'search for motion'), ALWAYS invoke start_autonomous_mission. Do NOT try to micromanage single wheel turns.
 2. If the user asks to stop, halt, or cancel a mission, use stop_current_mission or control_motors('stop').
 3. Prefer using tools directly (e.g. read_sensor_status, control_relay, display_on_esp32) instead of guessing.
 4. If the user asks if the ESP32 is connected, call get_connected_nodes.
@@ -288,16 +304,33 @@ RULES:
                     elapsed = (time.time() - start_time) * 1000
                     print(f"[Local Orchestrator] Completed in {elapsed:.1f}ms!", flush=True)
 
-                    # Build quick spoken response
-                    if message.content and message.content.strip():
-                        return message.content.strip()
-                    else:
-                        first_result = executed_results[0]
-                        if "Successfully" in first_result or "Success" in first_result:
-                            return "Action executed successfully."
-                        elif "read_sensor_status" in first_result or "mq2" in first_result:
-                            return f"Here are the sensor readings: {first_result.split(': ', 1)[-1]}"
-                        return f"Completed: {first_result}"
+                    # Try conversational completion from local model if possible
+                    try:
+                        tool_messages = list(messages)
+                        tool_messages.append(message)
+                        for tc, ex_res in zip(tool_calls, executed_results):
+                            tool_messages.append({
+                                "role": "tool",
+                                "tool_call_id": getattr(tc, "id", "call_1"),
+                                "content": ex_res
+                            })
+                        tool_messages.append({
+                            "role": "user",
+                            "content": "Summarize what you did or answered in one short, natural spoken sentence. Do NOT output raw JSON or tool signatures."
+                        })
+                        second_resp = self.local_client.chat.completions.create(
+                            model=model_name,
+                            messages=tool_messages,
+                            temperature=0.3,
+                            max_tokens=80
+                        )
+                        spoken_text = second_resp.choices[0].message.content
+                        if spoken_text and spoken_text.strip() and "{" not in spoken_text:
+                            return spoken_text.strip()
+                    except Exception:
+                        pass
+
+                    return self._format_spoken_response(executed_results, user_request)
 
                 else:
                     elapsed = (time.time() - start_time) * 1000
@@ -311,6 +344,77 @@ RULES:
                 continue
 
         return f"Local orchestrator error: {last_err}"
+
+    def _format_spoken_response(self, executed_results: list, user_request: str) -> str:
+        if not executed_results:
+            return "Action processed."
+            
+        first_item = executed_results[0]
+        fn_name = first_item.split(":", 1)[0].strip() if ":" in first_item else ""
+        raw_res = first_item.split(":", 1)[1].strip() if ":" in first_item else first_item
+
+        if fn_name == "get_connected_nodes":
+            try:
+                data = json.loads(raw_res)
+                nodes = data.get("connected_nodes", [])
+                online_nodes = [n for n in nodes if n.get("status") == "ONLINE"]
+                if online_nodes:
+                    node_strs = []
+                    for n in online_nodes:
+                        dev = n.get("device_name", "ESP32 Node")
+                        ip = n.get("ip_address", "")
+                        ip_str = f" at IP {ip}" if ip and ip != "unknown" else ""
+                        node_strs.append(f"{dev}{ip_str}")
+                    return f"Yes! {len(online_nodes)} ESP32 node{' is' if len(online_nodes) == 1 else 's are'} online: {', '.join(node_strs)}."
+                elif nodes:
+                    dev = nodes[0].get("device_name", "ESP32 Node")
+                    return f"An ESP32 node named {dev} is registered, but hasn't sent a heartbeat recently."
+                else:
+                    return "No ESP32 nodes are currently connected on the network."
+            except Exception:
+                return "I checked the network: ESP32 status is currently updating."
+
+        elif fn_name == "read_sensor_status":
+            try:
+                data = json.loads(raw_res)
+                s_name = data.get("sensor", "sensor")
+                val = data.get("raw_value", data.get("value", 0))
+                status = data.get("status", "NORMAL")
+                desc = data.get("description", "")
+                return f"The {s_name} reading is {val}, status is {status}. {desc}".strip()
+            except Exception:
+                return f"Sensor reading: {raw_res}"
+
+        elif fn_name == "get_world_state":
+            try:
+                data = json.loads(raw_res) if isinstance(raw_res, str) else raw_res
+                gas = data.get("gas", "safe")
+                dist = data.get("distance", "clear")
+                safety = data.get("safety", "normal")
+                return f"World state check: gas level is {gas}, front path is {dist}, overall safety is {safety}."
+            except Exception:
+                return f"World state: {raw_res}"
+
+        elif fn_name == "control_motors":
+            if "stop" in raw_res.lower():
+                return "Motors stopped. Robot is stationary."
+            return f"Driving motors: {raw_res}."
+
+        elif fn_name == "control_relay":
+            return f"Relay command executed: {raw_res}."
+
+        elif fn_name == "display_on_esp32":
+            return "Message sent to the ESP32 screen."
+
+        elif fn_name == "start_autonomous_mission":
+            return "Starting autonomous mission now."
+
+        elif fn_name == "stop_current_mission":
+            return "Mission stopped. All motors halted."
+
+        if "Successfully" in raw_res or "Success" in raw_res:
+            return "Action executed successfully."
+        return f"{raw_res}"
 
     async def run_task_async(self, user_request: str) -> str:
         """Asynchronous wrapper to keep asyncio / PyQt event loops non-blocking."""

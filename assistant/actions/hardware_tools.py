@@ -68,50 +68,99 @@ def display_on_esp32(text: str) -> str:
         return f"Failed to display on ESP32: {str(e)}"
 
 @tool("Control Robot Motors")
-def control_motors(direction: str, speed: int = 200, duration_seconds: float = 0.0) -> str:
+def control_motors(direction: str, speed: int = 255, duration_seconds: float = 1.5, degrees: float = 0.0) -> str:
     """
     Controls the mobile base N20 motors via TB6612 driver on the ESP32.
-    - direction: 'forward', 'reverse', 'left', 'right', or 'stop'.
-    - speed: PWM motor speed from 0 to 255 (default 200).
-    - duration_seconds: duration in seconds before automatically stopping (0 for continuous until stopped).
+    - direction: 'forward', 'reverse', 'left', 'right', 'stop', or 'turn_by'.
+    - speed: PWM motor speed from 0 to 255 (default 255 for full battery torque).
+    - duration_seconds: duration in seconds before automatically stopping (default 1.5s, 0 for continuous).
+    - degrees: optional angular turn degrees using MPU6050 gyro feedback (e.g. 90 for right 90°, -90 for left 90°).
     """
     import json
     import time
     import threading
     try:
         direction = str(direction).lower().strip()
-        speed = max(0, min(255, int(speed)))
+        if direction in ["backward", "backwards", "back", "backup", "back_up"]:
+            direction = "reverse"
+        elif direction in ["ahead", "forward_movement"]:
+            direction = "forward"
+
+        try:
+            speed_val = int(speed)
+        except Exception:
+            speed_val = 255
+
+        if speed_val <= 0 and direction != "stop":
+            speed = 255
+        else:
+            speed = max(0, min(255, speed_val))
+
         topic = "bupi/actuators/motors/cmd"
         
+        # Check if degrees were passed or implied in direction string
+        if "90" in direction and "right" in direction:
+            degrees = 90.0
+        elif "90" in direction and "left" in direction:
+            degrees = -90.0
+        elif "180" in direction or "u-turn" in direction or "around" in direction:
+            degrees = 180.0
+
+        if degrees != 0.0:
+            payload = json.dumps({
+                "action": "turn_by",
+                "degrees": degrees,
+                "speed": speed
+            })
+            publish.single(f"{topic}/json", payload, hostname="localhost")
+            return f"Rotating {degrees}° using closed-loop MPU6050 gyro feedback."
+
         # Run safety validation against obstacles / collision risk
         from core.safety_validator import validate_safety
         validation = validate_safety(topic, direction)
         if not validation.get("approved", True):
             return f"Blocked: {validation.get('reason')}"
             
+        duration_ms = int(duration_seconds * 1000) if duration_seconds > 0 else 1500
         payload = json.dumps({
-            "action": "MOVE",
-            "direction": direction,
+            "action": direction,
             "speed": speed,
-            "duration": duration_seconds
+            "duration_ms": duration_ms
         })
         
-        # Publish structured command and raw string for backward compatibility
-        publish.single(topic, direction, hostname="localhost")
+        # Publish structured command for ESP32
         publish.single(f"{topic}/json", payload, hostname="localhost")
         
-        # Timed auto-stop if duration specified
+        # Timed auto-stop if duration specified and not already handled
         if duration_seconds > 0 and direction != "stop":
             def auto_stop():
                 time.sleep(duration_seconds)
                 publish.single(topic, "stop", hostname="localhost")
-                publish.single(f"{topic}/json", json.dumps({"action": "MOVE", "direction": "stop", "speed": 0}), hostname="localhost")
+                publish.single(f"{topic}/json", json.dumps({"action": "stop", "speed": 0}), hostname="localhost")
             threading.Thread(target=auto_stop, daemon=True).start()
             return f"Motors moving {direction} at speed {speed} for {duration_seconds}s."
             
         return f"Motors set to {direction} (speed {speed})."
     except Exception as e:
         return f"Failed to control motors: {str(e)}"
+
+@tool("Toggle Edge Obstacle Avoidance")
+def toggle_edge_avoidance(enabled: bool = True) -> str:
+    """
+    Enables or disables 100% onboard edge-computing obstacle avoidance and autonomous roaming on the ESP32.
+    - enabled: True to start autonomous edge roaming and collision evasion, False to halt and standby.
+    """
+    import json
+    try:
+        topic = "bupi/actuators/motors/cmd/json"
+        payload = json.dumps({"action": "auto_avoid", "enabled": bool(enabled)})
+        publish.single(topic, payload, hostname="localhost")
+        if enabled:
+            return "Autonomous edge obstacle avoidance enabled. ESP32 is now navigating onboard."
+        else:
+            return "Autonomous edge obstacle avoidance disabled. Robot halted and in standby."
+    except Exception as e:
+        return f"Failed to toggle edge avoidance: {str(e)}"
 
 @tool("Universal MQTT Hardware Controller")
 def universal_mqtt_tool(topic: str, payload: str) -> str:
@@ -450,6 +499,16 @@ def get_connected_nodes() -> str:
             conn.close()
             return json.dumps({"connected_nodes": [], "message": "No nodes registered yet. Waiting for ESP32 heartbeat."})
             
+        # Check if telemetry table has fresh sensor readings (< 15s)
+        recent_telemetry = False
+        try:
+            cursor.execute("SELECT timestamp FROM telemetry ORDER BY rowid DESC LIMIT 1")
+            t_row = cursor.fetchone()
+            if t_row and t_row[0] and (now - float(t_row[0])) < 15.0:
+                recent_telemetry = True
+        except Exception:
+            pass
+
         cursor.execute("SELECT client_id, device_name, ip_address, capabilities, last_heartbeat, status FROM nodes ORDER BY last_heartbeat DESC")
         rows = cursor.fetchall()
         conn.close()
@@ -459,7 +518,8 @@ def get_connected_nodes() -> str:
         for r in rows:
             client_id, device_name, ip_addr, caps, last_hb, status = r
             delta_sec = round(now - last_hb, 1) if last_hb else None
-            is_online = (delta_sec is not None and delta_sec < 15.0)
+            # Consider online if heartbeat was within 60s OR if recent telemetry is flowing
+            is_online = (delta_sec is not None and delta_sec < 60.0) or recent_telemetry
             
             parsed_caps = caps
             if caps:
@@ -477,9 +537,27 @@ def get_connected_nodes() -> str:
                 "device_name": device_name,
                 "ip_address": ip_addr,
                 "capabilities": parsed_caps,
-                "last_seen_seconds_ago": delta_sec,
+                "last_seen_seconds_ago": 0.0 if (recent_telemetry and not (delta_sec is not None and delta_sec < 15.0)) else delta_sec,
                 "status": "ONLINE" if is_online else "OFFLINE"
             })
+
+        # Also incorporate any WebSocket nodes from bupi_node_server
+        try:
+            from bupi_node_server import live_nodes, live_nodes_lock
+            with live_nodes_lock:
+                for nid, ninfo in live_nodes.items():
+                    if not any(n["client_id"] == nid for n in nodes):
+                        nodes.append({
+                            "client_id": nid,
+                            "device_name": ninfo.get("device", "ESP32 LCD Client"),
+                            "ip_address": ninfo.get("ip", "unknown"),
+                            "capabilities": ninfo.get("capabilities", ["Display"]),
+                            "last_seen_seconds_ago": round(now - ninfo.get("last_seen", now), 1),
+                            "status": "ONLINE" if ninfo.get("status") == "online" else "OFFLINE"
+                        })
+        except Exception:
+            pass
+
         return json.dumps({"connected_nodes": nodes, "total_nodes": len(nodes)}, indent=2)
     except Exception as e:
         return json.dumps({"error": f"Failed to query connected nodes: {str(e)}"})
@@ -508,5 +586,23 @@ def stop_current_mission() -> str:
     except Exception as e:
         return f"Failed to stop autonomous mission: {str(e)}"
 
-
-
+@tool("Toggle Edge Obstacle Avoidance")
+def toggle_edge_avoidance(enabled: bool = True) -> str:
+    """
+    Enables or disables onboard autonomous edge obstacle avoidance and roaming on the ESP32.
+    When enabled, BUPI's ESP32 autonomously navigates, detects obstacles using HC-SR04, reverses,
+    and pivots using the onboard MPU6050 gyro without relying on PC or network latency.
+    - enabled: True to start autonomous edge roam, False to stop and return to manual standby.
+    """
+    try:
+        import paho.mqtt.client as mqtt
+        import json
+        payload = json.dumps({"action": "auto_avoid", "enabled": bool(enabled)})
+        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="tool_edge_avoid")
+        client.connect("localhost", 1883, 10)
+        client.publish("bupi/actuators/motors/cmd/json", payload)
+        client.disconnect()
+        status_str = "ENABLED (Roam mode active on ESP32)" if enabled else "DISABLED (Standby)"
+        return f"Edge Obstacle Avoidance {status_str}."
+    except Exception as e:
+        return f"Failed to toggle edge avoidance: {str(e)}"

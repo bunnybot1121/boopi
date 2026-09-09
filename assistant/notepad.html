@@ -6,6 +6,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="bwe_simulator.css">
     <link rel="stylesheet" href="missions.css">
+    <link rel="stylesheet" href="bupi_autonomous.css">
 
     <style>
         :root {
@@ -592,6 +593,9 @@
                 <div class="nav-item active" data-target="panel-notes">
                     <i>📝</i> Notes & Ideas
                 </div>
+                <div class="nav-item" data-target="panel-autonomous">
+                    <i>🎯</i> BUPI Autonomous
+                </div>
                 <div class="nav-item" data-target="panel-missions">
                     <i>🚀</i> Missions & Reports
                 </div>
@@ -649,7 +653,172 @@
                 </div>
             </div>
 
-                        <!-- Missions & Debriefs Panel -->
+            <!-- BUPI Autonomous Sensor-Fusion Panel -->
+            <div class="content-panel" id="panel-autonomous" style="overflow: hidden;">
+                <div class="autonomous-container">
+                    <!-- Top Single-Command Input & Scenario Chips -->
+                    <div class="auto-cmd-banner">
+                        <form id="autoCmdForm" class="auto-cmd-form">
+                            <div class="auto-cmd-input-wrapper">
+                                <span class="auto-cmd-prefix">GOAL &gt;</span>
+                                <input type="text" id="autoCmdInput" placeholder="Give BUPI a high-level instruction (e.g. 'BUPI, find a person in this room.')" value="BUPI, find a person in this room.">
+                            </div>
+                            <button type="submit" class="auto-send-btn">🚀 Execute Goal</button>
+                            <span class="mission-badge-status status-running" id="autoEngineStatusBadge" style="font-size:11px;">ONLINE</span>
+                        </form>
+                        <div class="auto-chips">
+                            <span class="auto-chips-label">Scenario Presets:</span>
+                            <button class="auto-chip" data-cmd="BUPI, find a person in this room.">🔍 Find Person</button>
+                            <button class="auto-chip" data-cmd="Explore this area safely.">🛡️ Explore Safely</button>
+                            <button class="auto-chip" data-cmd="Watch for motion and alert me.">👁️ Monitor Motion</button>
+                            <button class="auto-chip" data-cmd="Patrol the perimeter.">🚨 Patrol</button>
+                            <button class="auto-chip danger" data-cmd="Stop moving.">🛑 Stop &amp; Wait</button>
+                        </div>
+                    </div>
+
+                    <!-- Closed-Loop Epistemic Ladder Stepper -->
+                    <div class="epistemic-stepper-card">
+                        <div class="stepper-header">
+                            <span class="stepper-title"><span>🪜</span> Closed-Loop Epistemic Ladder &amp; Decision Pipeline</span>
+                            <span style="font-size:10.5px; color:var(--text-light);">Continuous Closed-Loop (20 Hz)</span>
+                        </div>
+                        <div class="stepper-grid">
+                            <div class="stepper-step">
+                                <span class="step-tag">1. Command</span>
+                                <span class="step-value" id="autoPipeCmd">Find a person in this room.</span>
+                            </div>
+                            <span class="stepper-sep">→</span>
+                            <div class="stepper-step">
+                                <span class="step-tag">2. Understanding</span>
+                                <span class="step-value" id="autoPipeGoal">SEARCH_FOR_PRESENCE</span>
+                            </div>
+                            <span class="stepper-sep">→</span>
+                            <div class="stepper-step">
+                                <span class="step-tag">3. Observation</span>
+                                <span class="step-value" id="autoPipeObs">PIR=LOW; Ping=125cm</span>
+                            </div>
+                            <span class="stepper-sep">→</span>
+                            <div class="stepper-step">
+                                <span class="step-tag">4. Inference</span>
+                                <span class="step-value" id="autoPipeInterp">Quiescent environment</span>
+                            </div>
+                            <span class="stepper-sep">→</span>
+                            <div class="stepper-step">
+                                <span class="step-tag">5. Decision</span>
+                                <span class="step-value" id="autoPipeDecision">ADVANCE_SEARCH</span>
+                            </div>
+                            <span class="stepper-sep">→</span>
+                            <div class="stepper-step">
+                                <span class="step-tag">6. Action</span>
+                                <span class="step-value" id="autoPipeAction">MOVE_FORWARD (60%)</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Main Workspace: Interactive 2D Arena + Situation/Safety -->
+                    <div class="auto-workspace">
+                        <!-- Left: Interactive 2D Room Arena Canvas -->
+                        <div class="auto-arena-col">
+                            <div class="arena-topbar">
+                                <span class="arena-title"><span>🌐</span> Interactive 2D Room Simulation Arena</span>
+                                <div class="arena-legend-row">
+                                    <span><strong style="color:#60a5fa;">■</strong> Ultrasonic (25°)</span>
+                                    <span><strong style="color:#f59e0b;">■</strong> PIR (100°)</span>
+                                    <span><strong style="color:#f43f5e;">●</strong> Warm Target</span>
+                                </div>
+                            </div>
+                            <div class="arena-canvas-box">
+                                <canvas id="bupiArenaCanvas" width="500" height="340"></canvas>
+                            </div>
+                            <div class="arena-toolbar">
+                                <button class="arena-tool-btn warn" id="autoBtnTestSafety">⚠️ Test Emergency Safety Override (&lt;15cm)</button>
+                                <button class="arena-tool-btn" id="autoBtnSpawnObs">+ Add Obstacle Ahead</button>
+                                <button class="arena-tool-btn" id="autoBtnResetArena">↺ Reset Positions</button>
+                                <span style="margin-left:auto; font-size:11px; color:var(--text-light); display:flex; align-items:center;">
+                                    💡 Click &amp; drag human or obstacles
+                                </span>
+                            </div>
+                        </div>
+
+                        <!-- Right: State Dashboard & Safety Supervisor -->
+                        <div class="auto-status-col">
+                            <!-- Situation Table -->
+                            <div class="auto-card">
+                                <div class="auto-card-head">
+                                    <span class="auto-card-title">BUPI Situation State</span>
+                                    <span class="mission-badge-type" id="autoModeVal">SEARCHING</span>
+                                </div>
+                                <div class="tele-grid">
+                                    <div class="tele-item">
+                                        <span class="tele-k">Active Goal:</span>
+                                        <span class="tele-v highlight" id="autoGoalDesc">Find person in room</span>
+                                    </div>
+                                    <div class="tele-item">
+                                        <span class="tele-k">Ultrasonic Distance:</span>
+                                        <span class="tele-v" id="autoDistVal">125 cm (far)</span>
+                                    </div>
+                                    <div class="tele-item">
+                                        <span class="tele-k">PIR Motion Sensor:</span>
+                                        <span class="tele-v" id="autoPirVal">NO MOTION (PIR LOW)</span>
+                                    </div>
+                                    <div class="tele-item">
+                                        <span class="tele-k">MPU6050 Orientation:</span>
+                                        <span class="tele-v" id="autoImuVal">NORMAL (0.0° heading)</span>
+                                    </div>
+                                    <div class="tele-item">
+                                        <span class="tele-k">Situation Summary:</span>
+                                        <span class="tele-v" id="autoSituationVal">Area clear. Advancing search.</span>
+                                    </div>
+                                    <div class="tele-item">
+                                        <span class="tele-k">Planner Decision:</span>
+                                        <span class="tele-v" id="autoDecisionVal">ADVANCE_SEARCH</span>
+                                    </div>
+                                    <div class="tele-item">
+                                        <span class="tele-k">TB6612 Motors:</span>
+                                        <span class="tele-v highlight" id="autoActionVal">MOVE_FORWARD</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Hardware Safety Supervisor -->
+                            <div class="auto-card">
+                                <div class="auto-card-head">
+                                    <span class="auto-card-title">Hardware Safety Supervisor</span>
+                                    <span class="mission-badge-status status-completed" id="autoSafetyBadge">SAFE</span>
+                                </div>
+                                <p style="font-size:11.5px; color:var(--text-dark); margin:0;" id="autoSafetyMsg">Safety layer nominal. No overrides active.</p>
+                                <div class="safety-stat-row">
+                                    <div class="safety-box">
+                                        <div class="safety-box-num" id="autoOverridesCount">0</div>
+                                        <div class="safety-box-lbl">Overrides</div>
+                                    </div>
+                                    <div class="safety-box">
+                                        <div class="safety-box-num">15 cm</div>
+                                        <div class="safety-box-lbl">Critical Barrier</div>
+                                    </div>
+                                    <div class="safety-box">
+                                        <div class="safety-box-num">40 cm</div>
+                                        <div class="safety-box-lbl">Safe Distance</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Voice & Findings Report -->
+                            <div class="auto-card">
+                                <div class="auto-card-head">
+                                    <span class="auto-card-title">Findings &amp; Report</span>
+                                    <button class="arena-tool-btn" id="autoBtnToggleVoice" style="padding:3px 8px; font-size:10.5px;">🔊 Voice On</button>
+                                </div>
+                                <div class="report-bubble" id="autoReportText">
+                                    "Awaiting target discovery..."
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Missions & Debriefs Panel -->
             <div class="content-panel" id="panel-missions" style="overflow: hidden;">
                 <div class="missions-container">
                     <!-- Top Mission Status Banner -->
@@ -701,19 +870,19 @@
                         </div>
                         <div class="sensor-card">
                             <div class="sensor-card-header">
-                                <span>🌡️ Gas / Air Quality</span>
+                                <span>👁️ PIR Motion Sensor</span>
                                 <span style="color: var(--accent-green);">ONLINE</span>
                             </div>
                             <div class="sensor-card-val">
-                                <span id="hudGasVal">--</span> <small>PPM</small>
+                                <span id="hudPirVal">LOW</span> <small>state</small>
                             </div>
-                            <div class="sensor-card-status" style="color: var(--accent-green);" id="hudGasStatus">
-                                🟢 Normal
+                            <div class="sensor-card-status" style="color: var(--text-light);" id="hudPirStatus">
+                                ⚪ Quiescent
                             </div>
                         </div>
                         <div class="sensor-card">
                             <div class="sensor-card-header">
-                                <span>🧭 Compass / Heading</span>
+                                <span>🧭 Compass / Heading (MPU6050)</span>
                                 <span style="color: var(--accent-green);">ONLINE</span>
                             </div>
                             <div class="sensor-card-val">
@@ -725,14 +894,14 @@
                         </div>
                         <div class="sensor-card">
                             <div class="sensor-card-header">
-                                <span>🛡️ Obstacles Avoided</span>
+                                <span>🛡️ Safety Overrides (TB6612)</span>
                                 <span style="color: #4299e1;">METRIC</span>
                             </div>
                             <div class="sensor-card-val">
                                 <span id="hudAvoidanceCount">0</span> <small>events</small>
                             </div>
-                            <div class="sensor-card-status" style="color: #4299e1;">
-                                🛡️ Reactive Autonomy
+                            <div class="sensor-card-status" style="color: #4299e1;" id="hudSafetyStatus">
+                                🛡️ Safety Nominal
                             </div>
                         </div>
                     </div>
@@ -1141,6 +1310,7 @@
     <script src="bwe_simulator.js"></script>
     <script src="notepad.js"></script>
     <script src="missions.js"></script>
+    <script src="bupi_autonomous.js"></script>
     <!-- Launch Mission Modal -->
     <div class="modal-overlay" id="newMissionModal">
         <div class="modal-card">
@@ -1160,8 +1330,8 @@
                     Preset Missions:
                 </label>
                 <div class="preset-goals-list">
-                    <button class="preset-goal-btn" data-goal="Find the human in the room and confirm presence">
-                        <span>🔍</span> Search & Rescue: Find human in the room
+                    <button class="preset-goal-btn" data-goal="BUPI, find a person in this room.">
+                        <span>🔍</span> Search & Rescue: BUPI, find a person in this room.
                     </button>
                     <button class="preset-goal-btn" data-goal="Inspect room for gas leaks and air hazards">
                         <span>🔥</span> Hazard Inspection: Gas & air quality patrol

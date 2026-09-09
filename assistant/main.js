@@ -59,6 +59,7 @@ function createNotepadWindow() {
   if (notepadWindow) {
     console.log("[Main] notepadWindow already exists, focusing");
     if (notepadWindow.isMinimized()) notepadWindow.restore();
+    notepadWindow.show();
     notepadWindow.focus();
     return;
   }
@@ -71,6 +72,7 @@ function createNotepadWindow() {
     minWidth: 900,
     minHeight: 600,
     frame: false,
+    show: true,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
@@ -230,7 +232,7 @@ function spawnEngine() {
           if (mainWindow) {
             mainWindow.webContents.send('speech-text', msg.value);
           }
-        } else if (msg.type === "mode_changed") {
+        } else if (msg.type === "mode_changed" || msg.type === "mode-changed") {
           if (mainWindow) {
             mainWindow.webContents.send('mode-changed', msg.value);
           }
@@ -358,15 +360,25 @@ if (!gotTheLock) {
   app.quit();
 } else {
   app.on('second-instance', (event, commandLine, workingDirectory) => {
-    // Someone tried to run a second instance, we should focus our window.
-    if (mainWindow) {
+    // Someone tried to run a second instance, bring both character and Hub to front
+    if (mainWindow && !mainWindow.isDestroyed()) {
       if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.setAlwaysOnTop(true, 'screen-saver');
       mainWindow.focus();
+    }
+    if (notepadWindow && !notepadWindow.isDestroyed()) {
+      if (notepadWindow.isMinimized()) notepadWindow.restore();
+      notepadWindow.show();
+      notepadWindow.focus();
+    } else {
+      createNotepadWindow();
     }
   });
 
   app.whenReady().then(() => {
     createWindow();
+    createNotepadWindow();
     spawnEngine();
     // spawnFootMo2(); // Paused: focusing strictly on physical ESP32-S3 robot car and sensor network
 

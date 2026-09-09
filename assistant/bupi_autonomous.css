@@ -1,0 +1,386 @@
+/* -----------------------------------------------------------
+   BUPI Autonomous Sensor-Fusion System — Bupi Hub Styling
+   ----------------------------------------------------------- */
+
+.autonomous-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    gap: 12px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+/* Command & Preset Header */
+.auto-cmd-banner {
+    background: rgba(255, 255, 255, 0.65);
+    backdrop-filter: blur(14px);
+    border: var(--glass-border);
+    border-radius: 14px;
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    box-shadow: 0 4px 18px rgba(31, 38, 135, 0.05);
+    flex-shrink: 0;
+}
+
+.auto-cmd-form {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.auto-cmd-input-wrapper {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.9);
+    border: 1.5px solid rgba(142, 148, 242, 0.4);
+    border-radius: 10px;
+    padding: 6px 12px;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.04);
+    transition: all 0.2s;
+}
+
+.auto-cmd-input-wrapper:focus-within {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(142, 148, 242, 0.2);
+}
+
+.auto-cmd-prefix {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--primary);
+    margin-right: 8px;
+    font-family: monospace;
+    letter-spacing: 0.5px;
+}
+
+.auto-cmd-input-wrapper input {
+    flex: 1;
+    border: none;
+    outline: none;
+    background: transparent;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--text-dark);
+}
+
+.auto-send-btn {
+    background: linear-gradient(135deg, var(--primary), #a78bfa);
+    color: #fff;
+    border: none;
+    padding: 9px 18px;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 12.5px;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(142, 148, 242, 0.35);
+    transition: all 0.2s;
+}
+
+.auto-send-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(142, 148, 242, 0.45);
+}
+
+.auto-chips {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.auto-chips-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-light);
+}
+
+.auto-chip {
+    background: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(226, 232, 240, 0.9);
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-dark);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.auto-chip:hover {
+    background: rgba(142, 148, 242, 0.15);
+    border-color: var(--primary);
+    color: var(--primary);
+    transform: translateY(-1px);
+}
+
+.auto-chip.danger:hover {
+    background: rgba(245, 101, 101, 0.15);
+    border-color: #f56565;
+    color: #c53030;
+}
+
+/* Epistemic Pipeline Stepper */
+.epistemic-stepper-card {
+    background: rgba(255, 255, 255, 0.6);
+    border: var(--glass-border);
+    border-radius: 14px;
+    padding: 12px 16px;
+    box-shadow: 0 2px 12px rgba(31, 38, 135, 0.03);
+    flex-shrink: 0;
+}
+
+.stepper-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.stepper-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-dark);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.stepper-grid {
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+    overflow-x: auto;
+}
+
+.stepper-step {
+    flex: 1;
+    min-width: 140px;
+    background: rgba(255, 255, 255, 0.8);
+    border: 1px solid rgba(226, 232, 240, 0.8);
+    border-radius: 10px;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    transition: all 0.2s;
+}
+
+.stepper-step:hover {
+    border-color: var(--primary);
+    background: #fff;
+}
+
+.step-tag {
+    font-size: 9.5px;
+    font-weight: 700;
+    color: var(--primary);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+
+.step-value {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-dark);
+    font-family: 'Inter', sans-serif;
+    line-height: 1.3;
+    word-break: break-word;
+}
+
+.stepper-sep {
+    display: flex;
+    align-items: center;
+    color: var(--text-light);
+    font-size: 14px;
+    font-weight: bold;
+    user-select: none;
+}
+
+/* Two-Column Main Workspace */
+.auto-workspace {
+    display: flex;
+    gap: 14px;
+    flex: 1;
+    min-height: 420px;
+}
+
+/* Left Arena Card */
+.auto-arena-col {
+    flex: 1.3;
+    min-width: 0;
+    background: rgba(255, 255, 255, 0.55);
+    border: var(--glass-border);
+    border-radius: 14px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.arena-topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.arena-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-dark);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.arena-legend-row {
+    display: flex;
+    gap: 12px;
+    font-size: 11px;
+    color: var(--text-light);
+}
+
+.arena-canvas-box {
+    position: relative;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    background: #0d1117;
+    box-shadow: inset 0 0 16px rgba(0, 0, 0, 0.6);
+    flex: 1;
+    min-height: 320px;
+}
+
+#bupiArenaCanvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    cursor: crosshair;
+}
+
+.arena-toolbar {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.arena-tool-btn {
+    background: rgba(255, 255, 255, 0.75);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-dark);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.arena-tool-btn:hover {
+    background: #fff;
+    border-color: var(--primary);
+    transform: translateY(-1px);
+}
+
+.arena-tool-btn.warn {
+    border-color: rgba(245, 101, 101, 0.4);
+    color: #c53030;
+    background: rgba(255, 245, 245, 0.85);
+}
+
+/* Right Status & Safety Column */
+.auto-status-col {
+    flex: 1;
+    min-width: 280px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overflow-y: auto;
+}
+
+.auto-card {
+    background: rgba(255, 255, 255, 0.6);
+    border: var(--glass-border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.auto-card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.auto-card-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-dark);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+
+.tele-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.tele-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.6);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 11.5px;
+}
+
+.tele-k { color: var(--text-light); font-weight: 500; }
+.tele-v { color: var(--text-dark); font-weight: 700; font-family: 'Inter', sans-serif; }
+.tele-v.highlight { color: #5b4de0; }
+
+.safety-stat-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.safety-box {
+    background: rgba(255, 255, 255, 0.7);
+    border-radius: 6px;
+    padding: 6px;
+    text-align: center;
+}
+
+.safety-box-num {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-dark);
+    font-family: monospace;
+}
+
+.safety-box-lbl {
+    font-size: 9px;
+    color: var(--text-light);
+    text-transform: uppercase;
+}
+
+.report-bubble {
+    background: rgba(142, 148, 242, 0.12);
+    border-left: 3px solid var(--primary);
+    padding: 8px 12px;
+    border-radius: 0 8px 8px 0;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-dark);
+    line-height: 1.4;
+}

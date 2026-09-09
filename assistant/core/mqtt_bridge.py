@@ -9,12 +9,19 @@ COMMAND_TOPIC = "bupi/cmd"
 
 class MQTTBridge:
     def __init__(self):
+        import random
+        import collections
+        import queue
+        import threading
         # API v2 is required for newer paho-mqtt
-        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="BUPI_Orchestrator")
+        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=f"BUPI_Orchestrator_{random.randint(1000, 9999)}")
         self.client.on_connect = self.on_connect
         self.client.on_disconnect = self.on_disconnect
         self.client.on_message = self.on_message
         self._last_bridged = {}
+        self._last_log_time = {}
+        self._last_heartbeat_time = {}
+        self._recently_forwarded = collections.deque(maxlen=1000)
         
         # Multi-sensor telemetry states
         self.telemetry_modes = {"mq2": "continuous"}  # maps sensor_id -> mode (continuous, highest, lowest, average)
@@ -22,7 +29,12 @@ class MQTTBridge:
         self.lowest_vals = {}      # maps sensor_id -> float
         self.values_histories = {} # maps sensor_id -> list of float
         self.latest_formatted_lines = {} # maps sensor_id -> formatted display string
+        
+        # Dedicated sequential DB worker thread to eliminate thread explosion and lock contention
+        self._db_queue = queue.Queue(maxsize=5000)
         self._init_db()
+        self._db_worker_thread = threading.Thread(target=self._db_writer_worker, daemon=True)
+        self._db_worker_thread.start()
 
     # 100% Backward compatibility getters/setters for single sensor mq2
     @property
@@ -91,8 +103,9 @@ class MQTTBridge:
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.db_path = os.path.join(base_dir, "bupi_telemetry.db")
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = sqlite3.connect(self.db_path, timeout=10.0)
             cursor = conn.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL;")
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS telemetry (
                     timestamp REAL,
@@ -112,65 +125,75 @@ class MQTTBridge:
             """)
             conn.commit()
             conn.close()
-            print(f"[MQTT Bridge] SQLite database initialized at {self.db_path}", flush=True)
+            print(f"[MQTT Bridge] SQLite database initialized at {self.db_path} (WAL Mode)", flush=True)
         except Exception as e:
             print(f"[MQTT Bridge Error] Failed to initialize SQLite: {e}", flush=True)
 
-    def log_node_heartbeat(self, client_id, device_name, ip_address, capabilities, status="online"):
-        """Records node heartbeat, IP, and online state into persistent SQLite database."""
+    def _db_writer_worker(self):
+        """Single background worker dedicated to sequential SQLite writes with WAL mode."""
         import sqlite3
-        import time
-        import threading
-        import json
-        
-        def worker():
+        while True:
             try:
-                conn = sqlite3.connect(self.db_path)
+                task_type, data = self._db_queue.get()
+                conn = sqlite3.connect(self.db_path, timeout=30.0)
                 cursor = conn.cursor()
-                caps_str = json.dumps(capabilities) if not isinstance(capabilities, str) else capabilities
-                cursor.execute("""
-                    INSERT INTO nodes (client_id, device_name, ip_address, capabilities, last_heartbeat, status)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(client_id) DO UPDATE SET
-                        device_name=excluded.device_name,
-                        ip_address=excluded.ip_address,
-                        capabilities=excluded.capabilities,
-                        last_heartbeat=excluded.last_heartbeat,
-                        status=excluded.status
-                """, (client_id, device_name, ip_address, caps_str, time.time(), status))
+                cursor.execute("PRAGMA journal_mode=WAL;")
+                
+                if task_type == "telemetry":
+                    sensor_id, value, ts = data
+                    cursor.execute(
+                        "INSERT INTO telemetry (timestamp, sensor_id, value) VALUES (?, ?, ?)",
+                        (ts, sensor_id, value)
+                    )
+                elif task_type == "heartbeat":
+                    client_id, device_name, ip_address, caps_str, ts, status = data
+                    cursor.execute("""
+                        INSERT INTO nodes (client_id, device_name, ip_address, capabilities, last_heartbeat, status)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(client_id) DO UPDATE SET
+                            device_name=excluded.device_name,
+                            ip_address=excluded.ip_address,
+                            capabilities=excluded.capabilities,
+                            last_heartbeat=excluded.last_heartbeat,
+                            status=excluded.status
+                    """, (client_id, device_name, ip_address, caps_str, ts, status))
+                
                 conn.commit()
                 conn.close()
-            except Exception as e:
-                print(f"[MQTT Bridge Error] Failed to log node heartbeat: {e}", flush=True)
-                
-        threading.Thread(target=worker, daemon=True).start()
+            except Exception:
+                pass
+            finally:
+                self._db_queue.task_done()
+
+    def log_node_heartbeat(self, client_id, device_name, ip_address, capabilities, status="online"):
+        """Records node heartbeat, IP, and online state into persistent SQLite database via worker queue."""
+        import time
+        import json
+        now = time.time()
+        # Rate limit heartbeat updates to at most once every 5 seconds per client
+        if now - self._last_heartbeat_time.get(client_id, 0.0) < 5.0:
+            return
+        self._last_heartbeat_time[client_id] = now
+        
+        caps_str = json.dumps(capabilities) if not isinstance(capabilities, str) else capabilities
+        try:
+            self._db_queue.put_nowait(("heartbeat", (client_id, device_name, ip_address, caps_str, now, status)))
+        except Exception:
+            pass
 
     def log_to_db(self, sensor_id, value):
-        import sqlite3
+        """Pushes telemetry reading to worker queue for asynchronous SQLite persistence."""
         import time
-        import threading
-        
-        def worker():
-            try:
-                conn = sqlite3.connect(self.db_path)
-                cursor = conn.cursor()
-                cursor.execute(
-                    "INSERT INTO telemetry (timestamp, sensor_id, value) VALUES (?, ?, ?)",
-                    (time.time(), sensor_id, value)
-                )
-                conn.commit()
-                conn.close()
-            except Exception as e:
-                print(f"[MQTT Bridge Error] Failed to log to SQLite: {e}", flush=True)
-                
-        # Run in a background thread to prevent blocking
-        threading.Thread(target=worker, daemon=True).start()
+        try:
+            self._db_queue.put_nowait(("telemetry", (sensor_id, value, time.time())))
+        except Exception:
+            pass
 
     def get_historical_readings(self, sensor_id, limit=100):
         """Returns the latest historical readings for a sensor from the persistent database."""
         import sqlite3
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = sqlite3.connect(self.db_path, timeout=10.0)
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT timestamp, value FROM telemetry WHERE sensor_id = ? ORDER BY rowid DESC LIMIT ?",
@@ -377,6 +400,21 @@ class MQTTBridge:
                 sensor_id = "mq2"
                 
             if sensor_id:
+                # Automatically log node heartbeat whenever sensor telemetry arrives from an ESP32
+                node_client_id = "BUPI_ESP32_MQ2_NODE1"
+                node_device_name = "MQ2 Gas & LCD Display"
+                if topic.startswith("footmo2/"):
+                    parts = topic.split("/")
+                    if len(parts) >= 2:
+                        node_client_id = parts[1]
+                        node_device_name = f"ESP32 Node ({parts[1]})"
+                self.log_node_heartbeat(node_client_id, node_device_name, "192.168.0.107", ["Display", "Sensor"], "online")
+                try:
+                    from bupi_node_server import register_node, update_node_heartbeat
+                    update_node_heartbeat(node_client_id)
+                except Exception:
+                    pass
+
                 raw_val = None
                 try:
                     data = json.loads(payload)
@@ -458,92 +496,108 @@ class MQTTBridge:
                                     print(f"[MQTT Bridge] Auto-forwarding {sensor_id} -> LCD ({mode}): {lcd_msg}", flush=True)
                                     self.client.publish("bupi/actuators/lcd/cmd", lcd_msg)
                                     self.client.publish("bupi/nodes/desk_display/cmd", lcd_msg)
-                        
-                        # Direct display updates if only one sensor is active (zero latency)
-                        # Direct display updates if only one sensor is active (zero latency)
-                        if len(active_sensors) <= 1:
-                            if self._last_bridged.get("bupi/actuators/lcd/cmd") != lcd_msg:
-                                self._last_bridged["bupi/actuators/lcd/cmd"] = lcd_msg
-                                print(f"[MQTT Bridge] Auto-forwarding {sensor_id} -> LCD ({mode}): {lcd_msg}", flush=True)
-                                self.client.publish("bupi/actuators/lcd/cmd", lcd_msg)
                     
+            # Check if this incoming message was bridged by us to prevent infinite loopback
+            is_bridged_origin = False
+            try:
+                check_dict = json.loads(payload)
+                if isinstance(check_dict, dict) and check_dict.get("_origin") == "bupi_bridge":
+                    is_bridged_origin = True
+            except Exception:
+                pass
+
+            import time
+
             # 1. Bridge from FootMo2 ESP32 topic to Bupi state topic
             # Topic format: footmo2/<device_id>/sensor/<sensor_name> -> bupi/sensors/<sensor_name>/state
             if topic.startswith("footmo2/") and "/sensor/" in topic:
-                parts = topic.split("/")
-                if len(parts) >= 4:
-                    sensor_name = parts[3]
-                    target_topic = f"bupi/sensors/{sensor_name}/state"
-                    
-                    try:
-                        # Test if payload is already JSON (must be structured dict or list)
-                        parsed = json.loads(payload)
-                        if not isinstance(parsed, (dict, list)):
-                            raise ValueError()
+                if not is_bridged_origin:
+                    parts = topic.split("/")
+                    if len(parts) >= 4:
+                        sensor_name = parts[3]
+                        target_topic = f"bupi/sensors/{sensor_name}/state"
                         
-                        # Recursively convert string numbers to float/int to be robust
-                        def convert_numeric_strings(data):
-                            if isinstance(data, dict):
-                                return {k: convert_numeric_strings(v) for k, v in data.items()}
-                            elif isinstance(data, list):
-                                return [convert_numeric_strings(v) for v in data]
-                            elif isinstance(data, str):
-                                try:
-                                    if "." in data:
-                                        return float(data)
-                                    else:
-                                        return int(data)
-                                except ValueError:
-                                    return data
-                            return data
-                        
-                        parsed = convert_numeric_strings(parsed)
-                        target_payload = json.dumps(parsed)
-                    except Exception:
-                        # Try to cast payload to float or int first so JSON values are numerical
-                        val = payload
                         try:
-                            if "." in payload:
-                                val = float(payload)
-                            else:
-                                val = int(payload)
-                        except ValueError:
-                            pass
-                        # Otherwise wrap it in a clean JSON object
-                        target_payload = json.dumps({"value": val, "lpg": val, "reading": val})
+                            # Test if payload is already JSON (must be structured dict or list)
+                            parsed = json.loads(payload)
+                            if not isinstance(parsed, (dict, list)):
+                                raise ValueError()
+                            
+                            # Recursively convert string numbers to float/int to be robust
+                            def convert_numeric_strings(data):
+                                if isinstance(data, dict):
+                                    return {k: convert_numeric_strings(v) for k, v in data.items()}
+                                elif isinstance(data, list):
+                                    return [convert_numeric_strings(v) for v in data]
+                                elif isinstance(data, str):
+                                    try:
+                                        if "." in data:
+                                            return float(data)
+                                        else:
+                                            return int(data)
+                                    except ValueError:
+                                        return data
+                                return data
+                            
+                            parsed = convert_numeric_strings(parsed)
+                            if isinstance(parsed, dict):
+                                parsed["_origin"] = "bupi_bridge"
+                            target_payload = json.dumps(parsed)
+                        except Exception:
+                            # Try to cast payload to float or int first so JSON values are numerical
+                            val = payload
+                            try:
+                                if "." in payload:
+                                    val = float(payload)
+                                else:
+                                    val = int(payload)
+                            except ValueError:
+                                pass
+                            # Otherwise wrap it in a clean JSON object
+                            target_payload = json.dumps({"value": val, "lpg": val, "reading": val, "_origin": "bupi_bridge"})
+                            
+                        # Prevent duplicate loopback
+                        if self._last_bridged.get(target_topic) != target_payload:
+                            self._last_bridged[target_topic] = target_payload
+                            now = time.time()
+                            if now - self._last_log_time.get(target_topic, 0.0) >= 2.0:
+                                self._last_log_time[target_topic] = now
+                                print(f"[MQTT Bridge] Bridging FootMo2 -> Bupi: {topic} -> {target_topic} | {target_payload}", flush=True)
+                            self.client.publish(target_topic, target_payload, retain=True)
                         
-                    # Prevent duplicate loopback
-                    if self._last_bridged.get(target_topic) != target_payload:
-                        self._last_bridged[target_topic] = target_payload
-                        print(f"[MQTT Bridge] Bridging FootMo2 -> Bupi: {topic} -> {target_topic} | {target_payload}", flush=True)
-                        self.client.publish(target_topic, target_payload, retain=True)
-                    
             # 2. Bridge from Bupi state topic to FootMo2 sensor topic (for display / frontend visualization)
             # Topic format: bupi/sensors/<sensor_name>/state -> footmo2/esp32-001/sensor/<sensor_name>
             elif topic.startswith("bupi/sensors/") and topic.endswith("/state"):
-                parts = topic.split("/")
-                if len(parts) >= 3:
-                    sensor_name = parts[2]
-                    target_topic = f"footmo2/esp32-001/sensor/{sensor_name}"
-                    
-                    # Extract raw numerical reading from Bupi's JSON payload if present
-                    raw_val = payload
-                    try:
-                        data = json.loads(payload)
-                        if isinstance(data, dict):
-                            for key in ["value", "lpg", "reading", "val", "lpg_ppm"]:
-                                if key in data:
-                                    raw_val = str(data[key])
-                                    break
-                    except Exception:
-                        pass
+                if not is_bridged_origin:
+                    parts = topic.split("/")
+                    if len(parts) >= 3:
+                        sensor_name = parts[2]
+                        target_topic = f"footmo2/esp32-001/sensor/{sensor_name}"
                         
-                    # Prevent duplicate loopback
-                    if self._last_bridged.get(target_topic) != raw_val:
-                        self._last_bridged[target_topic] = raw_val
-                        print(f"[MQTT Bridge] Bridging Bupi -> FootMo2: {topic} -> {target_topic} | {raw_val}", flush=True)
-                        self.client.publish(target_topic, raw_val, retain=True)
-                    
+                        # Extract raw numerical reading from Bupi's JSON payload if present
+                        raw_val = payload
+                        try:
+                            data = json.loads(payload)
+                            if isinstance(data, dict):
+                                for key in ["value", "lpg", "reading", "val", "lpg_ppm"]:
+                                    if key in data:
+                                        raw_val = str(data[key])
+                                        break
+                                else:
+                                    data["_origin"] = "bupi_bridge"
+                                    raw_val = json.dumps(data)
+                        except Exception:
+                            pass
+                            
+                        # Prevent duplicate loopback
+                        if self._last_bridged.get(target_topic) != raw_val:
+                            self._last_bridged[target_topic] = raw_val
+                            now = time.time()
+                            if now - self._last_log_time.get(target_topic, 0.0) >= 2.0:
+                                self._last_log_time[target_topic] = now
+                                print(f"[MQTT Bridge] Bridging Bupi -> FootMo2: {topic} -> {target_topic} | {raw_val}", flush=True)
+                            self.client.publish(target_topic, raw_val, retain=True)
+                        
             # 3. Bridge LCD commands from Bupi to FootMo2 ESP32 command topic
             elif topic == "bupi/actuators/lcd/cmd" or topic == "bupi/nodes/desk_display/cmd":
                 target_topic = "footmo2/esp32-001/cmd"
@@ -551,7 +605,7 @@ class MQTTBridge:
                     self._last_bridged[target_topic] = payload
                     print(f"[MQTT Bridge] Bridging command: {topic} -> {target_topic} | {payload}", flush=True)
                     self.client.publish(target_topic, payload)
-                
+                    
         except Exception as e:
             print(f"[MQTT Bridge] Error in bridging message: {e}", flush=True)
 

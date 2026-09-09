@@ -6,6 +6,10 @@ import threading
 import faulthandler
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["OMP_NUM_THREADS"] = "1"
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -76,6 +80,8 @@ def on_mqtt_connect(client, userdata, flags, reason_code, properties):
     client.subscribe("bupi/internal/tts")
     client.subscribe("bupi/nodes/announce")
     client.subscribe("bupi/nodes/heartbeat")
+    client.subscribe("bupi/sensors/#")
+    client.subscribe("footmo2/#")
     client.subscribe("bwe/esp32/write/#")
     client.subscribe("bwe/esp32/stats")
 
@@ -97,6 +103,8 @@ def on_mqtt_message(client, userdata, msg):
             pass
     elif topic == "bupi/internal/tts":
         try:
+            global mode2_waiting_response
+            mode2_waiting_response = False
             payload = json.loads(msg.payload.decode())
             text = payload.get("text", "")
             if text:
@@ -120,6 +128,35 @@ def on_mqtt_message(client, userdata, msg):
                 update_node_heartbeat(node_id)
         except Exception as e:
             print(f"[Mode 1] Error parsing MQTT Node status/heartbeat: {e}", flush=True)
+    elif msg.topic.startswith("bupi/sensors/") or msg.topic.startswith("footmo2/"):
+        try:
+            from bupi_node_server import register_node, update_node_heartbeat
+            node_id = "BUPI_ESP32_MQ2_NODE1"
+            device = "MQ2 Gas & LCD Display"
+            if msg.topic.startswith("footmo2/"):
+                parts = msg.topic.split("/")
+                if len(parts) >= 2:
+                    node_id = parts[1]
+                    device = f"ESP32 Node ({parts[1]})"
+            register_node(node_id, "192.168.0.107", "MQTT", device, ["Display", "Sensor"], ["Telemetry", "Display"])
+            update_node_heartbeat(node_id)
+
+            # Persist directly into SQLite nodes table so Mode 1 always has real-time freshness
+            import sqlite3, time
+            db_file = os.path.join(os.path.dirname(__file__), "bupi_telemetry.db")
+            conn = sqlite3.connect(db_file)
+            c = conn.cursor()
+            c.execute("""
+                INSERT INTO nodes (client_id, device_name, ip_address, capabilities, last_heartbeat, status)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(client_id) DO UPDATE SET
+                    last_heartbeat=excluded.last_heartbeat,
+                    status='online'
+            """, (node_id, device, "192.168.0.107", '["Display", "Sensor"]', time.time(), "online"))
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
 
 try:
     mqtt_client.on_connect = on_mqtt_connect
@@ -129,8 +166,14 @@ try:
 except Exception as e:
     print(f"[Mode 1] Failed to start MQTT: {e}", flush=True)
 
+mode2_waiting_response = False
+mode2_utterance_epoch = 0
+
 def publish_to_mode2(text):
-    print(f"[Mode 1] Forwarding to Mode 2: '{text}'", flush=True)
+    global mode2_waiting_response, mode2_utterance_epoch
+    mode2_waiting_response = True
+    mode2_utterance_epoch += 1
+    print(f"[Mode 1] Forwarding to Mode 2 (epoch {mode2_utterance_epoch}): '{text}'", flush=True)
     mqtt_client.publish("bupi/internal/utterance", json.dumps({"text": text}))
 
 # -------------------------------------------------------------
@@ -148,8 +191,8 @@ def start_mode2_process():
         if sys.platform == "win32":
             try:
                 subprocess.run(
-                    'powershell -Command "Get-CimInstance Win32_Process -Filter \\"Name = \'python.exe\' AND CommandLine LIKE \'%run_mode2.py%\'\\" | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"',
-                    shell=True,
+                    ['powershell', '-NoProfile', '-Command', 
+                     "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*run_mode2.py*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL
                 )
@@ -161,10 +204,21 @@ def start_mode2_process():
         script_path = os.path.join(os.path.dirname(__file__), "run_mode2.py")
         print(f"[Mode 1] Spawning Mode 2 background process: {py_exe} {script_path}", flush=True)
         log_path = os.path.join(os.path.dirname(__file__), "mode2_log.txt")
+        # Rotate mode2_log.txt if it exceeds 5MB to prevent disk saturation
+        if os.path.exists(log_path) and os.path.getsize(log_path) > 5 * 1024 * 1024:
+            try:
+                with open(log_path, "w", encoding="utf-8") as f_rot:
+                    f_rot.write(f"--- Log rotated at {datetime.now()} ---\n")
+            except Exception:
+                pass
         log_file = open(log_path, "a", encoding="utf-8")
         log_file.write(f"\n--- Spawned at {datetime.now()} ---\n")
-        log_file.flush()
-        mode2_process = subprocess.Popen([py_exe, "-u", script_path], stdout=log_file, stderr=subprocess.STDOUT, close_fds=True)
+        sub_env = os.environ.copy()
+        sub_env["OPENBLAS_NUM_THREADS"] = "1"
+        sub_env["MKL_NUM_THREADS"] = "1"
+        sub_env["NUMEXPR_NUM_THREADS"] = "1"
+        sub_env["OMP_NUM_THREADS"] = "1"
+        mode2_process = subprocess.Popen([py_exe, "-u", script_path], stdout=log_file, stderr=subprocess.STDOUT, env=sub_env)
     except Exception as e:
         print(f"[Mode 1] Failed to spawn Mode 2 process: {e}", flush=True)
 
@@ -173,10 +227,13 @@ def auto_update_local_ip():
     import re
     
     try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        current_ip = s.getsockname()[0]
-        s.close()
+        # Check if Windows Mobile Hotspot (192.168.137.x) is active on this host
+        all_ips = socket.gethostbyname_ex(socket.gethostname())[2]
+        hotspot_ips = [ip for ip in all_ips if ip.startswith("192.168.137.")]
+        if hotspot_ips:
+            current_ip = hotspot_ips[0]
+        else:
+            current_ip = "192.168.137.1"
     except Exception:
         current_ip = "127.0.0.1"
         
@@ -273,8 +330,12 @@ def check_hold_or_resume(text: str) -> bool:
     clean = text.lower().replace(".", "").replace(",", "").replace("?", "").replace("!", "").strip()
     words = clean.split()
     
-    # Common names for Bupi
-    bupi_names = ["bupi", "boopi", "boopy", "buppi", "boopie", "bupis", "boopis", "bobi", "bobby", "boby"]
+    # Common names for Prag / Bupi
+    bupi_names = [
+        "prag", "pragg", "prak", "prog", "prague", "praag", "plag", "brag", "frag",
+        "bupi", "boopi", "boopy", "buppi", "boopie", "bupis", "boopis", "bobi", "bobby", "boby",
+        "bot", "robot"
+    ]
     has_bupi = any(w in words for w in bupi_names)
     
     # Hold keywords/phrases
@@ -330,19 +391,17 @@ def check_hold_or_resume(text: str) -> bool:
     return False
 
 # -------------------------------------------------------------
-# Inactivity Timer
+# Inactivity Timer (Gentle idle check - 10 minutes)
 # -------------------------------------------------------------
 inactivity_timer = QTimer()
-inactivity_timer.setInterval(60000) # 60 seconds
+inactivity_timer.setInterval(600000) # 10 minutes idle
 inactivity_timer.setSingleShot(True)
 
 def make_angry():
-    state_mgr.force("angry")
-    # Complain about being ignored instead of running
-    speaker.say("Why are you not talking to me?")
+    if conversation_mode and not on_hold:
+        state_mgr.transition("chilling")
 
 inactivity_timer.timeout.connect(make_angry)
-inactivity_timer.start()
 
 # IPC state observer
 def on_global_state_changed(state: str):
@@ -359,18 +418,15 @@ def start_listening():
         listener.start()
     else:
         listener.resume()
-    if state_mgr.current in ["idle", "happy", "cautious", "excited", "praise", "surprised"]:
-        if conversation_mode:
-            state_mgr.transition("listening")
 
 # Thinking Watchdog: Guarantees Bupi NEVER gets stuck in thinking state
 thinking_watchdog = QTimer()
-thinking_watchdog.setInterval(5000) # 5 seconds max thinking timeout
+thinking_watchdog.setInterval(25000) # 25 seconds max thinking timeout (allows local LLM / multi-step planning)
 thinking_watchdog.setSingleShot(True)
 
 def on_thinking_timeout():
     if state_mgr.current == "thinking":
-        print("[Watchdog] ⚠️ Thinking state timed out after 5s. Auto-recovering to idle...", flush=True)
+        print("[Watchdog] ⚠️ Thinking state timed out after 25s. Auto-recovering to idle...", flush=True)
         try:
             ai.interrupt()
         except Exception:
@@ -452,59 +508,81 @@ def on_transcription(text: str):
 
     if not text:
         state_mgr.transition("idle")
-        QTimer.singleShot(300, start_listening)
         return
 
     # Clear pending tasks if the user interrupts with a new command
     instruction_queue.clear()
 
-    if re.search(r"\b(exit|quit|goodbye|bye bupi)\b", text, re.I):
+    if re.search(r"\b(exit|quit|goodbye|bye bupi|bye prag)\b", text, re.I):
         conversation_mode = False
         speaker.say("Goodbye! See you next time.")
         QTimer.singleShot(2500, app.quit)
         return
 
-    if re.search(r"\b(stop|stop listening|okay let's stop it|stop it|that's all)\b", text, re.I):
+    # ONLY explicit conversation stop phrases toggle conversation mode off (NOT motor stop / halt commands!)
+    if re.search(r"\b(stop listening|stop conversation|go to sleep|sleep now|take a rest|that's all|that is all|okay let's stop it)\b", text, re.I):
         if conversation_mode:
             conversation_mode = False
             state_mgr.transition("talking")
             speaker.say("Okay, I'll be here if you need me.")
             return
 
-    # Mode 2 explicit toggles
-    if re.search(r"\b(?:shift|switch|change|enable|toggle|open|go)\s*(?:to|2|two)?\s*mode\s*(?:2|two|to|too)\b", text, re.I) or re.search(r"\bmode\s*(?:2|two|to|too)\b", text, re.I):
+    # Mode 2 explicit toggles (Generic & dynamic natural phrasing)
+    if re.search(r"\b(?:shift|switch|change|enable|toggle|open|go|turn|activate|start|enter)?\s*(?:in|into|to)?\s*mode\s*(?:to\s*)?(?:2|two|too)\b", text, re.I):
         mode2_active = True
         print(json.dumps({"type": "mode_changed", "value": 2}), flush=True)
+        print(json.dumps({"type": "mode-changed", "value": 2}), flush=True)
         state_mgr.transition("talking")
         speaker.say("Shifting to Mode 2. Robotic orchestration enabled.")
         return
 
-    if re.search(r"\b(?:shift|switch|change|enable|toggle|open|go)\s*(?:to|2|two)?\s*mode\s*(?:1|one|won)\b", text, re.I) or re.search(r"\bmode\s*(?:1|one|won)\b", text, re.I):
+    if re.search(r"\b(?:shift|switch|change|enable|toggle|open|go|turn|activate|start|enter)?\s*(?:in|into|to)?\s*mode\s*(?:to\s*)?(?:1|one|won)\b", text, re.I):
         mode2_active = False
         print(json.dumps({"type": "mode_changed", "value": 1}), flush=True)
+        print(json.dumps({"type": "mode-changed", "value": 1}), flush=True)
         state_mgr.transition("talking")
         speaker.say("Shifting to Mode 1. Conversation mode enabled.")
         return
 
-    
-    wake_words = r"\b(boopi|boopy|boopie|bupi|bupie|boupi|boby|booby|puppy|poopy)\b"
-    
+    wake_words = r"\b(prag|pragg|prak|prog|prague|praag|plag|brag|frag|boopi|boopy|boopie|bupi|bupie|boupi|boby|booby|puppy|poopy)\b"
+    bot_addressing = r"\b(the bot|the robot|bot|robot)\b"
+    has_wake = bool(re.search(wake_words, text, re.I))
+    has_bot = bool(re.search(bot_addressing, text, re.I))
+
+    # Direct autonomous mission, relative distance move, or emergency stop
+    is_direct_mission_or_estop = bool(
+        re.search(r"(\d+(?:\.\d+)?)\s*(?:cm|centimeter|centimeters|cms|m|meter|meters|inch|inches|mm|millimeters)\b", text, re.I) or
+        re.search(r"\b(scan the room|scan room|scan around|scan|sweep|search the room|search room|patrol|explore|emergency stop|e-stop|stop motors|halt|stop moving|stop driving|stop the robot|brake)\b", text, re.I)
+    )
+
+    # Check if fast-pass router recognizes a direct robotic command even without wake word
+    from agents.router_agent import router
+    has_robot_intent = (router.quick_regex_classify(text) is not None)
+
     if not conversation_mode:
-        if re.search(wake_words, text, re.I):
+        if has_wake or has_bot or mode2_active or is_direct_mission_or_estop or has_robot_intent:
             conversation_mode = True
             cleaned = re.sub(wake_words, "", text, flags=re.I).strip()
-            # Strip leading punctuation/commas that might break regex anchors
+            # If user said e.g. "robot, move forward", also strip "robot" if at start
+            cleaned = re.sub(r"^(?:the\s+)?(?:bot|robot)\b[:,]?\s*", "", cleaned, flags=re.I).strip()
+            # Strip leading punctuation/commas
             cleaned = re.sub(r"^[^\w]+", "", cleaned)
-            if len(cleaned) < 2 or re.match(r"^[^\w]*$", cleaned):
+            if len(cleaned) < 2 or re.match(r"^[^\w]*$", cleaned) or cleaned.lower() in ["hey", "hi", "hello", "ok", "okay"]:
                 state_mgr.transition("talking")
                 import random
-                speaker.say(random.choice(["Yes?", "I'm here.", "How can I help?"]))
+                speaker.say(random.choice(["Yes?", "I'm here, ready.", "How can I help you?"]))
                 return
             text = cleaned
         else:
             state_mgr.transition("idle")
-            QTimer.singleShot(300, start_listening)
             return
+    else:
+        # Already in conversation mode: strip wake word if repeated
+        if has_wake:
+            cleaned = re.sub(wake_words, "", text, flags=re.I).strip()
+            cleaned = re.sub(r"^[^\w]+", "", cleaned)
+            if cleaned:
+                text = cleaned
 
     # -------------------------------------------------------------
     # 1. Fast-Pass Deterministic Router (<1ms execution)
@@ -521,9 +599,13 @@ def on_transcription(text: str):
                 mission_text = payload.get("mission", text)
                 try:
                     from agents.autonomous_goal_agent import goal_agent
+                    # Wire direct speech callback for instant low-latency speech feedback
+                    goal_agent._tts_callback = lambda t: m2_bridge.do_speak.emit(t)
                     state_mgr.force("thinking")
                     res = goal_agent.start_mission(mission_text)
                     print(f"[Main Mission] {res}", flush=True)
+                    if "already running" in res:
+                        speaker.say(res)
                 except Exception as me:
                     speaker.say(f"Could not start autonomous mission: {me}")
                 return
@@ -561,6 +643,18 @@ def on_transcription(text: str):
                     speaker.say(f"Could not retrieve mission report: {me}")
                 return
 
+            elif itype == "edge_avoid_mode":
+                enabled = payload.get("enabled", True)
+                payload_json = json.dumps({"action": "auto_avoid", "enabled": enabled})
+                mqtt_client.publish("bupi/actuators/motors/cmd/json", payload_json)
+                if enabled:
+                    state_mgr.force("excited")
+                    speaker.say("Edge obstacle avoidance enabled. Navigating on ESP32.")
+                else:
+                    state_mgr.force("idle")
+                    speaker.say("Obstacle avoidance disabled. Standby.")
+                return
+
             elif itype == "hardware_intent":
                 dev = payload.get("device")
                 action = payload.get("action")
@@ -571,14 +665,17 @@ def on_transcription(text: str):
                         try:
                             from agents.autonomous_goal_agent import goal_agent
                             if goal_agent.is_running:
-                                goal_agent.stop_mission()
+                                goal_agent.stop_mission(reason="Voice Stop")
                         except Exception:
                             pass
                         mqtt_client.publish("bupi/actuators/motors/cmd", "stop")
+                        send_to_esp32("stop")
+                        mqtt_client.publish("bupi/actuators/motors/cmd/json", json.dumps({"action": "auto_avoid", "enabled": False}))
                         state_mgr.force("cautious")
                         speaker.say("Emergency stop triggered. Motors halted.")
                     else:
                         mqtt_client.publish("bupi/actuators/motors/cmd", direction)
+                        send_to_esp32(direction)
                         state_mgr.force("excited")
                         speaker.say(f"Driving {direction}.")
                     return
@@ -624,36 +721,19 @@ def on_transcription(text: str):
                     res_json = json.loads(res_str)
                     nodes_list = res_json.get("connected_nodes", [])
                     state_mgr.force("talking")
-                    if nodes_list:
+                    online_nodes = [n for n in nodes_list if n.get("status") == "ONLINE"]
+                    if online_nodes:
+                        first_dev = online_nodes[0].get("device_name", "ESP32")
+                        first_ip = online_nodes[0].get("ip_address", "")
+                        ip_phrase = f" at IP {first_ip}" if first_ip and first_ip != "unknown" else ""
+                        speaker.say(f"Yes! An ESP32 is online and connected. {first_dev}{ip_phrase}.")
+                    elif nodes_list:
                         first_dev = nodes_list[0].get("device_name", "ESP32")
-                        first_ip = nodes_list[0].get("ip_address", "")
-                        status = nodes_list[0].get("status", "ONLINE")
-                        speaker.say(f"ESP32 is {status}. {first_dev} at IP {first_ip}.")
+                        speaker.say(f"The ESP32 node {first_dev} is registered, but it hasn't sent a heartbeat recently.")
                     else:
-                        speaker.say("No active ESP32 nodes found yet. Waiting for heartbeat.")
+                        speaker.say("No ESP32 nodes are currently connected on the network.")
                 except Exception as e:
                     speaker.say(f"Node query failed: {e}")
-                return
-
-            elif itype == "mission_report_query":
-                try:
-                    from agents.autonomous_goal_agent import goal_agent
-                    report = goal_agent.get_latest_mission_report()
-                    state_mgr.force("talking")
-                    if report:
-                        p_type = report.get("project_type", "General")
-                        status = report.get("status", "completed")
-                        dur = report.get("duration_seconds", 0)
-                        obstacles = report.get("obstacles_avoided", 0)
-                        target_str = "target was verified" if report.get("target_found") else "no target confirmed"
-                        msg = f"Last mission was {p_type}. Status {status} in {dur} seconds. Avoided {obstacles} obstacles, and {target_str}. Check your Missions Hub for the full debrief card."
-                        speaker.say(msg)
-                    else:
-                        speaker.say("No completed mission debriefs found in the log yet. Ready to launch one!")
-                    # Switch Bupi Hub to Missions tab
-                    print(json.dumps({"type": "notepad_switch_tab", "value": "panel-missions"}), flush=True)
-                except Exception as me:
-                    speaker.say(f"Could not load mission debrief: {me}")
                 return
     except Exception as router_err:
         print(f"[Main Router Error] {router_err}", flush=True)
@@ -661,12 +741,28 @@ def on_transcription(text: str):
     # -------------------------------------------------------------
     # 2. General Query Routing (Local Orchestrator vs AI Companion)
     # -------------------------------------------------------------
-    hw_keywords = ["relay", "motor", "sensor", "telemetry", "robot", "crawl", "esp32", "lcd", "display on screen", "world state", "mission", "patrol", "human", "search room", "explore"]
+    hw_keywords = [
+        "relay", "motor", "sensor", "telemetry", "robot", "crawl", "esp32", "lcd",
+        "display on screen", "world state", "mission", "patrol", "human", "search room",
+        "explore", "forward", "backward", "reverse", "turn", "left", "right", "drive",
+        "walk", "move", "go", "stop", "heading", "degree", "degrees", "obstacle",
+        "distance", "motion", "tilt", "navigate", "spin", "rotate", "step", "perimeter"
+    ]
     is_hw_query = any(k in text.lower() for k in hw_keywords)
 
     if mode2_active or is_hw_query:
-        # Route to Mode 2 / Local Orchestrator
+        # Forward exclusively to Mode 2 background runner via MQTT (eliminating double execution)
         publish_to_mode2(text)
+        epoch_snap = mode2_utterance_epoch
+
+        # Watchdog: If Mode 2 does not return a spoken response within 7.0s, fall back to AI Companion
+        def mode2_fallback_watchdog(snap):
+            time.sleep(7.0)
+            if mode2_waiting_response and mode2_utterance_epoch == snap:
+                print(f"[Mode 1 Watchdog] Mode 2 background process took >7s. Falling back to AI companion.", flush=True)
+                ai.ask(text)
+
+        threading.Thread(target=mode2_fallback_watchdog, args=(epoch_snap,), daemon=True).start()
     else:
         # Route to Mode 1
         ai.ask(text)
@@ -842,7 +938,8 @@ def analyze_sentiment(text: str) -> str:
     return "idle"
 
 def on_speech_finished():
-    setattr(listener, "is_speaking", False)
+    # Allow 350ms acoustic cooldown for speaker room echo to settle before unmuting VAD
+    QTimer.singleShot(350, lambda: setattr(listener, "is_speaking", False))
     if instruction_queue:
         state_mgr.transition("idle")
         QTimer.singleShot(200, process_next_instruction)
@@ -863,13 +960,15 @@ def on_speech_finished():
 
 speaker.speech_started.connect(lambda: (
     thinking_watchdog.stop(),
-    setattr(listener, "is_speaking", True)
+    setattr(listener, "is_speaking", True),
+    state_mgr.force("talking")
 ))
 speaker.speech_finished.connect(on_speech_finished)
 speaker.error_occurred.connect(lambda e: (
     print(json.dumps({"type": "log", "message": f"[TTS Error] {e}"}), flush=True),
     setattr(listener, "is_speaking", False),
-    state_mgr.force("idle")
+    state_mgr.force("idle"),
+    start_listening()
 ))
 
 # -------------------------------------------------------------
@@ -1128,19 +1227,21 @@ def startup_sequence():
     # Run key check asynchronously 5 seconds after boot
     QTimer.singleShot(5000, ai.check_api_keys)
 
-    welcome_speech = f"Hi {user_name}, I have some notifications and I have summarized what you have got. I also checked your LinkedIn and WhatsApp and gave you a quick summary of all the stuff."
+    welcome_speech = f"Hey {user_name}! Prag is ready."
     speaker.say(welcome_speech)
     def on_startup_finished():
         state_mgr.force("idle")
-        QTimer.singleShot(300, start_listening)
 
     speaker.speech_finished.connect(
         on_startup_finished,
         Qt.ConnectionType.SingleShotConnection if hasattr(Qt, 'ConnectionType') else 1
     )
+    
+    # Arm listener immediately on startup so user NEVER has to wait through idleness
+    QTimer.singleShot(300, start_listening)
 
 if "--lab-mode" not in sys.argv:
-    QTimer.singleShot(800, startup_sequence)
+    QTimer.singleShot(300, startup_sequence)
 
 def shutdown():
     global mode2_process

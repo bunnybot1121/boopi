@@ -41,6 +41,7 @@ import config
 ELEVENLABS_API_KEY = getattr(config, "ELEVENLABS_API_KEY", "")
 ELEVENLABS_VOICE_ID = getattr(config, "ELEVENLABS_VOICE_ID", "")
 TTS_VOICE = getattr(config, "TTS_VOICE", "en-US-AnaNeural")
+USE_CLOUD_TTS = getattr(config, "USE_CLOUD_TTS", False)
 
 # -------------------------------------------------------------
 # Helpers
@@ -137,6 +138,15 @@ class SpeakerThread(QThread):
         self.player.mediaStatusChanged.connect(self._on_media_status_changed)
         self.player.errorOccurred.connect(self._on_error)
         
+        # Clean up any leftover temp audio files from previous sessions
+        try:
+            for f in os.listdir('.'):
+                if f.startswith('temp_speech_') and (f.endswith('.mp3') or f.endswith('.wav')):
+                    try: os.remove(f)
+                    except: pass
+        except Exception:
+            pass
+
         # Start background synthesis loop
         self._synthesis_thread = threading.Thread(target=self._synthesis_loop, daemon=True)
         self._synthesis_thread.start()
@@ -160,12 +170,13 @@ class SpeakerThread(QThread):
             self.interrupt()
             
         sentences = split_into_sentences(text)
+        is_streaming = not interrupt
         with self._lock:
             for sentence in sentences:
                 clean_text = make_fluent(strip_emojis(sentence))
                 if not any(c.isalnum() for c in clean_text):
                     continue
-                self._text_queue.put((sentence, self._epoch))
+                self._text_queue.put((sentence, self._epoch, is_streaming))
 
     def interrupt(self):
         with self._lock:
@@ -280,6 +291,13 @@ class SpeakerThread(QThread):
                     os.remove(temp_path)
                 except Exception as e:
                     log.warning(f"Could not remove temp audio file {temp_path}: {e}")
+                
+                # If a .wav fallback was played, also ensure any companion 0-byte .mp3 is cleaned up
+                if temp_path.endswith(".wav"):
+                    companion_mp3 = temp_path[:-4] + ".mp3"
+                    if os.path.exists(companion_mp3):
+                        try: os.remove(companion_mp3)
+                        except: pass
                     
             # Check if this was the last item for this epoch
             with self._lock:
@@ -292,26 +310,60 @@ class SpeakerThread(QThread):
             if item is None:
                 break
                 
-            text, epoch = item
+            if len(item) == 3:
+                text, epoch, is_streaming = item
+            else:
+                text, epoch = item
+                is_streaming = False
+
             with self._lock:
                 if epoch != self._epoch or self._exit_flag:
                     continue
 
-            # 0. Check 0-ms Pre-rendered Voice Cache
-            cached_file = get_cached_voice_file(text)
-            if cached_file:
-                log.info(f"0-ms Voice Cache HIT: '{text}' -> {os.path.basename(cached_file)}")
-                with self._lock:
-                    if epoch == self._epoch and not self._exit_flag:
-                        self._play_queue.put((cached_file, text, epoch))
-                continue
+            # 0. Check 0-ms Pre-rendered Voice Cache (only for standalone commands/greetings, never mid-stream)
+            if not is_streaming:
+                cached_file = get_cached_voice_file(text)
+                if cached_file:
+                    log.info(f"0-ms Voice Cache HIT: '{text}' -> {os.path.basename(cached_file)}")
+                    with self._lock:
+                        if epoch == self._epoch and not self._exit_flag:
+                            self._play_queue.put((cached_file, text, epoch))
+                    continue
                 
             self._chunk_counter += 1
             temp_path = os.path.abspath(f"temp_speech_{self._chunk_counter}.mp3")
             
             # 1. Synthesize TTS
             async def generate_tts(text_val, path_val):
-                # 1. ElevenLabs Synthesis (Optional override)
+                nonlocal temp_path
+                tts_text = strip_emojis(text_val)
+                fluent_text = make_fluent(tts_text)
+
+                # 0. 100% Local Offline Windows SAPI Speech (Zero Cloud, Zero Network, ~100ms)
+                if not USE_CLOUD_TTS:
+                    try:
+                        import win32com.client
+                        sapi_path = path_val[:-4] + ".wav" if path_val.endswith(".mp3") else path_val
+                        speaker_obj = win32com.client.Dispatch("SAPI.SpVoice")
+                        for v in speaker_obj.GetVoices():
+                            desc = v.GetDescription().lower()
+                            if "zira" in desc or "female" in desc or "eva" in desc or "hazel" in desc:
+                                speaker_obj.Voice = v
+                                break
+                        stream = win32com.client.Dispatch("SAPI.SpFileStream")
+                        stream.Open(sapi_path, 3, False)
+                        speaker_obj.AudioOutputStream = stream
+                        speaker_obj.Speak(fluent_text)
+                        stream.Close()
+                        if os.path.exists(sapi_path) and os.path.getsize(sapi_path) > 500:
+                            temp_path = sapi_path
+                            log.info(f"Local SAPI speech generated (100% offline): {os.path.basename(sapi_path)}")
+                            return
+                    except Exception as sapi_err:
+                        log.error(f"Local SAPI synthesis error: {sapi_err}")
+                        raise sapi_err
+
+                # 1. ElevenLabs Synthesis (Optional override if cloud enabled)
                 if ELEVENLABS_API_KEY:
                     try:
                         voice_id = ELEVENLABS_VOICE_ID or "jUjRbhZWoMK4aDciW36V"
@@ -360,66 +412,73 @@ class SpeakerThread(QThread):
                     except Exception as ex:
                         log.error(f"ElevenLabs synthesis failed: {ex}. Falling back to edge-tts.")
 
-                # 2. Edge-TTS fallback
+                # 2. Resilient Edge-TTS Synthesis with Multi-Attempt Retry Loop
+                # Strictly lock voice identity and acoustic parameters across all sentences
                 voice = TTS_VOICE or 'en-US-AnaNeural'
-                
-                # Check for Devanagari (Hindi) script - forced to False for voice stabilization
-                is_hindi = False
-                if is_hindi:
-                    if not voice.startswith("hi-IN"):
-                        if "guy" in voice.lower() or "male" in voice.lower() or ("sonia" not in voice.lower() and "ana" not in voice.lower() and "jenny" not in voice.lower()):
-                            voice = "hi-IN-MadhurNeural"
-                        else:
-                            voice = "hi-IN-SwaraNeural"
-                    rate = "+0%"
-                    pitch = "+15Hz"
-                else:
-                    if "neerja" in voice.lower() or "jenny" in voice.lower():
-                        rate = "+0%"
-                        if "neerja" in voice.lower():
-                            pitch = "-2Hz"
-                        else:
-                            pitch = "+0Hz"
-                    elif voice.startswith("hi-IN"):
-                        rate = "+0%"
-                        pitch = "+15Hz"
-                    else:
-                        rate = "+0%"
-                        pitch = "+10Hz"
+                rate = "+0%"
+                pitch = "+10Hz"
                 
                 tts_text = strip_emojis(text_val)
                 fluent_text = make_fluent(tts_text)
                 
-                try:
-                    communicate = edge_tts.Communicate(fluent_text, voice, rate=rate, pitch=pitch)
-                    # 10.0s network timeout ensures edge-tts has ample time to synthesize full sentences without premature fallback
-                    await asyncio.wait_for(communicate.save(path_val), timeout=10.0)
-                except Exception as edge_err:
-                    log.warning(f"Edge-TTS unavailable or slow ({edge_err}). Falling back to offline Windows SAPI speech...")
+                max_retries = 3
+                edge_success = False
+                last_edge_err = None
+                
+                for attempt in range(1, max_retries + 1):
                     try:
-                        import win32com.client
-                        sapi_path = path_val[:-4] + ".wav" if path_val.endswith(".mp3") else path_val
-                        speaker_obj = win32com.client.Dispatch("SAPI.SpVoice")
-                        # Explicitly select a female voice (e.g. Microsoft Zira) so voice character remains consistent
-                        try:
-                            for v in speaker_obj.GetVoices():
-                                desc = v.GetDescription().lower()
-                                if "zira" in desc or "female" in desc or "eva" in desc or "hazel" in desc:
-                                    speaker_obj.Voice = v
-                                    break
-                        except Exception as v_err:
-                            log.warning(f"Could not set female SAPI voice: {v_err}")
-                        stream = win32com.client.Dispatch("SAPI.SpFileStream")
-                        stream.Open(sapi_path, 3, False)
-                        speaker_obj.AudioOutputStream = stream
-                        speaker_obj.Speak(fluent_text)
-                        stream.Close()
-                        if os.path.exists(sapi_path):
-                            nonlocal temp_path
-                            temp_path = sapi_path
-                    except Exception as sapi_err:
-                        log.error(f"Offline SAPI fallback failed: {sapi_err}")
-                        raise sapi_err
+                        # Clean up any partial/stale file before each attempt
+                        if os.path.exists(path_val):
+                            try: os.remove(path_val)
+                            except: pass
+                            
+                        communicate = edge_tts.Communicate(fluent_text, voice, rate=rate, pitch=pitch)
+                        await asyncio.wait_for(communicate.save(path_val), timeout=12.0)
+                        
+                        if os.path.exists(path_val) and os.path.getsize(path_val) > 500:
+                            edge_success = True
+                            break
+                        else:
+                            if os.path.exists(path_val):
+                                try: os.remove(path_val)
+                                except: pass
+                            raise RuntimeError(f"Edge-TTS produced invalid/empty audio file")
+                    except Exception as edge_err:
+                        last_edge_err = edge_err
+                        if os.path.exists(path_val):
+                            try: os.remove(path_val)
+                            except: pass
+                        if attempt < max_retries:
+                            log.warning(f"Edge-TTS attempt {attempt}/{max_retries} failed ({edge_err}). Retrying in {0.25 * attempt}s...")
+                            await asyncio.sleep(0.25 * attempt)
+                
+                if edge_success:
+                    return
+
+                # 3. Emergency Offline SAPI fallback (only as absolute last resort when offline)
+                log.warning(f"Edge-TTS unavailable after {max_retries} attempts ({last_edge_err}). Falling back to offline Windows SAPI speech...")
+                try:
+                    import win32com.client
+                    sapi_path = path_val[:-4] + ".wav" if path_val.endswith(".mp3") else path_val
+                    speaker_obj = win32com.client.Dispatch("SAPI.SpVoice")
+                    try:
+                        for v in speaker_obj.GetVoices():
+                            desc = v.GetDescription().lower()
+                            if "zira" in desc or "female" in desc or "eva" in desc or "hazel" in desc:
+                                speaker_obj.Voice = v
+                                break
+                    except Exception as v_err:
+                        log.warning(f"Could not set female SAPI voice: {v_err}")
+                    stream = win32com.client.Dispatch("SAPI.SpFileStream")
+                    stream.Open(sapi_path, 3, False)
+                    speaker_obj.AudioOutputStream = stream
+                    speaker_obj.Speak(fluent_text)
+                    stream.Close()
+                    if os.path.exists(sapi_path) and os.path.getsize(sapi_path) > 500:
+                        temp_path = sapi_path
+                except Exception as sapi_err:
+                    log.error(f"Offline SAPI fallback failed: {sapi_err}")
+                    raise sapi_err
 
             try:
                 # Run async save in background thread sync loop
