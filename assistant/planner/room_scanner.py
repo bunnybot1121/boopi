@@ -59,7 +59,7 @@ class RoomScanner:
     def __init__(
         self,
         min_human_dist_cm: float = 20.0,
-        max_human_dist_cm: float = 250.0
+        max_human_dist_cm: float = 380.0
     ):
         self.min_dist = min_human_dist_cm
         self.max_dist = max_human_dist_cm
@@ -88,7 +88,7 @@ class RoomScanner:
         if is_warm and has_echo:
             epistemic = "POSSIBLE_HUMAN_CORRIDOR"
         elif is_warm and not has_echo:
-            epistemic = "THERMAL_FLUX_OFF_AXIS"
+            epistemic = "THERMAL_HUMAN_PRESENCE"
         elif not is_warm and distance_cm < 100.0:
             epistemic = "INANIMATE_OBSTACLE"
         else:
@@ -136,23 +136,20 @@ class RoomScanner:
                 targets=[]
             )
 
-        # Find candidates where both PIR detected thermal flux and Ultrasonic reflected echo
-        positive_candidates = [
-            s for s in self.samples
-            if s.is_warm_motion and (self.min_dist <= s.distance_cm <= self.max_dist)
-        ]
+        # Collect candidates where PIR detected human thermal flux (infrared motion)
+        candidates = [s for s in self.samples if s.is_warm_motion]
 
-        if positive_candidates:
+        if candidates:
             # 1. Sort candidates by heading angle (0 to 360)
-            sorted_candidates = sorted(positive_candidates, key=lambda s: s.heading_deg)
+            sorted_candidates = sorted(candidates, key=lambda s: s.heading_deg)
             raw_clusters: List[List[ScanSectorSample]] = []
             curr_cluster: List[ScanSectorSample] = [sorted_candidates[0]]
 
-            # Group samples into raw angular sectors (gap <= 30 deg of clear space)
+            # Group samples into raw angular sectors (gap <= 35 deg of clear space)
             for s in sorted_candidates[1:]:
                 prev_h = curr_cluster[-1].heading_deg
                 diff = (s.heading_deg - prev_h) % 360.0
-                if diff <= 30.0:
+                if diff <= 35.0:
                     curr_cluster.append(s)
                 else:
                     raw_clusters.append(curr_cluster)
@@ -163,18 +160,18 @@ class RoomScanner:
             # 2. Circular wrap-around merge across 359° and 0°
             if len(raw_clusters) > 1:
                 wrap_gap = (raw_clusters[0][0].heading_deg - raw_clusters[-1][-1].heading_deg) % 360.0
-                if wrap_gap <= 30.0:
+                if wrap_gap <= 35.0:
                     raw_clusters[0] = raw_clusters[-1] + raw_clusters[0]
                     raw_clusters.pop()
 
-            # 3. Adjacent cluster consolidation (merge body/posture fragments with gap <= 20°)
+            # 3. Adjacent cluster consolidation (merge body/posture fragments with gap <= 25°)
             merged_clusters: List[List[ScanSectorSample]] = []
             ci = 0
             while ci < len(raw_clusters):
                 c = raw_clusters[ci]
                 while ci + 1 < len(raw_clusters):
                     gap = (raw_clusters[ci+1][0].heading_deg - c[-1].heading_deg) % 360.0
-                    if gap <= 20.0:
+                    if gap <= 25.0:
                         c = c + raw_clusters[ci+1]
                         ci += 1
                     else:
@@ -182,21 +179,34 @@ class RoomScanner:
                 merged_clusters.append(c)
                 ci += 1
 
-            # 4. Filter out transient acoustic noise (require at least 2 contiguous/valid samples)
+            # 4. Form detected human targets with dual sensor fusion (IR presence + acoustic ranging)
             detected_targets: List[Dict[str, Any]] = []
+            
+            # If multiple clusters exist, allow filtering single-sample glitches only if larger clusters exist
+            has_multi_sample = any(len(cl) >= 2 for cl in merged_clusters)
+            
             for cl in merged_clusters:
-                # Reject single-sample glitches/spikes
-                if len(cl) < 2:
+                if has_multi_sample and len(cl) < 2:
                     continue
 
-                cl_by_dist = sorted(cl, key=lambda s: s.distance_cm)
-                med_sample = cl_by_dist[len(cl_by_dist) // 2]
+                # Check for acoustic echoes within human reflection range
+                valid_echoes = [s.distance_cm for s in cl if self.min_dist <= s.distance_cm <= self.max_dist]
+                if valid_echoes:
+                    valid_echoes.sort()
+                    # Foreground human reflection in the detected angular corridor
+                    dist_cm = valid_echoes[0]
+                    dist_m = round(dist_cm / 100.0, 2)
+                    has_acoustic = True
+                else:
+                    # Ultrasound timed out or absorbed by clothing; maintain safe human standoff distance
+                    dist_cm = 220.0
+                    dist_m = 2.20
+                    has_acoustic = False
+
                 headings = [s.heading_deg for s in cl]
                 center_heading = headings[len(headings) // 2]
-
-                dist_cm = med_sample.distance_cm
-                dist_m = round(dist_cm / 100.0, 2)
-                rel_bearing = med_sample.relative_bearing_deg
+                rel_bearings = [s.relative_bearing_deg for s in cl]
+                rel_bearing = rel_bearings[len(rel_bearings) // 2]
 
                 if abs(rel_bearing) <= 15.0:
                     direction_str = f"Directly ahead (bearing {rel_bearing:+.0f}°)"
@@ -208,7 +218,12 @@ class RoomScanner:
                     direction_str = f"{abs(rel_bearing):.0f}° to your left"
                     relative_text = f"approximately {abs(rel_bearing):.0f} degrees to your left"
 
-                conf = "HIGH" if len(cl) >= 4 else "MEDIUM"
+                if has_acoustic and len(cl) >= 3:
+                    conf = "HIGH"
+                elif has_acoustic or len(cl) >= 2:
+                    conf = "MEDIUM"
+                else:
+                    conf = "LOW"
 
                 target_dict = {
                     "target_id": len(detected_targets) + 1,
@@ -219,23 +234,27 @@ class RoomScanner:
                     "direction_description": direction_str,
                     "relative_text": relative_text,
                     "confidence": conf,
-                    "sample_count": len(cl)
+                    "sample_count": len(cl),
+                    "acoustic_confirmed": has_acoustic
                 }
                 detected_targets.append(target_dict)
 
-            # Fallback if all were single-sample noise but positive candidates exist
-            if not detected_targets and positive_candidates:
-                best_s = sorted(positive_candidates, key=lambda s: s.distance_cm)[0]
+            # Fallback if all were dropped
+            if not detected_targets and candidates:
+                best_s = candidates[0]
+                has_ac = (self.min_dist <= best_s.distance_cm <= self.max_dist)
+                d_cm = best_s.distance_cm if has_ac else 220.0
                 detected_targets.append({
                     "target_id": 1,
-                    "distance_m": round(best_s.distance_cm / 100.0, 2),
-                    "distance_cm": best_s.distance_cm,
+                    "distance_m": round(d_cm / 100.0, 2),
+                    "distance_cm": d_cm,
                     "relative_bearing_deg": best_s.relative_bearing_deg,
                     "absolute_heading_deg": best_s.heading_deg,
                     "direction_description": "Nearby target",
                     "relative_text": "in room",
                     "confidence": "LOW",
-                    "sample_count": 1
+                    "sample_count": 1,
+                    "acoustic_confirmed": has_ac
                 })
 
             people_count = len(detected_targets)
@@ -244,21 +263,27 @@ class RoomScanner:
             # Generate natural language verbal debrief
             if people_count == 1:
                 p = primary_target
+                if p.get("acoustic_confirmed", False):
+                    dist_phrase = f"approximately {p['distance_m']} meters away"
+                else:
+                    dist_phrase = "located in the room"
+
                 if is_count_query:
                     verbal_report = (
                         f"Scan complete across 360 degrees. I found 1 person in the room, "
-                        f"located approximately {p['distance_m']} meters away, {p['relative_text']} at heading {p['absolute_heading_deg']:.0f} degrees."
+                        f"{dist_phrase}, {p['relative_text']} at heading {p['absolute_heading_deg']:.0f} degrees."
                     )
                 else:
                     verbal_report = (
-                        f"Scan complete. Possible human presence detected approximately {p['distance_m']} meters away, "
+                        f"Scan complete. Possible human presence detected {dist_phrase}, "
                         f"{p['relative_text']} at heading {p['absolute_heading_deg']:.0f} degrees."
                     )
             else:
                 target_summaries = []
                 for t in detected_targets:
+                    dist_str = f"at {t['distance_m']} meters" if t.get("acoustic_confirmed", False) else "in corridor"
                     target_summaries.append(
-                        f"Person {t['target_id']} at {t['distance_m']} meters, {t['relative_text']}"
+                        f"Person {t['target_id']} {dist_str}, {t['relative_text']}"
                     )
                 summary_text = "; ".join(target_summaries)
                 verbal_report = (
@@ -266,9 +291,9 @@ class RoomScanner:
                 )
 
             ladder = {
-                "observation": f"PIR=HIGH across {len(positive_candidates)} samples; {people_count} angular clusters identified",
-                "measurement": f"Count={people_count}; Primary Target Distance={primary_target['distance_m']}m; Bearing={primary_target['relative_bearing_deg']:+.1f}°",
-                "interpretation": f"{people_count} distinct warm moving thermal corridors detected via acoustic-IR triangulation",
+                "observation": f"PIR=HIGH across {len(candidates)} samples; {people_count} angular clusters identified",
+                "measurement": f"Count={people_count}; Primary Target Bearing={primary_target['relative_bearing_deg']:+.1f}°; Distance={primary_target['distance_m']}m",
+                "interpretation": f"{people_count} distinct warm human thermal corridors detected via IR flux triangulation",
                 "inference": f"Estimated {people_count} human target(s) localized in environment",
                 "decision": "STOP_AND_REPORT",
                 "action": "EMIT_DATA_REPORT",
@@ -293,25 +318,15 @@ class RoomScanner:
             )
 
         else:
-            # Check if PIR detected heat flux without direct acoustic echo
-            pir_only = [s for s in self.samples if s.is_warm_motion]
-            if pir_only:
-                rel_bearing = pir_only[0].relative_bearing_deg
-                verbal_report = (
-                    f"Scan complete. Infrared thermal motion detected near bearing {rel_bearing:+.0f}°, "
-                    "but outside acoustic reflection range. Estimated 0 confirmed people."
-                )
-                conf = "LOW"
-            else:
-                verbal_report = (
-                    "Scan complete across 360 degrees. I found 0 people. No human presence or thermal motion detected in the room."
-                    if is_count_query else
-                    "Scan complete. No human presence or thermal motion detected across 360 degrees."
-                )
-                conf = "NONE"
+            verbal_report = (
+                "Scan complete across 360 degrees. I found 0 people. No human presence or thermal motion detected in the room."
+                if is_count_query else
+                "Scan complete. No human presence or thermal motion detected across 360 degrees."
+            )
+            conf = "NONE"
 
             ladder = {
-                "observation": f"360-degree sweep: PIR={len(pir_only)} triggers, Ultrasonic clear",
+                "observation": "360-degree sweep: PIR=0 triggers across all sectors",
                 "measurement": f"Total samples={len(self.samples)}; Sweep duration={duration_seconds:.1f}s",
                 "interpretation": "Environment clear of warm targets within sensing corridor",
                 "inference": "0 people verified in immediate room range",

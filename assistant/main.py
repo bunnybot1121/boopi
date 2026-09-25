@@ -3,6 +3,8 @@ import os
 import re
 import json
 import threading
+import time
+import traceback
 import faulthandler
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -15,9 +17,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 faulthandler.enable()
-faulthandler.enable()
 
 from logger import crash_log
+
+def _global_excepthook(exc_type, exc_value, exc_traceback):
+    err_msg = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+    crash_log(f"CRITICAL UNHANDLED EXCEPTION:\n{err_msg}")
+    print(f"[Engine Fatal Error]\n{err_msg}", file=sys.stderr, flush=True)
+
+sys.excepthook = _global_excepthook
 
 crash_log("=== Python engine starting ===")
 
@@ -61,6 +69,32 @@ daily_briefing = DailyBriefingService(ai, speaker)
 conversation_mode = True
 mode2_active = False
 on_hold = False
+
+# Check command line flags for initial mode
+if "--mode" in sys.argv:
+    try:
+        m_idx = sys.argv.index("--mode")
+        if m_idx + 1 < len(sys.argv):
+            boot_m = int(sys.argv[m_idx + 1])
+            mode2_active = (boot_m == 2)
+    except Exception:
+        pass
+elif "--robot" in sys.argv or "--mode2" in sys.argv:
+    mode2_active = True
+
+def set_active_mode(target_mode: int, notify_speaker: bool = True):
+    global mode2_active
+    mode_num = 2 if target_mode == 2 else 1
+    mode2_active = (mode_num == 2)
+    print(f"[Mode Manager] Active Mode set to Mode {mode_num} (Robotic: {mode2_active})", flush=True)
+    print(json.dumps({"type": "mode_changed", "value": mode_num}), flush=True)
+    print(json.dumps({"type": "mode-changed", "value": mode_num}), flush=True)
+    if notify_speaker:
+        state_mgr.transition("talking")
+        if mode_num == 2:
+            speaker.say("Shifting to Mode 2. Robotic orchestration enabled.")
+        else:
+            speaker.say("Shifting to Mode 1. Conversation mode enabled.")
 
 # -------------------------------------------------------------
 # Mode 2 MQTT Bridge
@@ -440,11 +474,14 @@ thinking_watchdog.timeout.connect(on_thinking_timeout)
 # Wiring Listener
 # -------------------------------------------------------------
 def on_listening_started():
-    thinking_watchdog.stop()
     if state_mgr.current == "thinking":
-        print("[Barge-In] User started speaking during thinking. Interrupting AI query...", flush=True)
+        # Don't let mic noise or echo interrupt STT transcription or active thinking
+        return
+    thinking_watchdog.stop()
+    if state_mgr.current == "talking":
+        print("[Barge-In] User started speaking while assistant talking. Stopping speech...", flush=True)
         try:
-            ai.interrupt()
+            speaker.stop()
         except Exception:
             pass
     state_mgr.transition("listening")
@@ -485,9 +522,23 @@ def process_next_instruction():
     QTimer.singleShot(500, process_next_instruction)
 
 def on_transcription(text: str):
+    try:
+        _handle_transcription(text)
+    except Exception as e:
+        err_str = traceback.format_exc()
+        print(f"[Main Error in on_transcription] {err_str}", flush=True)
+        crash_log(f"Exception in on_transcription:\n{err_str}")
+        try:
+            state_mgr.transition("idle")
+        except Exception:
+            pass
+
+def _handle_transcription(text: str):
     global conversation_mode
     global instruction_queue
     global mode2_active
+    
+    thinking_watchdog.stop()
     
     if text:
         text = text.strip()
@@ -513,14 +564,15 @@ def on_transcription(text: str):
     # Clear pending tasks if the user interrupts with a new command
     instruction_queue.clear()
 
-    if re.search(r"\b(exit|quit|goodbye|bye bupi|bye prag)\b", text, re.I):
+    # ONLY explicit, clear application exit phrases will terminate the app
+    if re.search(r"^\s*(?:exit\s*app|close\s*app|quit\s*app|shutdown\s*app|exit\s*application|close\s*application|shutdown\s*system|close\s*boopi|exit\s*boopi)\b[\.!?]?\s*$", text, re.I):
         conversation_mode = False
-        speaker.say("Goodbye! See you next time.")
+        speaker.say("Goodbye! Closing Bupi companion.")
         QTimer.singleShot(2500, app.quit)
         return
 
     # ONLY explicit conversation stop phrases toggle conversation mode off (NOT motor stop / halt commands!)
-    if re.search(r"\b(stop listening|stop conversation|go to sleep|sleep now|take a rest|that's all|that is all|okay let's stop it)\b", text, re.I):
+    if re.search(r"\b(stop listening|stop conversation|go to sleep|sleep now|take a rest|that's all|that is all|okay let's stop it|goodbye|bye)\b", text, re.I):
         if conversation_mode:
             conversation_mode = False
             state_mgr.transition("talking")
@@ -528,20 +580,12 @@ def on_transcription(text: str):
             return
 
     # Mode 2 explicit toggles (Generic & dynamic natural phrasing)
-    if re.search(r"\b(?:shift|switch|change|enable|toggle|open|go|turn|activate|start|enter)?\s*(?:in|into|to)?\s*mode\s*(?:to\s*)?(?:2|two|too)\b", text, re.I):
-        mode2_active = True
-        print(json.dumps({"type": "mode_changed", "value": 2}), flush=True)
-        print(json.dumps({"type": "mode-changed", "value": 2}), flush=True)
-        state_mgr.transition("talking")
-        speaker.say("Shifting to Mode 2. Robotic orchestration enabled.")
+    if re.search(r"\b(?:shift|switch|change|enable|toggle|open|go|turn|activate|start|enter)?\s*(?:in|into|to)?\s*(?:mode\s*(?:to\s*)?(?:2|two|too)|robotic\s*mode|robot\s*mode)\b", text, re.I) or re.search(r"^\s*mode\s*(?:2|two)\s*$", text, re.I):
+        set_active_mode(2)
         return
 
-    if re.search(r"\b(?:shift|switch|change|enable|toggle|open|go|turn|activate|start|enter)?\s*(?:in|into|to)?\s*mode\s*(?:to\s*)?(?:1|one|won)\b", text, re.I):
-        mode2_active = False
-        print(json.dumps({"type": "mode_changed", "value": 1}), flush=True)
-        print(json.dumps({"type": "mode-changed", "value": 1}), flush=True)
-        state_mgr.transition("talking")
-        speaker.say("Shifting to Mode 1. Conversation mode enabled.")
+    if re.search(r"\b(?:shift|switch|change|enable|toggle|open|go|turn|activate|start|enter)?\s*(?:in|into|to)?\s*(?:mode\s*(?:to\s*)?(?:1|one|won)|conversational\s*mode|conversation\s*mode|chat\s*mode)\b", text, re.I) or re.search(r"^\s*mode\s*(?:1|one)\s*$", text, re.I):
+        set_active_mode(1)
         return
 
     wake_words = r"\b(prag|pragg|prak|prog|prague|praag|plag|brag|frag|boopi|boopy|boopie|bupi|bupie|boupi|boby|booby|puppy|poopy)\b"
@@ -549,22 +593,22 @@ def on_transcription(text: str):
     has_wake = bool(re.search(wake_words, text, re.I))
     has_bot = bool(re.search(bot_addressing, text, re.I))
 
-    # Direct autonomous mission, relative distance move, or emergency stop
+    # Direct autonomous mission, relative distance move, or emergency stop (active in Mode 2)
     is_direct_mission_or_estop = bool(
         re.search(r"(\d+(?:\.\d+)?)\s*(?:cm|centimeter|centimeters|cms|m|meter|meters|inch|inches|mm|millimeters)\b", text, re.I) or
         re.search(r"\b(scan the room|scan room|scan around|scan|sweep|search the room|search room|patrol|explore|emergency stop|e-stop|stop motors|halt|stop moving|stop driving|stop the robot|brake)\b", text, re.I)
     )
 
-    # Check if fast-pass router recognizes a direct robotic command even without wake word
     from agents.router_agent import router
-    has_robot_intent = (router.quick_regex_classify(text) is not None)
+    fast_intent = router.quick_regex_classify(text)
+    has_robot_intent = (fast_intent is not None)
 
     if not conversation_mode:
-        if has_wake or has_bot or mode2_active or is_direct_mission_or_estop or has_robot_intent:
+        if has_wake or has_bot or (mode2_active and (is_direct_mission_or_estop or has_robot_intent)):
             conversation_mode = True
             cleaned = re.sub(wake_words, "", text, flags=re.I).strip()
-            # If user said e.g. "robot, move forward", also strip "robot" if at start
-            cleaned = re.sub(r"^(?:the\s+)?(?:bot|robot)\b[:,]?\s*", "", cleaned, flags=re.I).strip()
+            # If user said e.g. "robot, move forward", also strip "robot" if at start (never strip when robot number is specified)
+            cleaned = re.sub(r"^(?:the\s+)?(?:bot|robot)(?!\s*(?:1|2|one|two|01|02))\b[:,]?\s*", "", cleaned, flags=re.I).strip()
             # Strip leading punctuation/commas
             cleaned = re.sub(r"^[^\w]+", "", cleaned)
             if len(cleaned) < 2 or re.match(r"^[^\w]*$", cleaned) or cleaned.lower() in ["hey", "hi", "hello", "ok", "okay"]:
@@ -573,6 +617,7 @@ def on_transcription(text: str):
                 speaker.say(random.choice(["Yes?", "I'm here, ready.", "How can I help you?"]))
                 return
             text = cleaned
+            fast_intent = router.quick_regex_classify(text)
         else:
             state_mgr.transition("idle")
             return
@@ -583,17 +628,49 @@ def on_transcription(text: str):
             cleaned = re.sub(r"^[^\w]+", "", cleaned)
             if cleaned:
                 text = cleaned
+                fast_intent = router.quick_regex_classify(text)
 
-    # -------------------------------------------------------------
-    # 1. Fast-Pass Deterministic Router (<1ms execution)
-    # -------------------------------------------------------------
+    # =============================================================
+    # MODE 1: STRICT CONVERSATIONAL ISOLATION
+    # =============================================================
+    if not mode2_active:
+        # Check if the user is giving a physical hardware / robotics instruction
+        is_robot_command = False
+        if fast_intent:
+            itype = fast_intent.get("type")
+            if itype in ["autonomous_mission", "abort_mission", "edge_avoid_mode",
+                         "hardware_intent", "sensor_query", "world_state_query",
+                         "nodes_query", "mission_report_query"]:
+                is_robot_command = True
+
+        direct_robot_actions = [
+            r"\b(move forward|move backward|move back|turn left|turn right|spin|rotate|drive forward|drive back|drive reverse|advance|step forward|step back)\b",
+            r"\b(stop motors|halt|emergency stop|brake|stop moving|stop driving|stop the robot|e-stop)\b",
+            r"\b(patrol|explore|scan the room|scan room|find the human|find human|find person|locate human|search room|approach|move towards)\b",
+            r"\b(turn on relay|turn off relay|check gas|check smoke|front distance|ultrasonic reading)\b",
+            r"\b(points?\s+of\s+the\s+room|mark\s+out|give\s+(?:the\s+)?readings|take\s+readings|environmental\s+survey|survey\s+the\s+room)\b",
+            r"\b(?:bot\s*[12]|bupi\s*[12]|scout|specialist)\b"
+        ]
+        if any(re.search(pat, text, re.I) for pat in direct_robot_actions):
+            is_robot_command = True
+
+        if is_robot_command:
+            print(f"[Mode 1 Auto-Bridge] 🤖 Robotics command detected: '{text}' -> Seamlessly activating Mode 2 and executing!", flush=True)
+            set_active_mode(2, notify_speaker=False)
+            # Fall through into Mode 2 robotic orchestration below!
+        else:
+            # In Mode 1: All conversational queries, chat, desktop actions, notes go to conversational AI companion!
+            ai.ask(text)
+            return
+
+    # =============================================================
+    # MODE 2: AUTONOMOUS ROBOTICS & HARDWARE ORCHESTRATION
+    # =============================================================
     try:
-        from agents.router_agent import router
-        fast_intent = router.quick_regex_classify(text)
         if fast_intent:
             itype = fast_intent.get("type")
             payload = fast_intent.get("payload", {})
-            print(f"[Main Fast-Pass] ⚡ Matched: {itype} -> {payload}", flush=True)
+            print(f"[Mode 2 Fast-Pass] ⚡ Matched: {itype} -> {payload}", flush=True)
 
             if itype == "autonomous_mission":
                 mission_text = payload.get("mission", text)
@@ -603,9 +680,8 @@ def on_transcription(text: str):
                     goal_agent._tts_callback = lambda t: m2_bridge.do_speak.emit(t)
                     state_mgr.force("thinking")
                     res = goal_agent.start_mission(mission_text)
-                    print(f"[Main Mission] {res}", flush=True)
-                    if "already running" in res:
-                        speaker.say(res)
+                    print(f"[Mode 2 Mission] {res}", flush=True)
+                    speaker.say(res)
                 except Exception as me:
                     speaker.say(f"Could not start autonomous mission: {me}")
                 return
@@ -661,6 +737,9 @@ def on_transcription(text: str):
                 direction = payload.get("direction", "")
                 
                 if dev == "motors":
+                    target_bot = payload.get("robot_id") or "bupi_01"
+                    from actions.hardware_tools import control_motors
+                    raw_fn = getattr(control_motors, "func", getattr(control_motors, "_run", control_motors))
                     if direction == "stop":
                         try:
                             from agents.autonomous_goal_agent import goal_agent
@@ -668,16 +747,16 @@ def on_transcription(text: str):
                                 goal_agent.stop_mission(reason="Voice Stop")
                         except Exception:
                             pass
-                        mqtt_client.publish("bupi/actuators/motors/cmd", "stop")
-                        send_to_esp32("stop")
+                        raw_fn(direction="stop", speed=0, duration_seconds=0, robot_id=target_bot)
                         mqtt_client.publish("bupi/actuators/motors/cmd/json", json.dumps({"action": "auto_avoid", "enabled": False}))
                         state_mgr.force("cautious")
                         speaker.say("Emergency stop triggered. Motors halted.")
                     else:
-                        mqtt_client.publish("bupi/actuators/motors/cmd", direction)
-                        send_to_esp32(direction)
+                        res = raw_fn(direction=direction, speed=255, duration_seconds=1.5, robot_id=target_bot)
+                        print(f"[Mode 2 Fast Motor Exec] {res}", flush=True)
                         state_mgr.force("excited")
-                        speaker.say(f"Driving {direction}.")
+                        target_phrase = " (both bots)" if target_bot in ["all", "both", "fleet", "bots"] else (f" ({target_bot})" if target_bot != "bupi_01" else "")
+                        speaker.say(f"Driving {direction}{target_phrase}.")
                     return
                 elif dev == "relay":
                     state_str = "ON" if action == "ON" else "OFF"
@@ -694,10 +773,40 @@ def on_transcription(text: str):
                     res_str = raw_fn(sensor_id)
                     res_json = json.loads(res_str)
                     status = res_json.get("status", "UNKNOWN")
-                    raw_val = res_json.get("raw_value", 0)
+                    raw_val = res_json.get("raw_value")
+                    bot_name = "Bot 2" if res_json.get("robot_id") == "bupi_02" else "Bot 1"
+
+                    if sensor_id in ["distance", "ultrasonic", "hcsr04"]:
+                        if status == "OFFLINE" or raw_val is None:
+                            spoken = "The ultrasonic distance sensor is currently offline. Please ensure the robot is powered on and connected."
+                        elif raw_val < 35.0:
+                            spoken = f"Yes, an obstacle is detected {raw_val:.1f} centimeters directly in front of {bot_name}."
+                        else:
+                            spoken = f"No obstacles detected. The path ahead is clear with {raw_val:.1f} centimeters of clearance."
+                    elif sensor_id in ["mq2", "gas", "smoke"]:
+                        if status == "OFFLINE" or raw_val is None:
+                            spoken = "The MQ-2 gas sensor is currently offline. Please ensure Bot 2 is connected."
+                        elif raw_val > 300.0:
+                            spoken = f"Warning! Elevated gas or smoke detected on Bot 2 at {raw_val:.1f} ppm."
+                        else:
+                            spoken = f"Air quality is clean and safe. Gas level is {raw_val:.1f} ppm."
+                    elif sensor_id in ["temp", "temperature", "dht"]:
+                        if status == "OFFLINE" or raw_val is None:
+                            spoken = "The temperature sensor is currently offline."
+                        else:
+                            spoken = f"The ambient temperature is {raw_val:.1f} degrees Celsius, status is {status}."
+                    elif sensor_id in ["humidity"]:
+                        if status == "OFFLINE" or raw_val is None:
+                            spoken = "The humidity sensor is currently offline."
+                        else:
+                            spoken = f"The ambient humidity is {raw_val:.1f} percent, status is {status}."
+                    else:
+                        spoken = f"The {sensor_id} reading is {raw_val}, status is {status}."
+
                     state_mgr.force("talking")
-                    speaker.say(f"The {sensor_id} reading is {raw_val}, status is {status}.")
+                    speaker.say(spoken)
                 except Exception as e:
+                    state_mgr.force("talking")
                     speaker.say(f"Could not read {sensor_id}: {e}")
                 return
 
@@ -736,36 +845,20 @@ def on_transcription(text: str):
                     speaker.say(f"Node query failed: {e}")
                 return
     except Exception as router_err:
-        print(f"[Main Router Error] {router_err}", flush=True)
+        print(f"[Mode 2 Router Error] {router_err}", flush=True)
 
-    # -------------------------------------------------------------
-    # 2. General Query Routing (Local Orchestrator vs AI Companion)
-    # -------------------------------------------------------------
-    hw_keywords = [
-        "relay", "motor", "sensor", "telemetry", "robot", "crawl", "esp32", "lcd",
-        "display on screen", "world state", "mission", "patrol", "human", "search room",
-        "explore", "forward", "backward", "reverse", "turn", "left", "right", "drive",
-        "walk", "move", "go", "stop", "heading", "degree", "degrees", "obstacle",
-        "distance", "motion", "tilt", "navigate", "spin", "rotate", "step", "perimeter"
-    ]
-    is_hw_query = any(k in text.lower() for k in hw_keywords)
+    # In Mode 2: Forward non-deterministic queries to Mode 2 background runner via MQTT
+    publish_to_mode2(text)
+    epoch_snap = mode2_utterance_epoch
 
-    if mode2_active or is_hw_query:
-        # Forward exclusively to Mode 2 background runner via MQTT (eliminating double execution)
-        publish_to_mode2(text)
-        epoch_snap = mode2_utterance_epoch
+    # Watchdog: Monitors Mode 2 background execution without causing conversational collisions
+    def mode2_fallback_watchdog(snap):
+        time.sleep(15.0)
+        if mode2_waiting_response and mode2_utterance_epoch == snap:
+            print(f"[Mode 2 Watchdog] Mode 2 background process took >15s to process: '{text}'.", flush=True)
+            # Do NOT invoke conversational AI companion (prevents double-talking, overlapping speech, and garbage output)
 
-        # Watchdog: If Mode 2 does not return a spoken response within 7.0s, fall back to AI Companion
-        def mode2_fallback_watchdog(snap):
-            time.sleep(7.0)
-            if mode2_waiting_response and mode2_utterance_epoch == snap:
-                print(f"[Mode 1 Watchdog] Mode 2 background process took >7s. Falling back to AI companion.", flush=True)
-                ai.ask(text)
-
-        threading.Thread(target=mode2_fallback_watchdog, args=(epoch_snap,), daemon=True).start()
-    else:
-        # Route to Mode 1
-        ai.ask(text)
+    threading.Thread(target=mode2_fallback_watchdog, args=(epoch_snap,), daemon=True).start()
 
 listener.transcription_ready.connect(on_transcription)
 
@@ -1024,6 +1117,14 @@ def stdin_listener():
             cmd = req.get("command")
             if cmd == "start_listening":
                 bridge.do_start_listening.emit()
+            elif cmd == "set_mode":
+                target_m = int(req.get("mode", 1))
+                speak_flag = req.get("speak", True)
+                set_active_mode(target_m, notify_speaker=speak_flag)
+            elif cmd == "get_mode":
+                curr_m = 2 if mode2_active else 1
+                print(json.dumps({"type": "mode_changed", "value": curr_m}), flush=True)
+                print(json.dumps({"type": "mode-changed", "value": curr_m}), flush=True)
             elif cmd == "clear_memory":
                 bridge.do_clear_memory.emit()
             elif cmd == "toggle_conversation":
@@ -1204,7 +1305,9 @@ def startup_sequence():
     state_mgr.force("startup")
     
     # Open notepad and provide summary
-    print(json.dumps({"type": "mode_changed", "value": 1}), flush=True)
+    initial_mode = 2 if mode2_active else 1
+    print(json.dumps({"type": "mode_changed", "value": initial_mode}), flush=True)
+    print(json.dumps({"type": "mode-changed", "value": initial_mode}), flush=True)
     print(json.dumps({"type": "command", "value": "open_notepad"}), flush=True)
     on_ai_notepad_title("Notifications Summary")
     on_ai_notepad_clear()

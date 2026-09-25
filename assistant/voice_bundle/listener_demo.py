@@ -80,6 +80,21 @@ def is_hallucinated_output(text: str) -> bool:
             
     return False
 
+def get_whisper_device():
+    try:
+        import ctranslate2
+        if ctranslate2.get_cuda_device_count() > 0:
+            return "cuda", "float16"
+    except Exception:
+        pass
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda", "float16"
+    except Exception:
+        pass
+    return "cpu", "int8"
+
 def get_groq_keys():
     from dotenv import load_dotenv
     parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -108,7 +123,8 @@ def transcribe_audio(audio: np.ndarray, local_model=None):
         np.clip(audio_boosted, -32768, 32767, out=audio_boosted)
         audio = audio_boosted.astype(np.int16)
 
-    groq_keys = get_groq_keys()
+    prefer_local = os.environ.get("PREFER_LOCAL_WHISPER", "false").lower() in ("1", "true", "yes")
+    groq_keys = get_groq_keys() if not prefer_local else []
     text = ""
     success = False
 
@@ -149,11 +165,12 @@ def transcribe_audio(audio: np.ndarray, local_model=None):
                 print(f" Request failed: {e}")
                 
     if not success:
-        print("\n[STT] Falling back to local CPU Whisper model...")
+        device, compute_type = get_whisper_device()
+        print(f"\n[STT] Running local Whisper model on {device.upper()} ({compute_type})...")
         if local_model is None:
             from faster_whisper import WhisperModel
-            print("[STT] Loading local model 'small' (device: cpu, compute_type: int8)...")
-            local_model = WhisperModel("small", device="cpu", compute_type="int8")
+            print(f"[STT] Loading local model 'small' (device: {device}, compute_type: {compute_type})...")
+            local_model = WhisperModel("small", device=device, compute_type=compute_type)
         
         audio_f32 = audio.astype(np.float32) / 32768.0
         segments, _ = local_model.transcribe(
@@ -196,13 +213,14 @@ def main():
         sys.exit(1)
         
     local_whisper = None
-    # Pre-load Whisper if no Groq keys exist to avoid startup lag on first query
-    groq_keys = get_groq_keys()
-    if not groq_keys:
+    prefer_local = os.environ.get("PREFER_LOCAL_WHISPER", "false").lower() in ("1", "true", "yes")
+    groq_keys = get_groq_keys() if not prefer_local else []
+    if prefer_local or not groq_keys:
         from faster_whisper import WhisperModel
-        print("[STT] No Groq keys. Loading local 'small' CPU model now to avoid capture delay...")
-        local_whisper = WhisperModel("small", device="cpu", compute_type="int8")
-        print("[STT] Local model ready.")
+        device, compute_type = get_whisper_device()
+        print(f"[STT] Pre-loading local 'small' model on {device.upper()} ({compute_type}) to avoid capture delay...", flush=True)
+        local_whisper = WhisperModel("small", device=device, compute_type=compute_type)
+        print(f"[STT] Local model ready on {device.upper()}.\n", flush=True)
         
     # Open Stream
     try:

@@ -210,6 +210,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     canvas.width = canvas.parentElement.clientWidth || 500;
                     canvas.height = canvas.parentElement.clientHeight || 340;
                 }
+                if (typeof window.renderBupiArena === 'function') {
+                    window.renderBupiArena();
+                    setTimeout(window.renderBupiArena, 100);
+                }
             } else if (targetId === 'panel-bwe') {
                 if (typeof initializeBWE === 'function') {
                     initializeBWE();
@@ -946,6 +950,57 @@ print(val or 'Timeout')
             grid.appendChild(card);
         });
     }
+
+    // -------------------------------------------------------------
+    // Operating Mode Switcher Handler (Mode 1 Chat vs Mode 2 Robot)
+    // -------------------------------------------------------------
+    const btnMode1 = document.getElementById('btnMode1');
+    const btnMode2 = document.getElementById('btnMode2');
+    const modeStatusBadge = document.getElementById('modeStatusBadge');
+
+    function updateModeUI(modeNum) {
+        const mode = parseInt(modeNum, 10) || 1;
+        if (btnMode1 && btnMode2) {
+            if (mode === 2) {
+                btnMode1.classList.remove('active');
+                btnMode2.classList.add('active');
+                if (modeStatusBadge) {
+                    modeStatusBadge.textContent = 'MODE 2: ROBOT';
+                    modeStatusBadge.style.background = 'rgba(2, 132, 199, 0.15)';
+                    modeStatusBadge.style.color = '#0284c7';
+                }
+            } else {
+                btnMode1.classList.add('active');
+                btnMode2.classList.remove('active');
+                if (modeStatusBadge) {
+                    modeStatusBadge.textContent = 'MODE 1: CHAT';
+                    modeStatusBadge.style.background = 'rgba(79, 70, 229, 0.1)';
+                    modeStatusBadge.style.color = '#4f46e5';
+                }
+            }
+        }
+    }
+
+    if (btnMode1) {
+        btnMode1.addEventListener('click', () => {
+            updateModeUI(1);
+            ipcRenderer.send('set-mode', 1);
+        });
+    }
+
+    if (btnMode2) {
+        btnMode2.addEventListener('click', () => {
+            updateModeUI(2);
+            ipcRenderer.send('set-mode', 2);
+        });
+    }
+
+    ipcRenderer.on('mode-changed', (event, mode) => {
+        updateModeUI(mode);
+    });
+
+    // Request initial operating mode
+    ipcRenderer.send('request-current-mode');
 
     // Call it initially in case we load on that tab
     loadRegisteredDevices();

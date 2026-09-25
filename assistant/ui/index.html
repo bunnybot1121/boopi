@@ -100,21 +100,24 @@
         <div class="card-header">
           <h2>Interactive 2D Room Arena</h2>
           <div class="arena-legend">
-            <span class="legend-item"><span class="legend-box ultrasonic-box"></span> Ultrasonic Cone (25°)</span>
-            <span class="legend-item"><span class="legend-box pir-box"></span> PIR FOV (100°)</span>
+            <span class="legend-item" style="color: #a78bfa;"><span class="legend-dot" style="background:#8b5cf6;"></span> BUPI-01 Scout</span>
+            <span class="legend-item" style="color: #34d399;"><span class="legend-dot" style="background:#10b981;"></span> BUPI-02 Specialist</span>
+            <span class="legend-item"><span class="legend-box ultrasonic-box"></span> Sonar (25°)</span>
+            <span class="legend-item"><span class="legend-box pir-box"></span> PIR (100°)</span>
             <span class="legend-item"><span class="legend-dot human-dot"></span> Warm Target</span>
           </div>
         </div>
         <div class="canvas-wrapper">
           <canvas id="arenaCanvas" width="500" height="400"></canvas>
           <div class="arena-overlay-hints">
-            <span>💡 Drag the <strong>Human (Warm Target)</strong> or <strong>Obstacles</strong> to test live detection!</span>
+            <span>💡 Drag the <strong>Human (Warm Target)</strong> or <strong>Obstacles</strong> to test live multi-robot spatial detection!</span>
           </div>
         </div>
         <div class="arena-actions">
           <button class="tool-btn" id="btnSpawnObstacle">+ Add Obstacle in Path</button>
           <button class="tool-btn warn-btn" id="btnTestSafetyOverride">⚠️ Test Emergency Safety Override (&lt;15cm)</button>
           <button class="tool-btn" id="btnResetArena">↺ Reset Positions</button>
+          <a href="/spatial_twin_2d.html" target="_blank" class="tool-btn" style="text-decoration:none; display:inline-flex; align-items:center; background:rgba(99,102,241,0.2); border-color:#6366f1; color:#c7d2fe;">🚀 Full 2D Tactical Twin</a>
         </div>
       </section>
 

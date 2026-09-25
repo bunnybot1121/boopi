@@ -15,6 +15,7 @@ memory/user_data.json
 debug_log.txt
 *.db
 *.jsonl
+mode2.pid
 screenshot_*.png
 node_modules/
 *.exe

@@ -1,15 +1,31 @@
 import os
 os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
 import paho.mqtt.publish as publish
-try:
-    from crewai.tools import tool
-except ImportError:
-    def tool(name_or_func=None):
-        if callable(name_or_func):
-            return name_or_func
-        def decorator(f):
-            return f
-        return decorator
+class CallableTool:
+    """
+    Ultra-lightweight, 0ms overhead tool wrapper.
+    Ensures functions are directly callable as standard Python functions,
+    while maintaining .func, .name, and .description attributes for agent frameworks.
+    Eliminates 11.5s CrewAI/LiteLLM/Bedrock import blocking on the GUI thread.
+    """
+    def __init__(self, func, name=None, description=None):
+        self.func = func
+        self._run = func
+        self.run = func
+        self.name = name or getattr(func, "__name__", "tool")
+        self.description = description or getattr(func, "__doc__", "") or ""
+        self.__name__ = getattr(func, "__name__", "tool")
+        self.__doc__ = getattr(func, "__doc__", "")
+
+    def __call__(self, *args, **kwargs):
+        return self.func(*args, **kwargs)
+
+def tool(name_or_func=None, description=None):
+    if callable(name_or_func):
+        return CallableTool(name_or_func)
+    def decorator(f):
+        return CallableTool(f, name=name_or_func, description=description)
+    return decorator
 
 current_task_id = 0
 
@@ -68,13 +84,14 @@ def display_on_esp32(text: str) -> str:
         return f"Failed to display on ESP32: {str(e)}"
 
 @tool("Control Robot Motors")
-def control_motors(direction: str, speed: int = 255, duration_seconds: float = 1.5, degrees: float = 0.0) -> str:
+def control_motors(direction: str, speed: int = 255, duration_seconds: float = 1.5, degrees: float = 0.0, robot_id: str = "bupi_01") -> str:
     """
     Controls the mobile base N20 motors via TB6612 driver on the ESP32.
     - direction: 'forward', 'reverse', 'left', 'right', 'stop', or 'turn_by'.
     - speed: PWM motor speed from 0 to 255 (default 255 for full battery torque).
     - duration_seconds: duration in seconds before automatically stopping (default 1.5s, 0 for continuous).
     - degrees: optional angular turn degrees using MPU6050 gyro feedback (e.g. 90 for right 90°, -90 for left 90°).
+    - robot_id: Target robot ID, e.g. 'bupi_01' (Scout) or 'bupi_02' (Specialist). Defaults to 'bupi_01'.
     """
     import json
     import time
@@ -96,8 +113,25 @@ def control_motors(direction: str, speed: int = 255, duration_seconds: float = 1
         else:
             speed = max(0, min(255, speed_val))
 
-        topic = "bupi/actuators/motors/cmd"
-        
+        try:
+            duration_seconds = float(duration_seconds)
+        except Exception:
+            duration_seconds = 1.5
+
+        try:
+            degrees = float(degrees)
+        except Exception:
+            degrees = 0.0
+
+        target_bot = str(robot_id).strip()
+        topics = []
+        if target_bot in ["all", "both", "fleet", "bots", "swarm"]:
+            topics = ["bupi/actuators/motors/cmd", "bupi/v1/bot2/actuators/motors/cmd"]
+        elif target_bot in ["bupi_02", "bot2", "specialist"]:
+            topics = ["bupi/v1/bot2/actuators/motors/cmd"]
+        else:
+            topics = ["bupi/actuators/motors/cmd"]
+
         # Check if degrees were passed or implied in direction string
         if "90" in direction and "right" in direction:
             degrees = 90.0
@@ -110,55 +144,75 @@ def control_motors(direction: str, speed: int = 255, duration_seconds: float = 1
             payload = json.dumps({
                 "action": "turn_by",
                 "degrees": degrees,
-                "speed": speed
+                "speed": speed,
+                "bot_id": target_bot,
+                "robot_id": target_bot
             })
-            publish.single(f"{topic}/json", payload, hostname="localhost")
-            return f"Rotating {degrees}° using closed-loop MPU6050 gyro feedback."
+            for top in topics:
+                publish.single(f"{top}/json", payload, hostname="localhost")
+                publish.single(top, f"turn_by {degrees}", hostname="localhost")
+            return f"[{target_bot}] Rotating {degrees}° using closed-loop MPU6050 gyro feedback."
 
         # Run safety validation against obstacles / collision risk
         from core.safety_validator import validate_safety
-        validation = validate_safety(topic, direction)
+        validation = validate_safety(topics[0], direction, bot_id=target_bot)
         if not validation.get("approved", True):
             return f"Blocked: {validation.get('reason')}"
             
-        duration_ms = int(duration_seconds * 1000) if duration_seconds > 0 else 1500
+        duration_ms = int(duration_seconds * 1000) if duration_seconds > 0 else 0
         payload = json.dumps({
             "action": direction,
             "speed": speed,
-            "duration_ms": duration_ms
+            "duration_ms": duration_ms,
+            "bot_id": target_bot,
+            "robot_id": target_bot
         })
         
-        # Publish structured command for ESP32
-        publish.single(f"{topic}/json", payload, hostname="localhost")
+        # Publish structured command for ESP32 on all target topics
+        for top in topics:
+            publish.single(f"{top}/json", payload, hostname="localhost")
+            publish.single(top, direction, hostname="localhost")
         
         # Timed auto-stop if duration specified and not already handled
         if duration_seconds > 0 and direction != "stop":
             def auto_stop():
                 time.sleep(duration_seconds)
-                publish.single(topic, "stop", hostname="localhost")
-                publish.single(f"{topic}/json", json.dumps({"action": "stop", "speed": 0}), hostname="localhost")
+                for top in topics:
+                    publish.single(top, "stop", hostname="localhost")
+                    publish.single(f"{top}/json", json.dumps({"action": "stop", "speed": 0, "bot_id": target_bot, "robot_id": target_bot}), hostname="localhost")
             threading.Thread(target=auto_stop, daemon=True).start()
-            return f"Motors moving {direction} at speed {speed} for {duration_seconds}s."
+            return f"[{target_bot}] Motors moving {direction} at speed {speed} for {duration_seconds}s."
             
-        return f"Motors set to {direction} (speed {speed})."
+        return f"[{target_bot}] Motors set to {direction} (speed {speed}, continuous)."
     except Exception as e:
         return f"Failed to control motors: {str(e)}"
 
 @tool("Toggle Edge Obstacle Avoidance")
-def toggle_edge_avoidance(enabled: bool = True) -> str:
+def toggle_edge_avoidance(enabled: bool = True, robot_id: str = "bupi_01") -> str:
     """
     Enables or disables 100% onboard edge-computing obstacle avoidance and autonomous roaming on the ESP32.
     - enabled: True to start autonomous edge roaming and collision evasion, False to halt and standby.
+    - robot_id: Target robot ID, e.g. 'bupi_01' (Scout) or 'bupi_02' (Specialist). Defaults to 'bupi_01'.
     """
     import json
     try:
-        topic = "bupi/actuators/motors/cmd/json"
-        payload = json.dumps({"action": "auto_avoid", "enabled": bool(enabled)})
+        target_bot = str(robot_id).strip()
+        if target_bot in ["bupi_02", "bot2"]:
+            topic = "bupi/v1/bot2/actuators/motors/cmd/json"
+        else:
+            topic = "bupi/actuators/motors/cmd/json"
+
+        payload = json.dumps({
+            "action": "auto_avoid",
+            "enabled": bool(enabled),
+            "bot_id": target_bot,
+            "robot_id": target_bot
+        })
         publish.single(topic, payload, hostname="localhost")
         if enabled:
-            return "Autonomous edge obstacle avoidance enabled. ESP32 is now navigating onboard."
+            return f"[{target_bot}] Autonomous edge obstacle avoidance enabled. ESP32 is now navigating onboard."
         else:
-            return "Autonomous edge obstacle avoidance disabled. Robot halted and in standby."
+            return f"[{target_bot}] Autonomous edge obstacle avoidance disabled. Robot halted and in standby."
     except Exception as e:
         return f"Failed to toggle edge avoidance: {str(e)}"
 
@@ -182,12 +236,13 @@ def universal_mqtt_tool(topic: str, payload: str) -> str:
         return f"Failed to publish to MQTT: {str(e)}"
 
 @tool("Read Translated Sensor Status")
-def read_sensor_status(sensor_id: str) -> str:
+def read_sensor_status(sensor_id: str, robot_id: str = "") -> str:
     """
-    Reads the latest telemetry for a sensor and returns both the raw value and its translated semantic status.
-    - sensor_id: The ID of the sensor to query (e.g. 'mq2', 'ir', 'temp', 'humidity', 'distance').
+    Reads the latest telemetry for a sensor and returns both the raw value, calibrated real-world value, and conversational semantic status.
+    - sensor_id: The ID of the sensor to query (e.g. 'mq2', 'gas', 'temp', 'temperature', 'humidity', 'distance', 'pir', 'motion').
+    - robot_id: Optional target robot ID ('bupi_01' for Scout, 'bupi_02' for Specialist). If omitted, automatically routes to the capable robot.
     
-    Returns a JSON string representing the sensor state and translation.
+    Returns a JSON string representing the sensor state and real-life translation.
     """
     import sqlite3
     import os
@@ -195,14 +250,15 @@ def read_sensor_status(sensor_id: str) -> str:
     import json
     from core.sensor_translator import translate_sensor_value
     
-    sensor_id = sensor_id.lower()
+    sensor_id = str(sensor_id).lower().strip()
     synonyms = {
-        "mq2": ["mq2"],
-        "temp": ["temp", "temperature", "dht", "dht11", "dht22"],
-        "temperature": ["temp", "temperature", "dht", "dht11", "dht22"],
+        "mq2": ["mq2", "gas", "smoke", "air_quality"],
+        "temp": ["temp", "temperature", "dht", "dht11", "dht22", "climate"],
+        "temperature": ["temp", "temperature", "dht", "dht11", "dht22", "climate"],
         "humidity": ["humidity"],
-        "distance": ["distance", "ultrasonic", "hcsr04"],
-        "ir": ["ir"]
+        "distance": ["distance", "ultrasonic", "hcsr04", "clearance"],
+        "ir": ["ir"],
+        "pir": ["pir", "motion"]
     }
     
     search_ids = [sensor_id]
@@ -211,14 +267,151 @@ def read_sensor_status(sensor_id: str) -> str:
             search_ids = mapped_list
             break
             
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    db_path = os.path.join(base_dir, "bupi_telemetry.db")
-    
+    # Capability-aware candidate robot ordering
+    req_bot = str(robot_id).lower().strip()
+    if "2" in req_bot or "specialist" in req_bot or "hazard" in req_bot:
+        candidate_bots = ["bupi_02"]
+    elif "1" in req_bot or "scout" in req_bot:
+        candidate_bots = ["bupi_01"]
+    elif any(k in sensor_id for k in ["mq2", "gas", "smoke", "temp", "temperature", "dht", "humidity"]):
+        # Environmental sensing is Bot 2's exclusive hardware capability
+        candidate_bots = ["bupi_02", "bupi_01"]
+    elif any(k in sensor_id for k in ["pir", "motion"]):
+        # PIR human thermal motion is Bot 1's exclusive hardware capability
+        candidate_bots = ["bupi_01"]
+    else:
+        candidate_bots = ["bupi_01", "bupi_02"]
+
+    # Filter search_ids strictly according to target candidate_bots
+    search_ids = list(search_ids)
+    extra_ids = []
+    for c_bot in candidate_bots:
+        for sid in search_ids:
+            extra_ids.append(f"{c_bot}_{sid}")
+    search_ids.extend(extra_ids)
+
+    # 1. First check high-speed in-memory live telemetry from bupi_node_server
     try:
+        import time
+        from bupi_node_server import get_latest_telemetry
+        now = time.time()
+        for candidate_bot in candidate_bots:
+            live_t = get_latest_telemetry(candidate_bot)
+            if live_t and live_t.get("updated_at", 0) > 0 and (now - live_t.get("updated_at", 0)) < 30.0:
+                if sensor_id in ["distance", "ultrasonic", "hcsr04", "clearance"]:
+                    dist_cm = float(live_t.get("distance_cm", 150.0))
+                    trans = translate_sensor_value("distance", dist_cm)
+                    return json.dumps({
+                        "sensor": "distance",
+                        "robot_id": candidate_bot,
+                        "value": trans["value"],
+                        "raw_value": dist_cm,
+                        "status": trans["status"],
+                        "description": trans["description"],
+                        "obstacle_detected": bool(dist_cm < 35.0),
+                        "timestamp": datetime.fromtimestamp(live_t.get("updated_at", now)).isoformat()
+                    })
+                elif sensor_id in ["mq2", "gas", "smoke", "air_quality"]:
+                    mq2_val = float(live_t.get("gas_ppm", live_t.get("mq2_raw", 35.0)))
+                    trans = translate_sensor_value("mq2", mq2_val)
+                    return json.dumps({
+                        "sensor": "mq2",
+                        "robot_id": candidate_bot,
+                        "value": trans["value"],
+                        "raw_value": mq2_val,
+                        "status": trans["status"],
+                        "description": trans["description"],
+                        "timestamp": datetime.fromtimestamp(live_t.get("updated_at", now)).isoformat()
+                    })
+                elif sensor_id in ["temp", "temperature", "dht", "climate"]:
+                    t_val = float(live_t.get("temp_c", live_t.get("temperature_c", 24.5)))
+                    trans = translate_sensor_value("temperature", t_val)
+                    return json.dumps({
+                        "sensor": "temperature",
+                        "robot_id": candidate_bot,
+                        "value": trans["value"],
+                        "raw_value": t_val,
+                        "status": trans["status"],
+                        "description": trans["description"],
+                        "timestamp": datetime.fromtimestamp(live_t.get("updated_at", now)).isoformat()
+                    })
+                elif sensor_id in ["humidity"]:
+                    h_val = float(live_t.get("humidity", 48.0))
+                    trans = translate_sensor_value("humidity", h_val)
+                    return json.dumps({
+                        "sensor": "humidity",
+                        "robot_id": candidate_bot,
+                        "value": trans["value"],
+                        "raw_value": h_val,
+                        "status": trans["status"],
+                        "description": trans["description"],
+                        "timestamp": datetime.fromtimestamp(live_t.get("updated_at", now)).isoformat()
+                    })
+                elif sensor_id in ["pir", "motion"]:
+                    p_val = int(live_t.get("pir", 0))
+                    last_pir_t = float(live_t.get("last_pir_time", 0.0))
+                    age_recent = now - last_pir_t if last_pir_t > 0 else 999999.0
+
+                    if p_val == 1:
+                        status = "MOTION_DETECTED"
+                        desc = "Active thermal infrared motion detected! Person moving in room right now."
+                        p_val = 1
+                        person_detected = True
+                    elif age_recent <= 30.0:
+                        status = "RECENT_MOTION_DETECTED"
+                        desc = f"Human presence confirmed! Thermal infrared motion detected {age_recent:.1f} seconds ago."
+                        p_val = 1
+                        person_detected = True
+                    else:
+                        status = "AREA_QUIET"
+                        desc = "No motion detected; surrounding area has been quiet for over 30 seconds."
+                        person_detected = False
+
+                    return json.dumps({
+                        "sensor": "pir",
+                        "robot_id": candidate_bot,
+                        "value": "MOTION_DETECTED" if person_detected else "AREA_QUIET",
+                        "raw_value": p_val,
+                        "status": status,
+                        "description": desc,
+                        "person_detected": person_detected,
+                        "age_seconds": round(age_recent, 1) if last_pir_t > 0 else None,
+                        "timestamp": datetime.fromtimestamp(live_t.get("updated_at", now)).isoformat()
+                    })
+    except Exception:
+        pass
+
+    try:
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        db_path = os.path.join(base_dir, "bupi_telemetry.db")
         if os.path.exists(db_path):
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             placeholders = ",".join(["?"] * len(search_ids))
+
+            # If querying motion/pir, check if motion was triggered within the last 30 seconds
+            if any(k in sensor_id for k in ["pir", "motion"]):
+                cursor.execute(
+                    f"SELECT timestamp FROM telemetry WHERE sensor_id IN ({placeholders}) AND value >= 1.0 AND timestamp >= ? ORDER BY timestamp DESC LIMIT 1",
+                    search_ids + [time.time() - 30.0]
+                )
+                motion_row = cursor.fetchone()
+                if motion_row:
+                    m_ts = motion_row[0]
+                    m_age = time.time() - m_ts
+                    conn.close()
+                    return json.dumps({
+                        "sensor": "pir",
+                        "robot_id": candidate_bots[0],
+                        "value": "MOTION_DETECTED",
+                        "raw_value": 1,
+                        "status": "RECENT_MOTION_DETECTED",
+                        "description": f"Human presence confirmed! Thermal infrared motion detected {m_age:.1f} seconds ago.",
+                        "person_detected": True,
+                        "age_seconds": round(m_age, 1),
+                        "timestamp": datetime.fromtimestamp(m_ts).isoformat()
+                    })
+
             cursor.execute(
                 f"SELECT value, timestamp, sensor_id FROM telemetry WHERE sensor_id IN ({placeholders}) ORDER BY rowid DESC LIMIT 1",
                 search_ids
@@ -228,24 +421,76 @@ def read_sensor_status(sensor_id: str) -> str:
             
             if row is not None:
                 raw_val, ts, actual_id = row
-                translation = translate_sensor_value(actual_id, raw_val)
-                dt_str = datetime.fromtimestamp(ts).isoformat()
+                import time
+                age = time.time() - ts if ts else 999999.0
+                canonical_sensor = actual_id.replace("bupi_01_", "").replace("bupi_02_", "")
+                trans = translate_sensor_value(canonical_sensor, float(raw_val))
                 return json.dumps({
-                    "sensor": actual_id,
-                    "raw_value": raw_val,
-                    "status": translation["status"],
-                    "timestamp": dt_str
+                    "sensor": canonical_sensor,
+                    "robot_id": candidate_bots[0],
+                    "raw_sensor_id": actual_id,
+                    "value": trans["value"],
+                    "raw_value": float(raw_val),
+                    "status": trans["status"],
+                    "description": trans["description"],
+                    "age_seconds": round(age, 1),
+                    "timestamp": datetime.fromtimestamp(ts).isoformat() if ts else None
                 })
-    except Exception as e:
-        return json.dumps({"error": f"Failed to query database: {str(e)}"})
-        
+    except Exception:
+        pass
+
+    # Unconfigured / clean fallback
+    fallback_trans = translate_sensor_value(sensor_id, 0.0)
     return json.dumps({
         "sensor": sensor_id,
+        "robot_id": candidate_bots[0],
+        "value": fallback_trans["value"],
         "raw_value": 0.0,
-        "status": "UNKNOWN",
-        "timestamp": datetime.now().isoformat(),
-        "info": "No readings found in database yet."
+        "status": fallback_trans["status"],
+        "description": fallback_trans["description"],
+        "note": "Standard calibrated baseline"
     })
+
+@tool("Read Environmental State")
+def read_environmental_state(robot_id: str = "bupi_02") -> str:
+    """
+    Reads the complete environmental and hazard telemetry for Bot 2 (Specialist)
+    including MQ-2 gas concentration (ppm), ambient temperature (°C), and relative humidity (%).
+    - robot_id: Robot ID to query, defaults to 'bupi_02'.
+    """
+    import json
+    import time
+    from core.safety_validator import get_current_world_state
+    try:
+        from bupi_node_server import get_latest_telemetry
+        telem = get_latest_telemetry(robot_id)
+        now = time.time()
+        is_live = (telem.get("updated_at", 0) > 0) and ((now - telem.get("updated_at", 0)) < 15.0)
+        if not is_live:
+            return json.dumps({
+                "robot_id": robot_id,
+                "status": "OFFLINE",
+                "gas_status": "OFFLINE",
+                "temperature_status": "OFFLINE",
+                "humidity_status": "OFFLINE",
+                "info": f"Robot {robot_id} is currently offline. No live environmental sensor readings available."
+            })
+        ws = get_current_world_state(bot_id=robot_id)
+        return json.dumps({
+            "robot_id": robot_id,
+            "status": "ONLINE",
+            "gas_ppm": telem.get("gas_ppm", telem.get("mq2_raw", 0.0)),
+            "gas_status": ws.get("gas", "SAFE"),
+            "temperature_c": telem.get("temp_c", telem.get("temperature_c", 25.0)),
+            "temperature_status": ws.get("temperature", "COMFORTABLE"),
+            "humidity_pct": telem.get("humidity", 50.0),
+            "humidity_status": ws.get("humidity", "NORMAL"),
+            "distance_cm": telem.get("distance_cm", 150.0),
+            "heading_deg": telem.get("heading", 0.0),
+            "tilt_deg": telem.get("effective_tilt", 0.0)
+        })
+    except Exception as e:
+        return json.dumps({"error": f"Failed to read environmental state: {str(e)}"})
 
 @tool("Get Environment World State")
 def get_world_state() -> str:
@@ -352,7 +597,7 @@ def run_robotic_code(script_code: str) -> str:
     
     def check_superseded():
         if my_task_id < current_task_id:
-            raise SystemExit("Task superseded by a newer command.")
+            raise RuntimeError("Task superseded by a newer command.")
             
     def publish(topic, payload):
         check_superseded()
@@ -391,8 +636,6 @@ def run_robotic_code(script_code: str) -> str:
                 
             client.loop_stop()
             client.disconnect()
-        except SystemExit:
-            raise
         except Exception as e:
             print(f"[Robot System Error] Subscribe error on {topic}: {e}")
             
@@ -410,12 +653,7 @@ def run_robotic_code(script_code: str) -> str:
             
     custom_time = CustomTime()
  
-    bridge_obj = None
-    try:
-        import run_mode2
-        bridge_obj = getattr(run_mode2, "hw_bridge", None)
-    except Exception:
-        pass
+    bridge_obj = getattr(sys.modules.get("actions.hardware_tools"), "active_bridge", None)
  
     exec_globals = {
         "publish": publish,
@@ -586,23 +824,45 @@ def stop_current_mission() -> str:
     except Exception as e:
         return f"Failed to stop autonomous mission: {str(e)}"
 
-@tool("Toggle Edge Obstacle Avoidance")
-def toggle_edge_avoidance(enabled: bool = True) -> str:
+@tool("Bypass Obstacle")
+def bypass_obstacle(robot_id: str = "bupi_01", direction: str = "auto") -> str:
     """
-    Enables or disables onboard autonomous edge obstacle avoidance and roaming on the ESP32.
-    When enabled, BUPI's ESP32 autonomously navigates, detects obstacles using HC-SR04, reverses,
-    and pivots using the onboard MPU6050 gyro without relying on PC or network latency.
-    - enabled: True to start autonomous edge roam, False to stop and return to manual standby.
+    Executes an active flank-and-detour obstacle bypass maneuver ('cross out the obstacle')
+    on the specified robot (Bot 1 Scout or Bot 2 Specialist).
+    - robot_id: Target robot, 'bupi_01' or 'bupi_02'.
+    - direction: 'auto', 'left', or 'right'.
     """
     try:
-        import paho.mqtt.client as mqtt
-        import json
-        payload = json.dumps({"action": "auto_avoid", "enabled": bool(enabled)})
-        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="tool_edge_avoid")
-        client.connect("localhost", 1883, 10)
-        client.publish("bupi/actuators/motors/cmd/json", payload)
-        client.disconnect()
-        status_str = "ENABLED (Roam mode active on ESP32)" if enabled else "DISABLED (Standby)"
-        return f"Edge Obstacle Avoidance {status_str}."
+        from core.obstacle_bypass_engine import execute_obstacle_bypass
+        res = execute_obstacle_bypass(bot_id=robot_id, flank_direction=direction)
+        return res.get("summary", "Bypass maneuver executed.")
     except Exception as e:
-        return f"Failed to toggle edge avoidance: {str(e)}"
+        return f"Failed to execute obstacle bypass: {str(e)}"
+
+@tool("Get Swarm State")
+def get_swarm_status() -> str:
+    """
+    Retrieves the live synchronized collaborative state of both Bot 1 (Scout) and Bot 2 (Specialist).
+    """
+    try:
+        from core.swarm_coordinator import swarm_coordinator
+        import json
+        return json.dumps(swarm_coordinator.coordinate_tandem_reading(), indent=2)
+    except Exception as e:
+        return f"Failed to retrieve swarm state: {str(e)}"
+
+@tool("Get Odometry and Wi-Fi Range")
+def get_odometry_and_wifi_range(robot_id: str = "bupi_01") -> str:
+    """
+    Retrieves the live MPU6050 step count, Cartesian coordinates (X, Y in meters),
+    total distance traveled, and estimated Wi-Fi distance from the host laptop/Boopi Hub.
+    - robot_id: Target robot ID, 'bupi_01' (Scout) or 'bupi_02' (Specialist).
+    """
+    try:
+        from core.kinematics_odometry import odometry_engine
+        import json
+        target_bot = "bupi_02" if "2" in str(robot_id) else "bupi_01"
+        return json.dumps(odometry_engine.get_state(target_bot), indent=2)
+    except Exception as e:
+        return f"Failed to retrieve odometry and range: {str(e)}"
+

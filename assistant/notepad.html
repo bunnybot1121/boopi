@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <title>Bupi Hub</title>
@@ -28,15 +29,18 @@
                 transform: scale(0.95);
                 box-shadow: 0 0 0 0 rgba(72, 187, 120, 0.7);
             }
+
             70% {
                 transform: scale(1);
                 box-shadow: 0 0 0 6px rgba(72, 187, 120, 0);
             }
+
             100% {
                 transform: scale(0.95);
                 box-shadow: 0 0 0 0 rgba(72, 187, 120, 0);
             }
         }
+
         .pulse-active {
             animation: pulse-anim 2s infinite;
         }
@@ -54,7 +58,12 @@
         }
 
         /* Make interactive elements undraggable */
-        button, input, textarea, .nav-item, .editor-area, .content-panel {
+        button,
+        input,
+        textarea,
+        .nav-item,
+        .editor-area,
+        .content-panel {
             -webkit-app-region: no-drag;
         }
 
@@ -69,7 +78,7 @@
             display: flex;
             width: 100%;
             height: 100%;
-            background: rgba(255,255,255,0.2);
+            background: rgba(255, 255, 255, 0.2);
         }
 
         .sidebar {
@@ -141,24 +150,26 @@
         }
 
         .nav-item:hover {
-            background: rgba(255,255,255,0.6);
+            background: rgba(255, 255, 255, 0.6);
             color: var(--text-dark);
         }
 
         .nav-item.active {
-            background: rgba(255,255,255,0.9);
+            background: rgba(255, 255, 255, 0.9);
             color: var(--primary);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.03);
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
             border: var(--glass-border);
         }
 
         .main-content {
             flex: 1;
+            min-width: 0;
             display: flex;
             flex-direction: column;
             position: relative;
             padding: 20px;
-            background: rgba(255,255,255,0.4);
+            background: rgba(255, 255, 255, 0.4);
+            overflow: hidden;
         }
 
         .window-controls {
@@ -181,34 +192,46 @@
             align-items: center;
             transition: transform 0.2s;
         }
-        
+
         .win-btn:hover {
             transform: scale(1.1);
         }
 
-        .win-btn.close { background-color: #ff5f56; }
-        .win-btn.min { background-color: #ffbd2e; }
-        .win-btn.max { background-color: #27c93f; }
+        .win-btn.close {
+            background-color: #ff5f56;
+        }
+
+        .win-btn.min {
+            background-color: #ffbd2e;
+        }
+
+        .win-btn.max {
+            background-color: #27c93f;
+        }
 
         /* Global custom scrollbars for a premium glassmorphic feel */
         ::-webkit-scrollbar {
             width: 8px;
             height: 8px;
         }
+
         ::-webkit-scrollbar-track {
             background: transparent;
         }
+
         ::-webkit-scrollbar-thumb {
             background: rgba(142, 148, 242, 0.25);
             border-radius: 4px;
             border: 1px solid rgba(255, 255, 255, 0.2);
         }
+
         ::-webkit-scrollbar-thumb:hover {
             background: rgba(142, 148, 242, 0.45);
         }
 
         .content-panel {
             flex: 1;
+            min-width: 0;
             background: rgba(255, 255, 255, 0.7);
             backdrop-filter: blur(20px);
             border-radius: 20px;
@@ -216,9 +239,16 @@
             box-shadow: var(--glass-shadow);
             display: none;
             flex-direction: column;
-            padding: 30px;
+            padding: 24px;
             overflow-y: auto;
+            overflow-x: hidden;
             margin-top: 20px;
+        }
+
+        #panel-autonomous {
+            padding: 14px 16px;
+            overflow-y: auto;
+            overflow-x: hidden;
         }
 
         .content-panel.active {
@@ -227,8 +257,15 @@
         }
 
         @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(5px); }
-            to { opacity: 1; transform: translateY(0); }
+            from {
+                opacity: 0;
+                transform: translateY(5px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         /* Notes Panel Styles */
@@ -266,8 +303,14 @@
             padding-right: 10px;
         }
 
-        .editor-area::-webkit-scrollbar { width: 6px; }
-        .editor-area::-webkit-scrollbar-thumb { background-color: rgba(0,0,0,0.1); border-radius: 3px; }
+        .editor-area::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .editor-area::-webkit-scrollbar-thumb {
+            background-color: rgba(0, 0, 0, 0.1);
+            border-radius: 3px;
+        }
 
         /* General Button */
         .btn {
@@ -283,13 +326,13 @@
             align-items: center;
             gap: 8px;
         }
-        
+
         .btn-primary {
             background: linear-gradient(135deg, var(--primary), #a78bfa);
             color: white;
             box-shadow: 0 4px 10px rgba(142, 148, 242, 0.3);
         }
-        
+
         .btn-primary:hover {
             transform: translateY(-1px);
             box-shadow: 0 6px 15px rgba(142, 148, 242, 0.4);
@@ -315,7 +358,7 @@
         }
 
         .esp-card {
-            background: rgba(255,255,255,0.5);
+            background: rgba(255, 255, 255, 0.5);
             border: var(--glass-border);
             border-radius: 15px;
             padding: 20px;
@@ -323,7 +366,7 @@
             flex-direction: column;
             gap: 10px;
         }
-        
+
         .esp-card h3 {
             margin: 0;
             font-size: 16px;
@@ -364,8 +407,9 @@
         .key-grid::-webkit-scrollbar {
             width: 6px;
         }
+
         .key-grid::-webkit-scrollbar-thumb {
-            background-color: rgba(0,0,0,0.1);
+            background-color: rgba(0, 0, 0, 0.1);
             border-radius: 3px;
         }
 
@@ -521,8 +565,13 @@
 
         /* Refresh button spinner */
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
 
         .spinning {
@@ -552,17 +601,18 @@
             bottom: 0;
             left: 0;
             transform: translateX(-100%);
-            background: linear-gradient(90deg, 
-                rgba(255, 255, 255, 0) 0%, 
-                rgba(255, 255, 255, 0.4) 20%, 
-                rgba(255, 255, 255, 0.6) 60%, 
-                rgba(255, 255, 255, 0) 100%
-            );
+            background: linear-gradient(90deg,
+                    rgba(255, 255, 255, 0) 0%,
+                    rgba(255, 255, 255, 0.4) 20%,
+                    rgba(255, 255, 255, 0.6) 60%,
+                    rgba(255, 255, 255, 0) 100%);
             animation: shimmer 1.5s infinite;
         }
 
         @keyframes shimmer {
-            100% { transform: translateX(100%); }
+            100% {
+                transform: translateX(100%);
+            }
         }
 
         .skeleton-line {
@@ -572,11 +622,109 @@
             margin-bottom: 8px;
         }
 
-        .skeleton-line.short { width: 40%; }
-        .skeleton-line.medium { width: 70%; }
-        .skeleton-line.long { width: 90%; }
+        .skeleton-line.short {
+            width: 40%;
+        }
+
+        .skeleton-line.medium {
+            width: 70%;
+        }
+
+        .skeleton-line.long {
+            width: 90%;
+        }
+
+        /* Mode Switcher Widget Styles */
+        .mode-widget-container {
+            padding: 0 16px 14px 16px;
+            margin-bottom: 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.35);
+        }
+
+        .mode-widget-label {
+            font-size: 10px;
+            font-weight: 700;
+            color: var(--text-light);
+            letter-spacing: 0.8px;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .mode-status-indicator {
+            font-size: 9px;
+            padding: 1px 6px;
+            border-radius: 4px;
+            background: rgba(79, 70, 229, 0.1);
+            color: var(--primary);
+            font-weight: 800;
+        }
+
+        .mode-toggle-bar {
+            display: flex;
+            background: rgba(0, 0, 0, 0.05);
+            border-radius: 12px;
+            padding: 3px;
+            gap: 4px;
+            border: 1px solid rgba(0, 0, 0, 0.06);
+        }
+
+        .mode-pill-btn {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            padding: 7px 4px;
+            border-radius: 9px;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            font-size: 11.5px;
+            font-weight: 600;
+            color: var(--text-light);
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .mode-pill-btn .pill-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #94a3b8;
+            transition: all 0.25s ease;
+        }
+
+        .mode-pill-btn:hover {
+            background: rgba(255, 255, 255, 0.5);
+            color: var(--text-dark);
+        }
+
+        .mode-pill-btn.active[data-mode="1"] {
+            background: #ffffff;
+            color: #4f46e5;
+            box-shadow: 0 2px 8px rgba(79, 70, 229, 0.18);
+        }
+
+        .mode-pill-btn.active[data-mode="1"] .pill-dot {
+            background: #4f46e5;
+            box-shadow: 0 0 6px rgba(79, 70, 229, 0.7);
+        }
+
+        .mode-pill-btn.active[data-mode="2"] {
+            background: #0284c7;
+            color: #ffffff;
+            box-shadow: 0 2px 8px rgba(2, 132, 199, 0.35);
+        }
+
+        .mode-pill-btn.active[data-mode="2"] .pill-dot {
+            background: #38bdf8;
+            box-shadow: 0 0 6px #38bdf8;
+        }
     </style>
 </head>
+
 <body>
 
     <div class="app-container glass-panel">
@@ -586,6 +734,26 @@
                 <div class="header-text">
                     <h1>Bupi Hub</h1>
                     <p>Desktop Companion</p>
+                </div>
+            </div>
+
+            <!-- Mode Switcher Widget -->
+            <div class="mode-widget-container">
+                <div class="mode-widget-label">
+                    <span>OPERATING MODE</span>
+                    <span class="mode-status-indicator" id="modeStatusBadge">MODE 1</span>
+                </div>
+                <div class="mode-toggle-bar">
+                    <button class="mode-pill-btn active" id="btnMode1" data-mode="1"
+                        title="Mode 1: Conversational & Desktop Companion">
+                        <span class="pill-dot"></span>
+                        <span class="pill-title">💬 Chat</span>
+                    </button>
+                    <button class="mode-pill-btn" id="btnMode2" data-mode="2"
+                        title="Mode 2: Autonomous Robotics & Hardware">
+                        <span class="pill-dot"></span>
+                        <span class="pill-title">🤖 Robot</span>
+                    </button>
                 </div>
             </div>
 
@@ -625,8 +793,9 @@
                     <i>⚙️</i> Settings
                 </div>
             </div>
-            
-            <div style="margin-top: auto; padding: 20px; font-size: 12px; color: var(--text-light); text-align: center;">
+
+            <div
+                style="margin-top: auto; padding: 20px; font-size: 12px; color: var(--text-light); text-align: center;">
                 Bupi Engine v2.0
             </div>
         </div>
@@ -644,9 +813,10 @@
                     <input type="text" class="title-input" id="noteTitle" value="Untitled Note">
                     <button class="btn btn-primary" id="saveBtn">💾 Save</button>
                 </div>
-                
-                <textarea class="editor-area" id="noteContent" placeholder="Bupi will write here, or you can type your ideas..."></textarea>
-                
+
+                <textarea class="editor-area" id="noteContent"
+                    placeholder="Bupi will write here, or you can type your ideas..."></textarea>
+
                 <div class="status-footer">
                     <div>Status: <span id="saveStatus" style="color: var(--accent-green);">Ready</span></div>
                     <div>Words: <span id="wordCount">0</span></div>
@@ -654,23 +824,28 @@
             </div>
 
             <!-- BUPI Autonomous Sensor-Fusion Panel -->
-            <div class="content-panel" id="panel-autonomous" style="overflow: hidden;">
+            <div class="content-panel" id="panel-autonomous">
                 <div class="autonomous-container">
                     <!-- Top Single-Command Input & Scenario Chips -->
                     <div class="auto-cmd-banner">
                         <form id="autoCmdForm" class="auto-cmd-form">
                             <div class="auto-cmd-input-wrapper">
                                 <span class="auto-cmd-prefix">GOAL &gt;</span>
-                                <input type="text" id="autoCmdInput" placeholder="Give BUPI a high-level instruction (e.g. 'BUPI, find a person in this room.')" value="BUPI, find a person in this room.">
+                                <input type="text" id="autoCmdInput"
+                                    placeholder="Give BUPI a high-level instruction (e.g. 'BUPI, find a person in this room.')"
+                                    value="BUPI, find a person in this room.">
                             </div>
                             <button type="submit" class="auto-send-btn">🚀 Execute Goal</button>
-                            <span class="mission-badge-status status-running" id="autoEngineStatusBadge" style="font-size:11px;">ONLINE</span>
+                            <span class="mission-badge-status status-running" id="autoEngineStatusBadge"
+                                style="font-size:11px;">ONLINE</span>
                         </form>
                         <div class="auto-chips">
                             <span class="auto-chips-label">Scenario Presets:</span>
-                            <button class="auto-chip" data-cmd="BUPI, find a person in this room.">🔍 Find Person</button>
+                            <button class="auto-chip" data-cmd="BUPI, find a person in this room.">🔍 Find
+                                Person</button>
                             <button class="auto-chip" data-cmd="Explore this area safely.">🛡️ Explore Safely</button>
-                            <button class="auto-chip" data-cmd="Watch for motion and alert me.">👁️ Monitor Motion</button>
+                            <button class="auto-chip" data-cmd="Watch for motion and alert me.">👁️ Monitor
+                                Motion</button>
                             <button class="auto-chip" data-cmd="Patrol the perimeter.">🚨 Patrol</button>
                             <button class="auto-chip danger" data-cmd="Stop moving.">🛑 Stop &amp; Wait</button>
                         </div>
@@ -679,8 +854,10 @@
                     <!-- Closed-Loop Epistemic Ladder Stepper -->
                     <div class="epistemic-stepper-card">
                         <div class="stepper-header">
-                            <span class="stepper-title"><span>🪜</span> Closed-Loop Epistemic Ladder &amp; Decision Pipeline</span>
-                            <span style="font-size:10.5px; color:var(--text-light);">Continuous Closed-Loop (20 Hz)</span>
+                            <span class="stepper-title"><span>🪜</span> Closed-Loop Epistemic Ladder &amp; Decision
+                                Pipeline</span>
+                            <span style="font-size:10.5px; color:var(--text-light);">Continuous Closed-Loop (20
+                                Hz)</span>
                         </div>
                         <div class="stepper-grid">
                             <div class="stepper-step">
@@ -722,20 +899,23 @@
                             <div class="arena-topbar">
                                 <span class="arena-title"><span>🌐</span> Interactive 2D Room Simulation Arena</span>
                                 <div class="arena-legend-row">
-                                    <span><strong style="color:#60a5fa;">■</strong> Ultrasonic (25°)</span>
-                                    <span><strong style="color:#f59e0b;">■</strong> PIR (100°)</span>
-                                    <span><strong style="color:#f43f5e;">●</strong> Warm Target</span>
+                                    <span><strong style="color:#8b5cf6;">●</strong> BUPI-01 Scout (PIR+Ping)</span>
+                                    <span><strong style="color:#10b981;">●</strong> BUPI-02 Specialist (Gas+Ping)</span>
+                                    <span><strong style="color:#f43f5e;">●</strong> Warm Human</span>
+                                    <span><strong style="color:#94a3b8;">■</strong> Obstacle</span>
                                 </div>
                             </div>
                             <div class="arena-canvas-box">
                                 <canvas id="bupiArenaCanvas" width="500" height="340"></canvas>
                             </div>
                             <div class="arena-toolbar">
-                                <button class="arena-tool-btn warn" id="autoBtnTestSafety">⚠️ Test Emergency Safety Override (&lt;15cm)</button>
-                                <button class="arena-tool-btn" id="autoBtnSpawnObs">+ Add Obstacle Ahead</button>
-                                <button class="arena-tool-btn" id="autoBtnResetArena">↺ Reset Positions</button>
-                                <span style="margin-left:auto; font-size:11px; color:var(--text-light); display:flex; align-items:center;">
-                                    💡 Click &amp; drag human or obstacles
+                                <button class="arena-tool-btn warn" id="autoBtnTestSafety">⚠️ Safety Cutoff (&lt;15cm)</button>
+                                <button class="arena-tool-btn" id="autoBtnSpawnObs">+ Add Obstacle</button>
+                                <button class="arena-tool-btn" id="autoBtnResetArena">↺ Reset</button>
+                                <button class="arena-tool-btn" id="autoBtnOpenTwin" style="background: rgba(99, 102, 241, 0.15); color: #818cf8; border-color: rgba(99, 102, 241, 0.3);" onclick="window.open('spatial_twin_2d.html', '_blank')">🚀 Full 2D Twin</button>
+                                <span
+                                    style="margin-left:auto; font-size:11px; color:var(--text-light); display:flex; align-items:center;">
+                                    💡 Click &amp; drag targets
                                 </span>
                             </div>
                         </div>
@@ -786,7 +966,8 @@
                                     <span class="auto-card-title">Hardware Safety Supervisor</span>
                                     <span class="mission-badge-status status-completed" id="autoSafetyBadge">SAFE</span>
                                 </div>
-                                <p style="font-size:11.5px; color:var(--text-dark); margin:0;" id="autoSafetyMsg">Safety layer nominal. No overrides active.</p>
+                                <p style="font-size:11.5px; color:var(--text-dark); margin:0;" id="autoSafetyMsg">Safety
+                                    layer nominal. No overrides active.</p>
                                 <div class="safety-stat-row">
                                     <div class="safety-box">
                                         <div class="safety-box-num" id="autoOverridesCount">0</div>
@@ -807,7 +988,8 @@
                             <div class="auto-card">
                                 <div class="auto-card-head">
                                     <span class="auto-card-title">Findings &amp; Report</span>
-                                    <button class="arena-tool-btn" id="autoBtnToggleVoice" style="padding:3px 8px; font-size:10.5px;">🔊 Voice On</button>
+                                    <button class="arena-tool-btn" id="autoBtnToggleVoice"
+                                        style="padding:3px 8px; font-size:10.5px;">🔊 Voice On</button>
                                 </div>
                                 <div class="report-bubble" id="autoReportText">
                                     "Awaiting target discovery..."
@@ -828,13 +1010,19 @@
                             <div style="flex: 1; min-width: 0;">
                                 <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 2px;">
                                     <span class="mission-badge-status status-idle" id="missionStatusBadge">
-                                        <span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #718096;" id="missionStatusDot"></span>
+                                        <span
+                                            style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #718096;"
+                                            id="missionStatusDot"></span>
                                         <span id="missionStatusText">IDLE</span>
                                     </span>
-                                    <span class="mission-badge-type" id="missionTypeBadge">Project-Agnostic Engine</span>
-                                    <span style="font-size: 12px; font-weight: 600; color: var(--text-light); margin-left: 4px;" id="missionTimerText">00:00</span>
+                                    <span class="mission-badge-type" id="missionTypeBadge">Project-Agnostic
+                                        Engine</span>
+                                    <span
+                                        style="font-size: 12px; font-weight: 600; color: var(--text-light); margin-left: 4px;"
+                                        id="missionTimerText">00:00</span>
                                 </div>
-                                <div style="font-size: 13.5px; font-weight: 700; color: var(--text-dark); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" id="missionGoalText">
+                                <div style="font-size: 13.5px; font-weight: 700; color: var(--text-dark); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"
+                                    id="missionGoalText">
                                     No active mission running. Select or launch a mission below.
                                 </div>
                             </div>
@@ -842,13 +1030,18 @@
 
                         <!-- Banner Action Buttons -->
                         <div style="display: flex; gap: 8px; align-items: center;">
-                            <button class="btn btn-primary" id="launchMissionBtn" style="padding: 8px 16px; font-size: 12px;">
+                            <button class="btn btn-primary" id="launchMissionBtn"
+                                style="padding: 8px 16px; font-size: 12px;">
                                 🚀 Launch Mission
                             </button>
-                            <button class="btn" id="stopActiveMissionBtn" style="padding: 8px 14px; font-size: 12px; background: rgba(245, 101, 101, 0.15); color: #c53030; border: 1px solid rgba(245, 101, 101, 0.3);" disabled>
+                            <button class="btn" id="stopActiveMissionBtn"
+                                style="padding: 8px 14px; font-size: 12px; background: rgba(245, 101, 101, 0.15); color: #c53030; border: 1px solid rgba(245, 101, 101, 0.3);"
+                                disabled>
                                 ⏹️ Stop
                             </button>
-                            <button class="btn" id="refreshMissionDataBtn" style="padding: 8px 12px; font-size: 12px; border: 1px solid var(--border-color); background: rgba(255,255,255,0.7);" title="Refresh Mission History & Telemetry">
+                            <button class="btn" id="refreshMissionDataBtn"
+                                style="padding: 8px 12px; font-size: 12px; border: 1px solid var(--border-color); background: rgba(255,255,255,0.7);"
+                                title="Refresh Mission History & Telemetry">
                                 🔄
                             </button>
                         </div>
@@ -910,17 +1103,22 @@
                     <div class="missions-main-split">
                         <!-- Left Column: Past Mission History -->
                         <div class="missions-history-col">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                                <h3 style="margin: 0; font-size: 13px; font-weight: 700; color: var(--text-dark); display: flex; align-items: center; gap: 6px;">
+                            <div
+                                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <h3
+                                    style="margin: 0; font-size: 13px; font-weight: 700; color: var(--text-dark); display: flex; align-items: center; gap: 6px;">
                                     <span>📜</span> Mission Log
                                 </h3>
-                                <span style="font-size: 11px; color: var(--text-light);" id="missionHistoryCount">0 missions</span>
+                                <span style="font-size: 11px; color: var(--text-light);" id="missionHistoryCount">0
+                                    missions</span>
                             </div>
-                            
-                            <input type="text" id="missionSearchInput" placeholder="Filter missions..." style="width: 100%; box-sizing: border-box; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border-color); font-size: 11.5px; outline: none; background: rgba(255,255,255,0.85);" />
+
+                            <input type="text" id="missionSearchInput" placeholder="Filter missions..."
+                                style="width: 100%; box-sizing: border-box; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border-color); font-size: 11.5px; outline: none; background: rgba(255,255,255,0.85);" />
 
                             <div class="missions-history-list" id="missionHistoryList">
-                                <div style="text-align: center; padding: 25px 10px; color: var(--text-light); font-size: 12px;">
+                                <div
+                                    style="text-align: center; padding: 25px 10px; color: var(--text-light); font-size: 12px;">
                                     No completed missions yet.<br>Click "Launch Mission" to start!
                                 </div>
                             </div>
@@ -928,28 +1126,35 @@
 
                         <!-- Right Column: Mission Debrief Card -->
                         <div class="missions-detail-col" id="missionDebriefCard">
-                            <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;">
+                            <div
+                                style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;">
                                 <div>
                                     <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
                                         <span class="mission-badge-type" id="debriefProjectType">Mission Overview</span>
-                                        <span class="mission-badge-status status-completed" id="debriefStatusBadge">Ready</span>
+                                        <span class="mission-badge-status status-completed"
+                                            id="debriefStatusBadge">Ready</span>
                                     </div>
-                                    <h2 style="margin: 0 0 4px 0; font-size: 18px; font-weight: 700; color: var(--text-dark);" id="debriefTitle">
+                                    <h2 style="margin: 0 0 4px 0; font-size: 18px; font-weight: 700; color: var(--text-dark);"
+                                        id="debriefTitle">
                                         Mission Debrief
                                     </h2>
-                                    <p style="margin: 0; font-size: 12px; color: var(--text-light);" id="debriefTimestamp">
+                                    <p style="margin: 0; font-size: 12px; color: var(--text-light);"
+                                        id="debriefTimestamp">
                                         Awaiting mission selection or live telemetry...
                                     </p>
                                 </div>
 
                                 <div class="debrief-action-bar">
-                                    <button class="btn-action-sm" id="copyDebriefMarkdownBtn" title="Copy Markdown Report to Clipboard">
+                                    <button class="btn-action-sm" id="copyDebriefMarkdownBtn"
+                                        title="Copy Markdown Report to Clipboard">
                                         📋 Copy Markdown
                                     </button>
-                                    <button class="btn-action-sm" id="sendDebriefToNotesBtn" title="Send Report directly to Bupi Notes Editor">
+                                    <button class="btn-action-sm" id="sendDebriefToNotesBtn"
+                                        title="Send Report directly to Bupi Notes Editor">
                                         📝 Open in Notes
                                     </button>
-                                    <button class="btn-action-sm" id="exportDebriefJsonBtn" title="Download Debrief JSON">
+                                    <button class="btn-action-sm" id="exportDebriefJsonBtn"
+                                        title="Download Debrief JSON">
                                         💾 Export JSON
                                     </button>
                                 </div>
@@ -977,7 +1182,8 @@
 
                             <!-- Recorded Telemetry Snapshot Table -->
                             <div>
-                                <h4 style="margin: 0 0 8px 0; font-size: 13px; font-weight: 700; color: var(--text-dark); display: flex; align-items: center; gap: 6px;">
+                                <h4
+                                    style="margin: 0 0 8px 0; font-size: 13px; font-weight: 700; color: var(--text-dark); display: flex; align-items: center; gap: 6px;">
                                     <span>📊</span> Discovered Sensor Snapshot
                                 </h4>
                                 <table class="debrief-table" id="debriefTelemetryTable">
@@ -991,7 +1197,8 @@
                                     </thead>
                                     <tbody id="debriefTelemetryBody">
                                         <tr>
-                                            <td colspan="4" style="text-align: center; color: var(--text-light); padding: 15px;">
+                                            <td colspan="4"
+                                                style="text-align: center; color: var(--text-light); padding: 15px;">
                                                 No sensor telemetry recorded for this mission.
                                             </td>
                                         </tr>
@@ -1001,20 +1208,23 @@
 
                             <!-- Chronological Event Timeline -->
                             <div>
-                                <h4 style="margin: 0 0 8px 0; font-size: 13px; font-weight: 700; color: var(--text-dark); display: flex; align-items: center; gap: 6px;">
+                                <h4
+                                    style="margin: 0 0 8px 0; font-size: 13px; font-weight: 700; color: var(--text-dark); display: flex; align-items: center; gap: 6px;">
                                     <span>⏱️</span> Execution Timeline
                                 </h4>
                                 <div class="timeline-container" id="debriefTimelineContainer">
                                     <div class="timeline-entry">
                                         <span class="time">--:--</span>
-                                        <span class="desc" style="color: var(--text-light); font-style: italic;">No timeline events logged yet.</span>
+                                        <span class="desc" style="color: var(--text-light); font-style: italic;">No
+                                            timeline events logged yet.</span>
                                     </div>
                                 </div>
                             </div>
 
                             <!-- Markdown Report Card -->
                             <div>
-                                <h4 style="margin: 0 0 8px 0; font-size: 13px; font-weight: 700; color: var(--text-dark); display: flex; align-items: center; gap: 6px;">
+                                <h4
+                                    style="margin: 0 0 8px 0; font-size: 13px; font-weight: 700; color: var(--text-dark); display: flex; align-items: center; gap: 6px;">
                                     <span>📝</span> Markdown Debrief Report
                                 </h4>
                                 <div class="markdown-rendered-view" id="debriefMarkdownPreview">
@@ -1032,61 +1242,83 @@
                     <h2 style="margin:0;">Hardware Ingestion</h2>
                     <div style="margin-left:auto; display:flex; gap:10px;">
                         <button class="btn btn-primary" id="processHardwareBtn">⚡ Generate Integration</button>
-                        <button class="btn" id="flashHardwareBtn" style="background:linear-gradient(135deg, #4299e1, #3182ce); color:white; box-shadow: 0 4px 10px rgba(66, 153, 225, 0.3);" disabled>🚀 Flash to ESP32</button>
+                        <button class="btn" id="flashHardwareBtn"
+                            style="background:linear-gradient(135deg, #4299e1, #3182ce); color:white; box-shadow: 0 4px 10px rgba(66, 153, 225, 0.3);"
+                            disabled>🚀 Flash to ESP32</button>
                     </div>
                 </div>
-                
-                <div id="trainingStatusBanner" style="display:none; background: linear-gradient(135deg, var(--accent-green), #38a169); color: white; padding: 12px 20px; border-radius: 12px; margin-bottom: 15px; font-weight: 600; font-size: 14px; align-items: center; gap: 10px; box-shadow: 0 4px 15px rgba(72, 187, 120, 0.3); animation: fadeIn 0.3s ease;">
-                    <span style="font-size: 18px;">✅</span> 
+
+                <div id="trainingStatusBanner"
+                    style="display:none; background: linear-gradient(135deg, var(--accent-green), #38a169); color: white; padding: 12px 20px; border-radius: 12px; margin-bottom: 15px; font-weight: 600; font-size: 14px; align-items: center; gap: 10px; box-shadow: 0 4px 15px rgba(72, 187, 120, 0.3); animation: fadeIn 0.3s ease;">
+                    <span style="font-size: 18px;">✅</span>
                     <span>Agent Successfully Trained! Mode 2 Orchestrator now knows how to use this hardware.</span>
                 </div>
 
-                <div id="flasherStatusBanner" style="display:none; flex-direction:column; background: linear-gradient(135deg, #3182ce, #2b6cb0); color: white; padding: 15px 20px; border-radius: 12px; margin-bottom: 15px; font-weight: 600; font-size: 14px; gap: 8px; box-shadow: 0 4px 15px rgba(49, 130, 206, 0.3); animation: fadeIn 0.3s ease;">
+                <div id="flasherStatusBanner"
+                    style="display:none; flex-direction:column; background: linear-gradient(135deg, #3182ce, #2b6cb0); color: white; padding: 15px 20px; border-radius: 12px; margin-bottom: 15px; font-weight: 600; font-size: 14px; gap: 8px; box-shadow: 0 4px 15px rgba(49, 130, 206, 0.3); animation: fadeIn 0.3s ease;">
                     <div style="display:flex; align-items:center; gap:10px; width:100%;">
-                        <span style="font-size: 18px;" id="flasherIcon">⏳</span> 
+                        <span style="font-size: 18px;" id="flasherIcon">⏳</span>
                         <span id="flasherStatusText">Flashing to ESP32...</span>
                     </div>
-                    <div id="flasherProgressContainer" style="width:100%; height:6px; background:rgba(255,255,255,0.25); border-radius:3px; overflow:hidden; display:none; margin-top:4px;">
-                        <div id="flasherProgressBar" style="width:0%; height:100%; background:#fff; border-radius:3px; transition:width 0.2s ease;"></div>
+                    <div id="flasherProgressContainer"
+                        style="width:100%; height:6px; background:rgba(255,255,255,0.25); border-radius:3px; overflow:hidden; display:none; margin-top:4px;">
+                        <div id="flasherProgressBar"
+                            style="width:0%; height:100%; background:#fff; border-radius:3px; transition:width 0.2s ease;">
+                        </div>
                     </div>
                 </div>
 
-                <p style="color: var(--text-light); margin-top:0;">Select components from the autocompleting list below, OR paste your raw C++/Arduino code in the editor to generate a tailored integration client.</p>
-                
+                <p style="color: var(--text-light); margin-top:0;">Select components from the autocompleting list below,
+                    OR paste your raw C++/Arduino code in the editor to generate a tailored integration client.</p>
+
                 <!-- Quick Component Builder UI -->
-                <div style="background: rgba(255, 255, 255, 0.45); border: var(--glass-border); border-radius: 12px; padding: 15px; margin-bottom: 15px; display: flex; flex-direction: column; gap: 10px; position: relative;">
-                    <label style="font-weight: 700; font-size: 13px; color: var(--text-dark); display: flex; align-items: center; gap: 6px;">
+                <div
+                    style="background: rgba(255, 255, 255, 0.45); border: var(--glass-border); border-radius: 12px; padding: 15px; margin-bottom: 15px; display: flex; flex-direction: column; gap: 10px; position: relative;">
+                    <label
+                        style="font-weight: 700; font-size: 13px; color: var(--text-dark); display: flex; align-items: center; gap: 6px;">
                         <span>🔌</span> Quick Component Builder
                     </label>
                     <div style="display: flex; gap: 10px; position: relative; align-items: center;">
-                        <input type="text" id="componentSearchInput" placeholder="Type a component (e.g. mq2, lcd16x2, relay...)" style="flex: 1; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-color); font-size: 13px; outline: none; background: rgba(255,255,255,0.85);" />
-                        <div id="autocompleteDropdown" style="display: none; position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); z-index: 100; max-height: 180px; overflow-y: auto;">
+                        <input type="text" id="componentSearchInput"
+                            placeholder="Type a component (e.g. mq2, lcd16x2, relay...)"
+                            style="flex: 1; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-color); font-size: 13px; outline: none; background: rgba(255,255,255,0.85);" />
+                        <div id="autocompleteDropdown"
+                            style="display: none; position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); z-index: 100; max-height: 180px; overflow-y: auto;">
                             <!-- Dropdown options injected dynamically -->
                         </div>
                     </div>
-                    
+
                     <!-- Selected Components Tags Area -->
-                    <div id="selectedComponentsContainer" style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-height: 30px;">
-                        <span style="font-size: 11px; color: var(--text-light); font-style: italic;">No components selected yet. Start typing to build.</span>
+                    <div id="selectedComponentsContainer"
+                        style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-height: 30px;">
+                        <span style="font-size: 11px; color: var(--text-light); font-style: italic;">No components
+                            selected yet. Start typing to build.</span>
                     </div>
 
                     <!-- Component Purpose / Application Description Input -->
                     <div style="margin-top: 5px; display: flex; flex-direction: column; gap: 6px;">
-                        <label style="font-weight: 700; font-size: 12px; color: var(--text-dark); display: flex; align-items: center; gap: 4px;">
+                        <label
+                            style="font-weight: 700; font-size: 12px; color: var(--text-dark); display: flex; align-items: center; gap: 4px;">
                             <span>🎯</span> Application Purpose / Description (Optional)
                         </label>
-                        <textarea id="componentPurposeInput" placeholder="Describe how these components are used (e.g., 'A mini robot car that steers using IR obstacle sensors and runs a motor')" style="width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border-color); font-size: 12.5px; outline: none; background: rgba(255,255,255,0.85); font-family: var(--font-family); resize: vertical; min-height: 55px;"></textarea>
+                        <textarea id="componentPurposeInput"
+                            placeholder="Describe how these components are used (e.g., 'A mini robot car that steers using IR obstacle sensors and runs a motor')"
+                            style="width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border-color); font-size: 12.5px; outline: none; background: rgba(255,255,255,0.85); font-family: var(--font-family); resize: vertical; min-height: 55px;"></textarea>
                     </div>
                 </div>
-                
+
                 <div style="display:flex; gap:20px; flex:1; min-height:330px; margin-top:10px;">
                     <div style="flex:1; display:flex; flex-direction:column;">
                         <label style="font-weight:600; margin-bottom:5px;">Original Robot Code</label>
-                        <textarea class="editor-area" id="hardwareInput" placeholder="Paste C++/Arduino code here..." style="border:1px solid var(--border-color); border-radius:10px; padding:10px; background:rgba(255,255,255,0.5);"></textarea>
+                        <textarea class="editor-area" id="hardwareInput" placeholder="Paste C++/Arduino code here..."
+                            style="border:1px solid var(--border-color); border-radius:10px; padding:10px; background:rgba(255,255,255,0.5);"></textarea>
                     </div>
                     <div style="flex:1; display:flex; flex-direction:column;">
                         <label style="font-weight:600; margin-bottom:5px;">Generated Minimal Code</label>
-                        <textarea class="editor-area" id="hardwareOutput" placeholder="BUPI will output the clean code here..." style="border:1px solid var(--border-color); border-radius:10px; padding:10px; background:rgba(240,240,240,0.5);" readonly></textarea>
+                        <textarea class="editor-area" id="hardwareOutput"
+                            placeholder="BUPI will output the clean code here..."
+                            style="border:1px solid var(--border-color); border-radius:10px; padding:10px; background:rgba(240,240,240,0.5);"
+                            readonly></textarea>
                     </div>
                 </div>
             </div>
@@ -1094,21 +1326,27 @@
             <!-- ESP32 Panel -->
             <div class="content-panel" id="panel-esp">
                 <h2 style="margin:0 0 10px 0;">ESP32 Controller</h2>
-                <p style="color: var(--text-light); margin:0 0 20px 0;">Manage your connected hardware directly from Bupi.</p>
-                
-                <h3 style="margin: 20px 0 10px 0; font-size: 15px; font-weight:700; color: var(--text-dark); display: flex; align-items: center; gap: 8px;">
-                    <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--accent-green); box-shadow:0 0 8px var(--accent-green);" id="livePulse"></span>
+                <p style="color: var(--text-light); margin:0 0 20px 0;">Manage your connected hardware directly from
+                    Bupi.</p>
+
+                <h3
+                    style="margin: 20px 0 10px 0; font-size: 15px; font-weight:700; color: var(--text-dark); display: flex; align-items: center; gap: 8px;">
+                    <span
+                        style="display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--accent-green); box-shadow:0 0 8px var(--accent-green);"
+                        id="livePulse"></span>
                     Live Connected Nodes
                 </h3>
                 <div class="esp-grid" id="liveNodesGrid" style="margin-bottom: 25px;">
                     <!-- Live nodes will load here -->
-                    <div style="grid-column: 1 / -1; text-align: center; padding: 30px; color: var(--text-light); background: rgba(255,255,255,0.4); border-radius: 12px; border: var(--glass-border);">
+                    <div
+                        style="grid-column: 1 / -1; text-align: center; padding: 30px; color: var(--text-light); background: rgba(255,255,255,0.4); border-radius: 12px; border: var(--glass-border);">
                         <span style="font-size: 18px;">📡</span>
                         <p style="margin: 5px 0 0 0; font-size:12px;">Searching for active ESP32 nodes...</p>
                     </div>
                 </div>
-                
-                <h3 style="margin: 0 0 12px 0; font-size: 15px; font-weight:700; color: var(--text-dark);">Registered Device Actions</h3>
+
+                <h3 style="margin: 0 0 12px 0; font-size: 15px; font-weight:700; color: var(--text-dark);">Registered
+                    Device Actions</h3>
                 <div class="esp-grid" id="espDeviceGrid">
                     <!-- We will dynamically load cards here -->
                 </div>
@@ -1119,11 +1357,14 @@
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
                     <div>
                         <h2 style="margin:0 0 5px 0;">Active Lab 🧪</h2>
-                        <p style="color: var(--text-light); margin:0;">Displays only the devices Bupi was just trained on or used in your active session.</p>
+                        <p style="color: var(--text-light); margin:0;">Displays only the devices Bupi was just trained
+                            on or used in your active session.</p>
                     </div>
-                    <button class="btn" style="padding:6px 12px; font-size:11px; border:1px solid var(--border-color); background:rgba(255,255,255,0.6);" id="clearTrainedBtn">🧹 Clear Session Cache</button>
+                    <button class="btn"
+                        style="padding:6px 12px; font-size:11px; border:1px solid var(--border-color); background:rgba(255,255,255,0.6);"
+                        id="clearTrainedBtn">🧹 Clear Session Cache</button>
                 </div>
-                
+
                 <div class="esp-grid" id="trainedDeviceGrid">
                     <!-- Only trained devices will load here -->
                 </div>
@@ -1133,7 +1374,8 @@
             <div class="content-panel" id="panel-chat">
                 <h2 style="margin:0 0 10px 0;">Chat History</h2>
                 <p style="color: var(--text-light);">Recent conversations with Bupi.</p>
-                <div style="flex:1; display:flex; justify-content:center; align-items:center; color: var(--text-light);">
+                <div
+                    style="flex:1; display:flex; justify-content:center; align-items:center; color: var(--text-light);">
                     Chat history will appear here.
                 </div>
             </div>
@@ -1142,21 +1384,27 @@
             <div class="content-panel" id="panel-paint" style="overflow: hidden;">
                 <h2 style="margin:0 0 10px 0;">Bupi's Canvas</h2>
                 <p style="color: var(--text-light);">Bupi will draw her masterpeices here!</p>
-                <div id="paintArea" style="flex:1; display:flex; justify-content:center; align-items:center; border-radius:15px; border: 2px dashed rgba(142, 148, 242, 0.5); overflow:hidden; background:rgba(255,255,255,0.8);">
+                <div id="paintArea"
+                    style="flex:1; display:flex; justify-content:center; align-items:center; border-radius:15px; border: 2px dashed rgba(142, 148, 242, 0.5); overflow:hidden; background:rgba(255,255,255,0.8);">
                     <span style="color:var(--text-light);">Ask Bupi to draw something!</span>
                 </div>
             </div>
 
             <!-- FootMo Cockpit Panel -->
-            <div class="content-panel" id="panel-footmo2" style="padding: 0; border: none; box-shadow: none; background: transparent; margin-top: 0 !important; margin-bottom: 0 !important; height: calc(100% - 20px); flex-direction: column; overflow: hidden;">
-                <iframe src="http://localhost:3000" style="border: none; width: 100%; height: 100%; border-radius: 20px; background: transparent;" id="footmo2-iframe"></iframe>
+            <div class="content-panel" id="panel-footmo2"
+                style="padding: 0; border: none; box-shadow: none; background: transparent; margin-top: 0 !important; margin-bottom: 0 !important; height: calc(100% - 20px); flex-direction: column; overflow: hidden;">
+                <iframe src="http://localhost:3000"
+                    style="border: none; width: 100%; height: 100%; border-radius: 20px; background: transparent;"
+                    id="footmo2-iframe"></iframe>
             </div>
 
             <!-- BWE Simulator Panel -->
-            <div class="content-panel" id="panel-bwe" style="padding: 0; border: none; box-shadow: none; background: transparent; margin-top: 0 !important; margin-bottom: 0 !important; height: 100%; flex-direction: column; overflow: hidden;">
+            <div class="content-panel" id="panel-bwe"
+                style="padding: 0; border: none; box-shadow: none; background: transparent; margin-top: 0 !important; margin-bottom: 0 !important; height: 100%; flex-direction: column; overflow: hidden;">
                 <div class="bwe-container" style="position:relative; width:100%; height:100%; overflow:hidden;">
                     <!-- 3D Canvas (Background) -->
-                    <div id="bwe-canvas-container" style="position:absolute; top:0; left:0; width:100%; height:100%; z-index:1;">
+                    <div id="bwe-canvas-container"
+                        style="position:absolute; top:0; left:0; width:100%; height:100%; z-index:1;">
                     </div>
 
                     <!-- Overlay Controls (Top Left) -->
@@ -1167,23 +1415,36 @@
                         <button class="bwe-nav-btn" id="bwe-btn-mars">🚀 Mars Base</button>
                         <button class="bwe-nav-btn" id="bwe-btn-blank">🌌 Blank Stage</button>
                         <button class="bwe-nav-btn" id="bwe-btn-rec">🔴 Record Twin</button>
-                        <button class="bwe-nav-btn" id="bwe-btn-toggle-ui" style="border-color:#38bdf8; color:#38bdf8; font-weight:600;">👁️ Toggle UI</button>
-                        <button class="bwe-nav-btn" id="bwe-btn-guide" style="border-color:#a78bfa; color:#a78bfa; font-weight:600;">❓ Guide</button>
+                        <button class="bwe-nav-btn" id="bwe-btn-toggle-ui"
+                            style="border-color:#38bdf8; color:#38bdf8; font-weight:600;">👁️ Toggle UI</button>
+                        <button class="bwe-nav-btn" id="bwe-btn-guide"
+                            style="border-color:#a78bfa; color:#a78bfa; font-weight:600;">❓ Guide</button>
                     </div>
 
                     <!-- BWE User Guide Overlay Card -->
                     <div id="bwe-guide-card" class="bwe-panel bwe-guide-overlay hidden">
-                        <div class="bwe-panel-header" style="padding:10px 15px; border-bottom:1px solid rgba(255,255,255,0.08)">
+                        <div class="bwe-panel-header"
+                            style="padding:10px 15px; border-bottom:1px solid rgba(255,255,255,0.08)">
                             <h3 style="font-size:12.5px; color:#a78bfa;">BWE Quick Guide</h3>
-                            <button id="bwe-btn-close-guide" style="background:transparent; border:none; color:#f56565; cursor:pointer; font-size:13px; font-weight:bold;">✕</button>
+                            <button id="bwe-btn-close-guide"
+                                style="background:transparent; border:none; color:#f56565; cursor:pointer; font-size:13px; font-weight:bold;">✕</button>
                         </div>
-                        <div class="bwe-guide-content" style="padding:15px; font-size:11.5px; line-height:1.5; color:#cbd5e0; overflow-y:auto; flex:1;">
-                            <p style="margin-bottom:10px;">Welcome to the <strong>BWE Virtual Robotics & IoT Laboratory</strong>. Here is how to configure your setup:</p>
-                            <ul style="padding-left:15px; margin-bottom:10px; display:flex; flex-direction:column; gap:8px;">
-                                <li><strong>1. Spawn Components:</strong> Click any button under the <em>Components</em> list on the left (ESP32, Servo, IR Sensor, Camera, Gas Sensor, etc.) to add them to the stage.</li>
-                                <li><strong>2. Navigation & Moving:</strong> Left-click and drag the background to orbit 360°. Right-click and drag to pan. Scroll wheel to zoom. Click and drag any component to move it across the 3D floor.</li>
-                                <li><strong>3. Connect 3D Wires:</strong> Select a component and click the node in <em>Wiring Connections</em> to draw visual 3D jumper wires to your ESP32.</li>
-                                <li><strong>4. HIL Servo Actuation:</strong> Signals sent from your physical board over PWM pin 18 will rotate the 3D servo horn in real-time.</li>
+                        <div class="bwe-guide-content"
+                            style="padding:15px; font-size:11.5px; line-height:1.5; color:#cbd5e0; overflow-y:auto; flex:1;">
+                            <p style="margin-bottom:10px;">Welcome to the <strong>BWE Virtual Robotics & IoT
+                                    Laboratory</strong>. Here is how to configure your setup:</p>
+                            <ul
+                                style="padding-left:15px; margin-bottom:10px; display:flex; flex-direction:column; gap:8px;">
+                                <li><strong>1. Spawn Components:</strong> Click any button under the <em>Components</em>
+                                    list on the left (ESP32, Servo, IR Sensor, Camera, Gas Sensor, etc.) to add them to
+                                    the stage.</li>
+                                <li><strong>2. Navigation & Moving:</strong> Left-click and drag the background to orbit
+                                    360°. Right-click and drag to pan. Scroll wheel to zoom. Click and drag any
+                                    component to move it across the 3D floor.</li>
+                                <li><strong>3. Connect 3D Wires:</strong> Select a component and click the node in
+                                    <em>Wiring Connections</em> to draw visual 3D jumper wires to your ESP32.</li>
+                                <li><strong>4. HIL Servo Actuation:</strong> Signals sent from your physical board over
+                                    PWM pin 18 will rotate the 3D servo horn in real-time.</li>
                             </ul>
                         </div>
                     </div>
@@ -1232,7 +1493,10 @@
                         </div>
                         <div style="flex:1; overflow-y:auto; padding:10px;">
                             <table style="width:100%; border-collapse:collapse;" id="bwe-inspector-table">
-                                <tr><td colspan="2" style="text-align:center; color:var(--text-light); font-size:12px;">Select an object.</td></tr>
+                                <tr>
+                                    <td colspan="2" style="text-align:center; color:var(--text-light); font-size:12px;">
+                                        Select an object.</td>
+                                </tr>
                             </table>
                         </div>
                         <div class="bwe-panel-header" style="border-top:1px solid rgba(255,255,255,0.08)">
@@ -1243,11 +1507,16 @@
 
                     <!-- Scope and Values Telemetry (Floating Center Bottom) -->
                     <div class="bwe-telemetry-panel bwe-panel" style="z-index:2; flex-direction:row;">
-                        <div class="bwe-scope-chart" style="flex:2; border-right:1px solid rgba(255,255,255,0.08); background:transparent; display:flex; flex-direction:column; overflow:hidden;">
-                            <div class="bwe-panel-header" style="padding:4px 15px; border-bottom:none;"><h3>Oscilloscope (ADC Pin 34)</h3></div>
-                            <canvas id="bwe-scope-canvas" width="400" height="90" style="display:block; width:100%; height:100%; flex:1;"></canvas>
+                        <div class="bwe-scope-chart"
+                            style="flex:2; border-right:1px solid rgba(255,255,255,0.08); background:transparent; display:flex; flex-direction:column; overflow:hidden;">
+                            <div class="bwe-panel-header" style="padding:4px 15px; border-bottom:none;">
+                                <h3>Oscilloscope (ADC Pin 34)</h3>
+                            </div>
+                            <canvas id="bwe-scope-canvas" width="400" height="90"
+                                style="display:block; width:100%; height:100%; flex:1;"></canvas>
                         </div>
-                        <div class="bwe-telemetry-numeric" style="flex:1; background:transparent; display:flex; flex-direction:column; justify-content:center; gap:8px; padding:10px 15px;">
+                        <div class="bwe-telemetry-numeric"
+                            style="flex:1; background:transparent; display:flex; flex-direction:column; justify-content:center; gap:8px; padding:10px 15px;">
                             <div style="display:flex; justify-content:space-between; font-size:11px;">
                                 <span>Gas concentration:</span>
                                 <strong style="color:#10b981;" id="bwe-val-ppm">100</strong> <small>PPM</small>
@@ -1277,7 +1546,7 @@
                         <span id="refreshBtnText">Refresh Status</span>
                     </button>
                 </div>
-                
+
                 <div class="key-grid" id="keyGridContainer">
                     <!-- Cards will be dynamically injected here -->
                     <div class="skeleton-card">
@@ -1315,18 +1584,22 @@
     <div class="modal-overlay" id="newMissionModal">
         <div class="modal-card">
             <div style="display: flex; justify-content: space-between; align-items: center;">
-                <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: var(--text-dark); display: flex; align-items: center; gap: 8px;">
+                <h3
+                    style="margin: 0; font-size: 16px; font-weight: 700; color: var(--text-dark); display: flex; align-items: center; gap: 8px;">
                     <span>🚀</span> Launch Autonomous Mission
                 </h3>
-                <button id="closeMissionModalBtn" style="background: transparent; border: none; font-size: 18px; color: var(--text-light); cursor: pointer;">✕</button>
+                <button id="closeMissionModalBtn"
+                    style="background: transparent; border: none; font-size: 18px; color: var(--text-light); cursor: pointer;">✕</button>
             </div>
 
             <p style="margin: 0; font-size: 12px; color: var(--text-light);">
-                Choose a project preset or type a custom goal. Boopi will autonomously sense, avoid obstacles, classify the project, and compile a debrief card.
+                Choose a project preset or type a custom goal. Boopi will autonomously sense, avoid obstacles, classify
+                the project, and compile a debrief card.
             </p>
 
             <div>
-                <label style="font-size: 11.5px; font-weight: 600; color: var(--text-dark); display: block; margin-bottom: 6px;">
+                <label
+                    style="font-size: 11.5px; font-weight: 600; color: var(--text-dark); display: block; margin-bottom: 6px;">
                     Preset Missions:
                 </label>
                 <div class="preset-goals-list">
@@ -1346,14 +1619,18 @@
             </div>
 
             <div>
-                <label style="font-size: 11.5px; font-weight: 600; color: var(--text-dark); display: block; margin-bottom: 6px;">
+                <label
+                    style="font-size: 11.5px; font-weight: 600; color: var(--text-dark); display: block; margin-bottom: 6px;">
                     Or Custom Mission Goal:
                 </label>
-                <input type="text" id="customMissionGoalInput" placeholder="e.g. Inspect hallway for obstacles and report distance..." style="width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border-color); font-size: 12.5px; outline: none; background: rgba(255,255,255,0.9);" />
+                <input type="text" id="customMissionGoalInput"
+                    placeholder="e.g. Inspect hallway for obstacles and report distance..."
+                    style="width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border-color); font-size: 12.5px; outline: none; background: rgba(255,255,255,0.9);" />
             </div>
 
             <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px;">
-                <button class="btn" id="cancelMissionModalBtn" style="padding: 8px 16px; font-size: 12px; border: 1px solid var(--border-color); background: rgba(255,255,255,0.8);">
+                <button class="btn" id="cancelMissionModalBtn"
+                    style="padding: 8px 16px; font-size: 12px; border: 1px solid var(--border-color); background: rgba(255,255,255,0.8);">
                     Cancel
                 </button>
                 <button class="btn btn-primary" id="confirmStartMissionBtn" style="padding: 8px 20px; font-size: 12px;">
@@ -1364,4 +1641,5 @@
     </div>
 
 </body>
+
 </html>

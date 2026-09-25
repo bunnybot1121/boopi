@@ -306,12 +306,16 @@ class BupiBridge:
         self.arena = ArenaSimulation()
         self.physical = PhysicalESP32Connection()
 
-    def get_latest_sensor_data(self) -> Dict[str, Any]:
+    def get_latest_sensor_data(self, bot_id: str = "bupi_01") -> Dict[str, Any]:
         if self.use_simulation:
             st = self.arena.get_arena_state()["sensors"]
             return {
+                "bot_id": bot_id,
                 "pir_pin": st["raw_pir"],
                 "distance_cm": st["raw_distance_cm"],
+                "gas_ppm": 35.0 if "2" in str(bot_id) else 0.0,
+                "temp_c": 24.5,
+                "humidity": 50.0,
                 "imu": {
                     "ax": st["ax"], "ay": st["ay"], "az": st["az"],
                     "gx": st["gx"], "gy": st["gy"], "gz": st["gz"]
@@ -320,12 +324,16 @@ class BupiBridge:
         else:
             try:
                 from bupi_node_server import get_latest_telemetry
-                telem = get_latest_telemetry()
+                telem = get_latest_telemetry(bot_id)
                 return {
+                    "bot_id": bot_id,
                     "pir_pin": telem.get("pir", 0),
-                    "distance_cm": telem.get("distance_cm", 150.0),
-                    "heading_deg": telem.get("heading", 0.0),
-                    "tilt_deg": telem.get("effective_tilt", 0.0),
+                    "distance_cm": float(telem.get("distance_cm", 150.0)),
+                    "heading_deg": float(telem.get("heading", 0.0)),
+                    "tilt_deg": float(telem.get("effective_tilt", 0.0)),
+                    "gas_ppm": float(telem.get("gas_ppm", telem.get("mq2_raw", 0.0))),
+                    "temp_c": float(telem.get("temp_c", telem.get("temperature_c", 25.0))),
+                    "humidity": float(telem.get("humidity", 50.0)),
                     "imu": {
                         "ax": telem.get("ax", 0.0),
                         "ay": telem.get("ay", 0.0),
@@ -337,9 +345,13 @@ class BupiBridge:
                 }
             except Exception:
                 return {
+                    "bot_id": bot_id,
                     "pir_pin": 0,
                     "distance_cm": 150.0,
                     "heading_deg": 0.0,
                     "tilt_deg": 0.0,
+                    "gas_ppm": 0.0,
+                    "temp_c": 25.0,
+                    "humidity": 50.0,
                     "imu": {"ax": 0.0, "ay": 0.0, "az": 1.0, "gx": 0.0, "gy": 0.0, "gz": 0.0}
                 }

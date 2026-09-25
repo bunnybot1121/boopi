@@ -247,36 +247,61 @@ function renderArena() {
     ctx.fillText('Warm Target (Human)', hx + 12, hy + 4);
   }
 
-  // Draw BUPI Robot
-  const robot = arenaData.robot;
-  if (robot) {
+  // Draw BUPI Robots (Dual-Robot Fleet or Single Robot)
+  const fleetList = arenaData.fleet ? Object.values(arenaData.fleet) : (arenaData.robot ? [arenaData.robot] : []);
+  for (const robot of fleetList) {
+    if (!robot) continue;
+    const isBot1 = (robot.bot_id === 'bupi_01' || robot.role === 'SCOUT' || !robot.bot_id);
     const rx = robot.x * scaleX;
     const ry = robot.y * scaleY;
     const rRadius = (robot.radius_cm || 8) * scaleX;
-    const headingRad = (robot.heading_deg * Math.PI) / 180;
+    const headingRad = ((robot.heading_deg || 0) * Math.PI) / 180;
+    const botColor = isBot1 ? '#8b5cf6' : '#10b981';
+    const botLabel = isBot1 ? 'BUPI-01 [Scout]' : 'BUPI-02 [Specialist]';
 
-    // 1. Draw PIR Field of View Cone (100 degrees, 250cm)
-    const pirRangePx = 250 * scaleX;
-    const pirFovRad = ((robot.pir_fov_deg || 100) * Math.PI) / 180;
-    ctx.save();
-    ctx.fillStyle = 'rgba(245, 158, 11, 0.12)';
-    ctx.strokeStyle = 'rgba(245, 158, 11, 0.35)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(rx, ry);
-    ctx.arc(rx, ry, pirRangePx, headingRad - pirFovRad/2, headingRad + pirFovRad/2);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.restore();
+    // 1. Bot 1 Specific: Draw PIR Field of View Cone (100 degrees, 250cm)
+    if (isBot1 && (robot.pir_fov_deg === undefined || robot.pir_fov_deg > 0)) {
+      const pirRangePx = 250 * scaleX;
+      const pirFovRad = ((robot.pir_fov_deg || 100) * Math.PI) / 180;
+      ctx.save();
+      ctx.fillStyle = robot.pir ? 'rgba(245, 158, 11, 0.30)' : 'rgba(245, 158, 11, 0.12)';
+      ctx.strokeStyle = robot.pir ? 'rgba(245, 158, 11, 0.85)' : 'rgba(245, 158, 11, 0.35)';
+      ctx.lineWidth = robot.pir ? 2.5 : 1.5;
+      ctx.beginPath();
+      ctx.moveTo(rx, ry);
+      ctx.arc(rx, ry, pirRangePx, headingRad - pirFovRad/2, headingRad + pirFovRad/2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
 
-    // 2. Draw Ultrasonic Ray Cone (25 degrees)
-    const distCm = (arenaData.sensors && arenaData.sensors.raw_distance_cm) || 125;
+    // 2. Bot 2 Specific: Gas / Hazard Halo Plume
+    if (!isBot1 && (robot.gas_ppm || robot.role === 'ENVIRONMENTAL')) {
+      const gasVal = robot.gas_ppm || 0;
+      const isHigh = gasVal > 300;
+      const haloR = Math.min(80, 22 + (gasVal / 15)) * scaleX;
+      const grad = ctx.createRadialGradient(rx, ry, rRadius, rx, ry, haloR);
+      if (isHigh) {
+        grad.addColorStop(0, 'rgba(239, 68, 68, 0.45)');
+        grad.addColorStop(1, 'rgba(239, 68, 68, 0)');
+      } else {
+        grad.addColorStop(0, 'rgba(16, 185, 129, 0.25)');
+        grad.addColorStop(1, 'rgba(16, 185, 129, 0)');
+      }
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(rx, ry, haloR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 3. Draw Ultrasonic Ray Cone (25 degrees)
+    const distCm = (robot.distance_cm !== undefined) ? robot.distance_cm : ((arenaData.sensors && arenaData.sensors.raw_distance_cm) || 125);
     const usDistPx = distCm * scaleX;
     const usFovRad = ((robot.ultrasonic_fov_deg || 25) * Math.PI) / 180;
     ctx.save();
-    ctx.fillStyle = 'rgba(59, 130, 246, 0.25)';
-    ctx.strokeStyle = 'rgba(59, 130, 246, 0.7)';
+    ctx.fillStyle = isBot1 ? 'rgba(59, 130, 246, 0.25)' : 'rgba(16, 185, 129, 0.25)';
+    ctx.strokeStyle = isBot1 ? 'rgba(59, 130, 246, 0.7)' : 'rgba(16, 185, 129, 0.7)';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(rx, ry);
@@ -286,8 +311,8 @@ function renderArena() {
     ctx.stroke();
     ctx.restore();
 
-    // 3. Robot Chassis Circle
-    ctx.fillStyle = '#06b6d4';
+    // 4. Robot Chassis Circle
+    ctx.fillStyle = botColor;
     ctx.beginPath();
     ctx.arc(rx, ry, rRadius, 0, Math.PI * 2);
     ctx.fill();
@@ -297,16 +322,16 @@ function renderArena() {
 
     // Heading pointer
     ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
     ctx.moveTo(rx, ry);
     ctx.lineTo(rx + Math.cos(headingRad) * (rRadius + 8), ry + Math.sin(headingRad) * (rRadius + 8));
     ctx.stroke();
 
-    // Label
-    ctx.fillStyle = '#06b6d4';
-    ctx.font = 'bold 12px Outfit';
-    ctx.fillText('BUPI', rx - 14, ry - rRadius - 6);
+    // Label & Readout
+    ctx.fillStyle = botColor;
+    ctx.font = 'bold 11px Outfit';
+    ctx.fillText(botLabel, rx - 35, ry - rRadius - 6);
   }
 }
 

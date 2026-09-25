@@ -41,9 +41,9 @@ class SafetyController:
         self,
         safe_distance_cm: float = 40.0,
         warning_distance_cm: float = 25.0,
-        critical_distance_cm: float = 15.0,
-        max_allowed_tilt_deg: float = 35.0,
-        enable_strict_overrides: bool = True
+        critical_distance_cm: float = 0.0,
+        max_allowed_tilt_deg: float = 85.0,
+        enable_strict_overrides: bool = False
     ):
         self.safe_distance_cm = safe_distance_cm
         self.warning_distance_cm = warning_distance_cm

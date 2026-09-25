@@ -5,7 +5,17 @@
 
 (() => {
     let ws = null;
-    let arenaData = null;
+    const defaultArena = {
+        room: { width_cm: 500, height_cm: 400 },
+        humans: [{ id: "person_1", x: 340, y: 140, radius: 18 }],
+        obstacles: [{ id: "box_1", x: 240, y: 190, width: 45, height: 45 }],
+        fleet: {
+            "bupi_01": { bot_id: "bupi_01", role: "SCOUT", x: 120, y: 180, heading: 0.0, distance_cm: 150.0, pir: 0, ultrasonic_fov_deg: 25, pir_fov_deg: 100 },
+            "bupi_02": { bot_id: "bupi_02", role: "ENVIRONMENTAL", x: 180, y: 260, heading: 0.0, gas_ppm: 35.0, temp_c: 24.5, ultrasonic_fov_deg: 25 }
+        },
+        robot: { bot_id: "bupi_01", role: "SCOUT", x: 120, y: 180, heading: 0.0, ultrasonic_fov_deg: 25, pir_fov_deg: 100 }
+    };
+    let arenaData = defaultArena;
     let isDragging = false;
     let draggedItem = null;
     let breadcrumbs = [];
@@ -139,10 +149,16 @@
             }
         }
 
-        // Record robot position trail
-        if (arenaData && arenaData.robot) {
-            breadcrumbs.push({ x: arenaData.robot.x, y: arenaData.robot.y });
-            if (breadcrumbs.length > 200) breadcrumbs.shift();
+        // Record robot position trails per bot
+        if (arenaData) {
+            const fleet = arenaData.fleet || (arenaData.robot ? { [arenaData.robot.bot_id || 'bupi_01']: arenaData.robot } : {});
+            for (let b_id in fleet) {
+                const r = fleet[b_id];
+                if (!r || !r.x || !r.y) continue;
+                if (!breadcrumbs[b_id]) breadcrumbs[b_id] = [];
+                breadcrumbs[b_id].push({ x: r.x, y: r.y });
+                if (breadcrumbs[b_id].length > 150) breadcrumbs[b_id].shift();
+            }
         }
 
         renderArena();
@@ -165,7 +181,7 @@
         ctx.fillStyle = '#0d1117';
         ctx.fillRect(0, 0, c.width, c.height);
 
-        // Subtle Grid lines
+        // Grid lines with coordinate labels
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
         ctx.lineWidth = 1;
         for (let x = 0; x < c.width; x += 50) {
@@ -175,18 +191,37 @@
             ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(c.width, y); ctx.stroke();
         }
 
-        // Trail breadcrumbs
-        if (breadcrumbs.length > 1) {
-            ctx.strokeStyle = 'rgba(142, 148, 242, 0.35)';
-            ctx.lineWidth = 2;
-            ctx.setLineDash([3, 3]);
-            ctx.beginPath();
-            ctx.moveTo(breadcrumbs[0].x * scaleX, breadcrumbs[0].y * scaleY);
-            for (let i = 1; i < breadcrumbs.length; i++) {
-                ctx.lineTo(breadcrumbs[i].x * scaleX, breadcrumbs[i].y * scaleY);
+        // Sector divider lines
+        ctx.strokeStyle = 'rgba(148, 163, 184, 0.12)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath(); ctx.moveTo(c.width/2, 0); ctx.lineTo(c.width/2, c.height); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, c.height/2); ctx.lineTo(c.width, c.height/2); ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.fillStyle = 'rgba(148, 163, 184, 0.35)';
+        ctx.font = '10px Inter, sans-serif';
+        ctx.fillText('Sector A (NE)', c.width - 70, 15);
+        ctx.fillText('Sector B (NW)', 8, 15);
+        ctx.fillText('Sector C (SW)', 8, c.height - 8);
+        ctx.fillText('Sector D (SE)', c.width - 70, c.height - 8);
+
+        // Trail breadcrumbs per robot
+        for (let b_id in breadcrumbs) {
+            const trail = breadcrumbs[b_id];
+            if (trail && trail.length > 1) {
+                const isBot1 = (b_id === 'bupi_01');
+                ctx.strokeStyle = isBot1 ? 'rgba(139, 92, 246, 0.45)' : 'rgba(16, 185, 129, 0.45)';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([3, 3]);
+                ctx.beginPath();
+                ctx.moveTo(trail[0].x * scaleX, trail[0].y * scaleY);
+                for (let i = 1; i < trail.length; i++) {
+                    ctx.lineTo(trail[i].x * scaleX, trail[i].y * scaleY);
+                }
+                ctx.stroke();
+                ctx.setLineDash([]);
             }
-            ctx.stroke();
-            ctx.setLineDash([]);
         }
 
         // Draw Obstacles
@@ -214,7 +249,6 @@
             const hx = h.x * scaleX;
             const hy = h.y * scaleY;
 
-            // Warm Glowing Aura
             const grad = ctx.createRadialGradient(hx, hy, 4, hx, hy, 30);
             grad.addColorStop(0, 'rgba(244, 63, 94, 0.7)');
             grad.addColorStop(0.6, 'rgba(244, 63, 94, 0.2)');
@@ -224,7 +258,6 @@
             ctx.arc(hx, hy, 30, 0, Math.PI * 2);
             ctx.fill();
 
-            // Center Dot
             ctx.fillStyle = '#f43f5e';
             ctx.beginPath();
             ctx.arc(hx, hy, 8, 0, Math.PI * 2);
@@ -238,37 +271,68 @@
             ctx.fillText('Warm Human', hx + 12, hy + 4);
         }
 
-        // Draw BUPI Robot
-        const robot = arenaData.robot;
-        if (robot) {
+        // Draw Dual-Robot Fleet (BUPI-01 Scout & BUPI-02 Specialist)
+        const fleet = (arenaData.fleet && Object.keys(arenaData.fleet).length > 0)
+            ? arenaData.fleet
+            : (arenaData.robot ? { [arenaData.robot.bot_id || 'bupi_01']: arenaData.robot } : {});
+
+        for (let b_id in fleet) {
+            const robot = fleet[b_id];
+            if (!robot) continue;
+
+            const isBot1 = (b_id === 'bupi_01' || robot.role === 'SCOUT');
             const rx = robot.x * scaleX;
             const ry = robot.y * scaleY;
             const rRadius = (robot.radius_cm || 8) * scaleX;
             const headingRad = (robot.heading_deg * Math.PI) / 180;
 
-            // 1. PIR FOV Cone (100 degrees, 250cm range)
-            const pirRangePx = 250 * scaleX;
-            const pirFovRad = ((robot.pir_fov_deg || 100) * Math.PI) / 180;
-            ctx.save();
-            ctx.fillStyle = 'rgba(245, 158, 11, 0.14)';
-            ctx.strokeStyle = 'rgba(245, 158, 11, 0.4)';
-            ctx.lineWidth = 1.5;
-            ctx.beginPath();
-            ctx.moveTo(rx, ry);
-            ctx.arc(rx, ry, pirRangePx, headingRad - pirFovRad/2, headingRad + pirFovRad/2);
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
-            ctx.restore();
+            const primaryColor = isBot1 ? '#8b5cf6' : '#10b981';
+            const botLabel = isBot1 ? 'BUPI-01 [Scout]' : 'BUPI-02 [Specialist]';
 
-            // 2. Ultrasonic Beam Cone (25 degrees)
-            const distCm = (arenaData.sensors && arenaData.sensors.raw_distance_cm) || 125;
+            // 1. Bot 1 Specific: PIR FOV Cone (100 degrees, 250cm range, Amber Aura)
+            if (isBot1 && (robot.pir_fov_deg || 100) > 0) {
+                const pirRangePx = 250 * scaleX;
+                const pirFovRad = ((robot.pir_fov_deg || 100) * Math.PI) / 180;
+                ctx.save();
+                ctx.fillStyle = robot.pir ? 'rgba(245, 158, 11, 0.32)' : 'rgba(245, 158, 11, 0.10)';
+                ctx.strokeStyle = robot.pir ? 'rgba(245, 158, 11, 0.9)' : 'rgba(245, 158, 11, 0.35)';
+                ctx.lineWidth = robot.pir ? 2.5 : 1.5;
+                ctx.beginPath();
+                ctx.moveTo(rx, ry);
+                ctx.arc(rx, ry, pirRangePx, headingRad - pirFovRad/2, headingRad + pirFovRad/2);
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            // 2. Bot 2 Specific: Gas / Smoke Hazard Halo (Radial Plume)
+            if (!isBot1 && robot.has_gas) {
+                const gasVal = robot.gas_ppm || 0;
+                const isHighGas = gasVal > 300.0;
+                const haloRadius = Math.min(80, 22 + (gasVal / 12.0)) * scaleX;
+                const grad = ctx.createRadialGradient(rx, ry, rRadius, rx, ry, haloRadius);
+                if (isHighGas) {
+                    grad.addColorStop(0, 'rgba(239, 68, 68, 0.5)');
+                    grad.addColorStop(1, 'rgba(239, 68, 68, 0)');
+                } else {
+                    grad.addColorStop(0, 'rgba(16, 185, 129, 0.25)');
+                    grad.addColorStop(1, 'rgba(16, 185, 129, 0)');
+                }
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(rx, ry, haloRadius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // 3. Ultrasonic Beam Cone (25 degrees)
+            const distCm = robot.distance_cm || 125;
             const usDistPx = distCm * scaleX;
             const usFovRad = ((robot.ultrasonic_fov_deg || 25) * Math.PI) / 180;
             ctx.save();
-            ctx.fillStyle = 'rgba(59, 130, 246, 0.28)';
-            ctx.strokeStyle = 'rgba(59, 130, 246, 0.75)';
-            ctx.lineWidth = 2;
+            ctx.fillStyle = isBot1 ? 'rgba(59, 130, 246, 0.25)' : 'rgba(16, 185, 129, 0.25)';
+            ctx.strokeStyle = isBot1 ? 'rgba(59, 130, 246, 0.75)' : 'rgba(16, 185, 129, 0.75)';
+            ctx.lineWidth = 1.8;
             ctx.beginPath();
             ctx.moveTo(rx, ry);
             ctx.arc(rx, ry, usDistPx, headingRad - usFovRad/2, headingRad + usFovRad/2);
@@ -277,8 +341,8 @@
             ctx.stroke();
             ctx.restore();
 
-            // 3. Robot Body
-            ctx.fillStyle = '#8e94f2';
+            // 4. Robot Chassis Body
+            ctx.fillStyle = primaryColor;
             ctx.beginPath();
             ctx.arc(rx, ry, rRadius, 0, Math.PI * 2);
             ctx.fill();
@@ -286,18 +350,25 @@
             ctx.lineWidth = 2;
             ctx.stroke();
 
-            // Direction Arrow
+            // Direction Heading Indicator
             ctx.strokeStyle = '#fff';
             ctx.lineWidth = 2.5;
             ctx.beginPath();
             ctx.moveTo(rx, ry);
-            ctx.lineTo(rx + Math.cos(headingRad) * (rRadius + 7), ry + Math.sin(headingRad) * (rRadius + 7));
+            ctx.lineTo(rx + Math.cos(headingRad) * (rRadius + 8), ry + Math.sin(headingRad) * (rRadius + 8));
             ctx.stroke();
 
-            // Label
-            ctx.fillStyle = '#8e94f2';
+            // Robot Label & Quick Readout Badge
+            ctx.fillStyle = primaryColor;
             ctx.font = 'bold 11px Inter, sans-serif';
-            ctx.fillText('BUPI', rx - 13, ry - rRadius - 5);
+            ctx.fillText(botLabel, rx - 35, ry - rRadius - 6);
+
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+            ctx.font = '9.5px Inter, sans-serif';
+            const statusLine = isBot1
+                ? `${distCm.toFixed(0)}cm | PIR:${robot.pir ? 'HIGH' : 'LOW'}`
+                : `${distCm.toFixed(0)}cm | Gas:${(robot.gas_ppm || 0).toFixed(0)}ppm`;
+            ctx.fillText(statusLine, rx - 30, ry + rRadius + 14);
         }
     }
 
@@ -422,9 +493,18 @@
         }
     }
 
+    // Expose renderArena globally so notepad.js and external callers can refresh the canvas
+    window.renderBupiArena = renderArena;
+    window.addEventListener('resize', () => {
+        renderArena();
+    });
+
     document.addEventListener('DOMContentLoaded', () => {
         setupDOMEvents();
         setupCanvasMouseInteraction();
         initWebSocket();
+        renderArena();
+        setTimeout(renderArena, 150);
+        setTimeout(renderArena, 600);
     });
 })();

@@ -6,7 +6,7 @@ class HILBridge {
     this.wsClient = null;
     this.mqttClient = null;
     this.isConnected = false;
-    
+
     // Latency metrics
     this.latencyHistory = [];
     this.lastPingSent = 0;
@@ -29,7 +29,7 @@ class HILBridge {
         this.isConnected = true;
         console.log('[HILBridge] Connected to Bupi Node Server.');
         eventBus.publish('hil.connected', { channel: 'WebSocket' });
-        
+
         // Start latency monitoring ping loop
         this.startPingLoop();
       });
@@ -129,7 +129,7 @@ class HILBridge {
           this.currentLatency = rtt;
           this.latencyHistory.push(rtt);
           if (this.latencyHistory.length > 50) this.latencyHistory.shift();
-          
+
           eventBus.publish('hil.latency_update', { latency: rtt, history: this.latencyHistory });
           break;
       }
@@ -156,12 +156,12 @@ class HILBridge {
         value: value
       });
     }
-    
+
     // Also push to local MQTT if available
     try {
       const pahoPublish = `footmo2/${devId}/sensor/${pin}`;
       eventBus.publish('mqtt.publish', { topic: pahoPublish, payload: JSON.stringify({ value }) });
-    } catch(e) {}
+    } catch (e) { }
   }
 
   startPingLoop() {

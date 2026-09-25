@@ -178,7 +178,10 @@ class SpeakerThread(QThread):
                     continue
                 self._text_queue.put((sentence, self._epoch, is_streaming))
 
-    def interrupt(self):
+    def stop(self):
+        self.interrupt(emit_finished=True)
+
+    def interrupt(self, emit_finished=False):
         with self._lock:
             self._epoch += 1
             
@@ -206,6 +209,12 @@ class SpeakerThread(QThread):
             self._stop_player_signal.emit()
             # Unblock background synthesis/playback threads
             self._playback_event.set()
+        
+        if emit_finished:
+            try:
+                self.speech_finished.emit()
+            except Exception:
+                pass
 
     def quit(self):
         self.interrupt()
@@ -225,6 +234,20 @@ class SpeakerThread(QThread):
         print(f"From Python: [TTS] Playing audio from {file_path}...", flush=True)
         
         self.speech_started.emit()
+        
+        # Start fail-safe timer immediately (prevents Windows Media Foundation hangs on short/SAPI audio)
+        estimated_timeout = 5000
+        try:
+            if os.path.exists(file_path):
+                # Rough duration estimate: 16kB/s for 128kbps MP3, 32kB/s for 16kHz WAV + 2000ms buffer
+                sz = os.path.getsize(file_path)
+                estimated_timeout = max(3500, int((sz / 20000.0) * 1000) + 2000)
+        except Exception:
+            pass
+        self._safety_timer.stop()
+        self._safety_timer.setInterval(estimated_timeout)
+        self._safety_timer.start()
+
         self.player.setSource(QUrl.fromLocalFile(file_path))
         self.player.play()
 
@@ -236,11 +259,14 @@ class SpeakerThread(QThread):
 
     @pyqtSlot()
     def _safe_unblock_playback(self):
-        if not self._playback_event.is_set():
-            log.warning("EndOfMedia signal missed or delayed. Unblocking playback thread via safety timer.")
-            self._safety_timer.stop()
+        log.warning("Playback timeout/stuck safety trigger. Unblocking playback thread.")
+        self._safety_timer.stop()
+        try:
+            self.player.stop()
             self.player.setSource(QUrl())
-            self._playback_event.set()
+        except Exception:
+            pass
+        self._playback_event.set()
 
     @pyqtSlot(QMediaPlayer.MediaStatus)
     def _on_media_status_changed(self, status):
@@ -282,8 +308,11 @@ class SpeakerThread(QThread):
             self._playback_event.clear()
             self._play_file_signal.emit(temp_path, text, epoch)
             
-            # Wait for playback of this chunk to complete (or be interrupted)
-            self._playback_event.wait()
+            # Wait for playback of this chunk to complete (or be interrupted) with 8.0s timeout
+            completed = self._playback_event.wait(timeout=8.0)
+            if not completed:
+                log.warning(f"Playback wait timed out for chunk: '{text}'. Forcing unblock.")
+                self._stop_player_signal.emit()
             
             # Clean up temp file (never delete static voice cache files!)
             if not temp_path.startswith(VOICE_CACHE_DIR) and os.path.exists(temp_path):
@@ -301,7 +330,7 @@ class SpeakerThread(QThread):
                     
             # Check if this was the last item for this epoch
             with self._lock:
-                if self._text_queue.empty() and self._play_queue.empty() and epoch == self._epoch:
+                if self._text_queue.empty() and self._play_queue.empty():
                     self.speech_finished.emit()
 
     def _synthesis_loop(self):

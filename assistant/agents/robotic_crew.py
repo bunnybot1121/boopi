@@ -12,7 +12,11 @@ if hasattr(sys.stderr, 'reconfigure'):
     sys.stderr.reconfigure(encoding='utf-8')
 
 from crewai import Agent, Task, Crew, Process, LLM
-from actions.hardware_tools import control_relay, display_on_esp32, universal_mqtt_tool, read_mqtt_sensor, run_robotic_code, read_sensor_status, get_world_state
+from actions.hardware_tools import (
+    control_relay, display_on_esp32, universal_mqtt_tool, read_mqtt_sensor,
+    run_robotic_code, read_sensor_status, get_world_state, control_motors,
+    toggle_edge_avoidance, read_environmental_state, bypass_obstacle, get_swarm_status
+)
 
 load_dotenv()
 
@@ -225,7 +229,11 @@ def run_robotic_task(user_request: str) -> str:
                 backstory=orchestrator_config["backstory"],
                 verbose=True,
                 allow_delegation=True,
-                tools=[control_relay, display_on_esp32, universal_mqtt_tool, read_mqtt_sensor, run_robotic_code, read_sensor_status, get_world_state],
+                tools=[
+                    control_relay, display_on_esp32, universal_mqtt_tool, read_mqtt_sensor,
+                    run_robotic_code, read_sensor_status, get_world_state, control_motors,
+                    toggle_edge_avoidance, read_environmental_state, bypass_obstacle, get_swarm_status
+                ],
                 llm=orchestrator_llm
             )
             crew_agents.append(orchestrator_agent)

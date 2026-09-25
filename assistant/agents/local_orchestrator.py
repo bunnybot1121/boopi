@@ -56,11 +56,12 @@ LOCAL_TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "read_sensor_status",
-            "description": "Reads the latest telemetry and semantic status for a sensor (e.g. 'mq2', 'distance', 'temp', 'humidity').",
+            "description": "Reads the latest telemetry and semantic status for a sensor. Supports MQ2 gas/smoke, DHT22 temperature/humidity, HC-SR04 ultrasonic distance, PIR motion.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "sensor_id": {"type": "string", "description": "The sensor ID, e.g. 'mq2', 'temp', 'distance'"}
+                    "sensor_id": {"type": "string", "description": "The sensor ID, e.g. 'mq2' (gas/smoke), 'temp' (temperature), 'humidity', 'distance' (ultrasonic), 'pir' (motion)"},
+                    "robot_id": {"type": "string", "enum": ["bupi_01", "bupi_02", ""], "description": "Target robot: 'bupi_01' (Bot 1 Scout) or 'bupi_02' (Bot 2 Specialist). Omit to auto-route by sensor capability."}
                 },
                 "required": ["sensor_id"]
             }
@@ -110,14 +111,15 @@ LOCAL_TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "control_motors",
-            "description": "Drives the robot mobile base (forward, reverse, left, right, stop, turn_by) with optional speed (0-255), duration in seconds, and precision gyro turn degrees.",
+            "description": "Drives the robot mobile base (forward, reverse, left, right, stop, turn_by) with optional speed (0-255), duration in seconds, precision gyro turn degrees, and targeted robot.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "direction": {"type": "string", "enum": ["forward", "reverse", "backward", "left", "right", "stop", "turn_by"], "description": "Direction to drive (forward, reverse/backward, left, right, stop)"},
                     "speed": {"type": "integer", "description": "Motor PWM speed 0 to 255 (default 255 for full battery torque, do NOT use 0 unless stopping)"},
                     "duration_seconds": {"type": "number", "description": "Seconds to run before auto-stopping (default 1.5)"},
-                    "degrees": {"type": "number", "description": "Optional precision turn degrees using MPU6050 gyro (e.g. 90.0 for right, -90.0 for left)"}
+                    "degrees": {"type": "number", "description": "Optional precision turn degrees using MPU6050 gyro (e.g. 90.0 for right, -90.0 for left)"},
+                    "robot_id": {"type": "string", "enum": ["bupi_01", "bupi_02", "all"], "description": "Target robot: 'bupi_01' (Bot 1 Scout), 'bupi_02' (Bot 2 Specialist), or 'all' (Both). Default 'bupi_01'."}
                 },
                 "required": ["direction"]
             }
@@ -237,19 +239,21 @@ class LocalAgentOrchestrator:
         system_prompt = f"""You are BUPI's Master Robotic Orchestrator. You are running 100% locally and offline.
 Your goal is to fulfill the operator's hardware, navigation, and mission requests using the provided tools.
 
-CURRENT PHYSICAL WORLD STATE:
-{json.dumps(world_state, indent=2)}
+ROBOT FLEET CAPABILITIES & INDIVIDUAL BOT CONTROL:
+- Bot 1 ("bupi_01", Scout): Equipped with PIR Passive Infrared Motion sensor, HC-SR04 Ultrasonic Distance, and MPU6050 IMU. Specializes in motion detection, locating people, spatial reconnaissance, obstacle navigation.
+- Bot 2 ("bupi_02", Specialist): Equipped with MQ-2 Gas/Smoke sensor, DHT22 Temperature & Humidity sensor, HC-SR04 Ultrasonic Distance, and MPU6050 IMU. Specializes in gas leak detection, smoke analysis, air quality, room climate, and heat index monitoring.
 
-REGISTERED HARDWARE KNOWLEDGE:
-{hw_knowledge}
-
-RULES:
-1. For high-level autonomous or conditional tasks (e.g. 'walk until an obstacle comes in front of you', 'find the human in the room', 'patrol the room', 'explore the area', 'search for motion'), ALWAYS invoke start_autonomous_mission. Do NOT try to micromanage single wheel turns.
-2. If the user asks to stop, halt, or cancel a mission, use stop_current_mission or control_motors('stop').
-3. Prefer using tools directly (e.g. read_sensor_status, control_relay, display_on_esp32) instead of guessing.
-4. If the user asks if the ESP32 is connected, call get_connected_nodes.
-5. If the user asks about pinouts or wiring specs, call get_hardware_knowledge.
-6. Keep spoken responses short, concise, and direct (under 2 sentences).
+ROUTING RULES:
+1. When operator mentions Bot 1 / Scout, use robot_id="bupi_01".
+2. When operator mentions Bot 2 / Specialist, use robot_id="bupi_02".
+3. When operator asks for gas, smoke, air quality, temperature, or humidity, query Bot 2 (read_sensor_status with robot_id="bupi_02").
+4. When operator asks for motion, person detection, or PIR, query Bot 1 (read_sensor_status with robot_id="bupi_01").
+5. When operator asks both bots to drive, use robot_id="all".
+6. For high-level autonomous or conditional tasks (e.g. 'walk until an obstacle comes in front of you', 'find the human in the room', 'patrol the room', 'explore the area', 'search for motion', 'scan the room'), ALWAYS invoke start_autonomous_mission. Do NOT try to micromanage single wheel turns.
+7. If the user asks to stop, halt, or cancel a mission, use stop_current_mission or control_motors('stop').
+8. If the user asks if the ESP32 is connected, call get_connected_nodes.
+9. If the user asks about pinouts or wiring specs, call get_hardware_knowledge.
+10. Keep spoken responses short, concise, and direct (under 2 sentences).
 """
 
         messages = [

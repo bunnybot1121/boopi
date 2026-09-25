@@ -14,6 +14,10 @@ import string
 
 warnings.filterwarnings("ignore", message=".*FP16 is not supported on CPU.*")
 
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
+import config
+
 from state_manager import state_mgr
 
 # -------------------------------------------------------------
@@ -22,21 +26,24 @@ from state_manager import state_mgr
 SAMPLE_RATE = 16000
 FRAME_MS = 30
 FRAME_SAMPLES = int(SAMPLE_RATE * FRAME_MS / 1000) # 480 samples
-VAD_AGGRESSIVENESS = 2 # Balanced mode (filters hum while reliably catching voice)
-MIN_SPEECH_FRAMES = 10
+VAD_AGGRESSIVENESS = 3 # High-rejection mode (suppresses room noise, fan hum, typing)
+MIN_SPEECH_FRAMES = 12 # Discards sub-360ms transient acoustic clicks
 PRE_ROLL_FRAMES = 20
 
-# Settings from environment variables with safe fallbacks (matching Hackathon project)
-USE_CLOUD_STT = os.environ.get("USE_CLOUD_STT", "true").lower() == "true"
-LOCAL_WHISPER_MODEL = os.environ.get("LOCAL_WHISPER_MODEL", "base")
-GROQ_STT_MODEL = os.environ.get("GROQ_STT_MODEL", "whisper-large-v3")
-AUDIO_GAIN_BOOST = float(os.environ.get("AUDIO_GAIN_BOOST", "1.5"))
-SILENCE_FRAMES = int(os.environ.get("SILENCE_FRAMES", "13")) # Wait 390ms (13 frames) of continuous silence for fast snappy response
+# Settings from config / environment variables with safe fallbacks (matching Hackathon project)
+USE_CLOUD_STT = getattr(config, "USE_CLOUD_STT", False)
+LOCAL_WHISPER_MODEL = getattr(config, "LOCAL_WHISPER_MODEL", "base")
+GROQ_STT_MODEL = getattr(config, "GROQ_STT_MODEL", "whisper-large-v3")
+AUDIO_GAIN_BOOST = getattr(config, "AUDIO_GAIN_BOOST", 1.5)
+SILENCE_FRAMES = int(os.environ.get("SILENCE_FRAMES", getattr(config, "SILENCE_FRAMES", 13)))
 
 PROMPT_CONTEXT = (
-    "Prag, prag, PRAG, bot, robot, move the bot 10 cm, move 12 cm, move 20 cm, scan the room, scan, "
+    "Prag, prag, PRAG, bot, robot, bot 1, bot 2, Scout, Specialist, move bot 1, move bot 2, bot 1 only, bot 2 only, move the bot 1 only, "
+    "scan the room and if you find any person move towards him, move towards him, approach person, "
+    "mark out the points of the room and give the readings of each point, points of the room, readings of each point, environmental survey, "
+    "move the bot 10 cm, move 12 cm, move 20 cm, scan the room, scan, "
     "Boopi, Bupi, Boopy, Boopie, find the human in the room, find human, locate person, search room, "
-    "turn 90 degrees, turn left, turn right, spin, rotate 180 degrees, turn around, walk until obstacle, approach person, "
+    "turn 90 degrees, turn left, turn right, spin, rotate 180 degrees, turn around, walk until obstacle, "
     "patrol area, patrol and inspect, explore, start obstacle avoidance, stop obstacle avoidance, auto avoid, roam around, "
     "move forward, move backward, drive reverse, turn left, turn right, stop, halt, freeze, emergency stop, e-stop, "
     "what did you find, mission report, debrief, relay on, relay off, gas reading, mq2 gas sensor, check gas sensor, "
@@ -90,12 +97,11 @@ def is_hallucinated_output(text: str) -> bool:
     if normalized in always_hallucination or stripped in always_hallucination:
         return True
         
-    raw_words = normalized.split()
-    if len(raw_words) < 3:
-        return False
-        
+    import re
+    # Split on whitespace and punctuation symbols to detect tokens in hyphens/periods (e.g. "1-1-1-1-1" or "1. 1. 1.")
+    raw_words = re.split(r"[\s\-_,.:;]+", normalized)
     clean_words = [strip_punctuation(w) for w in raw_words if strip_punctuation(w)]
-    if not clean_words:
+    if len(clean_words) < 3:
         return False
         
     first = clean_words[0]
@@ -328,10 +334,19 @@ class ListenerThread(QThread):
                     ring_buffer.clear()
                     speech_detected = False
 
+                    speaking_blocked_since = None
                     # Main loop for frame capture
                     while self._running:
                         # If paused or Bupi is actively speaking, ignore audio input to prevent feedback loops
                         if self._paused or getattr(self, "is_speaking", False):
+                            if speaking_blocked_since is None:
+                                speaking_blocked_since = time.time()
+                            elif time.time() - speaking_blocked_since > 3.0:
+                                log.warning("[Listener Watchdog] Speech lock stuck >3s. Auto-unmuting microphone to keep Boopi responsive!")
+                                self.is_speaking = False
+                                self._paused = False
+                                speaking_blocked_since = None
+                            
                             last_talking_time = time.time()
                             ring_buffer.clear()
                             triggered = False
@@ -343,6 +358,8 @@ class ListenerThread(QThread):
                                     break
                             time.sleep(0.05)
                             continue
+                        else:
+                            speaking_blocked_since = None
                           
                         # Short 0.25s cooldown after Bupi stops talking to avoid picking up speaker echo
                         if not getattr(self, "is_speaking", False) and time.time() - last_talking_time < 0.25:
@@ -439,8 +456,10 @@ class ListenerThread(QThread):
                             audio = np.frombuffer(b''.join(voiced_frames), dtype=np.int16)
                             orig_max = float(np.percentile(np.abs(audio), 98)) if len(audio) > 0 else 0.0
                             
-                            # Only transition to thinking if audio has confirmed vocal energy
-                            if orig_max >= 15:
+                            # Adaptive vocal energy cutoff based on calibrated ambient baseline (accommodates quiet/distant microphones)
+                            min_speech_peak = max(avg_ambient * 2.2, 6.0)
+                            self._min_speech_peak = min_speech_peak
+                            if orig_max >= min_speech_peak:
                                 self.listening_stopped.emit()
                                 
                                 transcribe_thread = threading.Thread(
@@ -458,7 +477,7 @@ class ListenerThread(QThread):
                                 
                                 threading.Thread(target=watchdog, daemon=True).start()
                             else:
-                                log.info(f"Discarded low-energy audio without thinking (peak: {orig_max:.1f} < 15)")
+                                log.info(f"Discarded low-energy audio without thinking (peak: {orig_max:.1f} < {min_speech_peak:.1f})")
                                 self.transcription_ready.emit("")
                         else:
                             self.transcription_ready.emit("")
@@ -470,8 +489,9 @@ class ListenerThread(QThread):
     def _transcribe_and_emit(self, audio: np.ndarray):
         # Verify peak value before boosting to discard absolute silence
         orig_max = float(np.percentile(np.abs(audio), 98)) if len(audio) > 0 else 0.0
-        if orig_max < 15:
-            log.info(f"Discarded silent audio (peak: {orig_max} < 15)")
+        cutoff = getattr(self, "_min_speech_peak", 6.0)
+        if orig_max < cutoff:
+            log.info(f"Discarded silent audio (peak: {orig_max:.1f} < {cutoff:.1f})")
             self.transcription_ready.emit("")
             return
 
@@ -532,6 +552,11 @@ class ListenerThread(QThread):
                         beam_size=1,
                         best_of=1,
                         temperature=0.0,
+                        repetition_penalty=1.2,
+                        no_repeat_ngram_size=3,
+                        no_speech_threshold=0.6,
+                        compression_ratio_threshold=2.4,
+                        log_prob_threshold=-1.0,
                         vad_filter=True
                     )
                     text = " ".join([segment.text for segment in segments]).strip()

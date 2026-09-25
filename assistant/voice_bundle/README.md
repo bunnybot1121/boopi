@@ -57,8 +57,7 @@ graph TD
       gain = min(24000.0 / orig_max, 8.0)
       audio_boosted = audio.astype(np.float32) * gain
   ```
-- **Cloud STT API**: Sends `POST` requests to `https://api.groq.com/openai/v1/audio/transcriptions` with model parameter `whisper-large-v3`.
-- **Local Fallback STT**: Uses `faster_whisper.WhisperModel("small", device="cpu", compute_type="int8")` for efficient offline CPU execution.
+- **Local Fallback STT**: Uses `faster_whisper.WhisperModel("small", device=device, compute_type=compute_type)` with automatic NVIDIA GPU (CUDA `float16`) acceleration (~0.35s inference) and graceful CPU (`int8`) fallback. You can set `PREFER_LOCAL_WHISPER=true` in `.env` to run fully offline on your GPU.
 
 ---
 

@@ -88,53 +88,93 @@ class LLMGateway:
         Respond ONLY with raw JSON, no markdown code blocks.
         """
         
-        if not self.gemini_keys:
-            print("[LLM Gateway] No keys found in .env!")
-            return {"type": "chat_response", "payload": {"text": "I don't have any API keys configured to think with."}}
+        use_local = os.environ.get("USE_LOCAL_LLM", "false").lower() == "true"
 
-        # 1. Attempt using Gemini keys first rotating through all available keys
-        for idx, key in enumerate(self.gemini_keys):
-            try:
-                genai.configure(api_key=key)
-                # Setting generation config to require JSON output format
-                model = genai.GenerativeModel(
-                    model_name=self.model_name,
-                    system_instruction=system_prompt,
-                    generation_config=genai.GenerationConfig(
-                        temperature=0.0,
-                        max_output_tokens=150
+        # 1. If local LLM is enabled, prioritize running locally on the RTX 4050 GPU
+        if use_local:
+            local_result = await self._classify_via_ollama(user_utterance, system_prompt)
+            if local_result:
+                return local_result
+            print("[LLM Gateway] Local Ollama classification failed or unavailable. Cascading to cloud...", flush=True)
+
+        # 2. Cloud Gemini classification
+        if self.gemini_keys:
+            for idx, key in enumerate(self.gemini_keys):
+                try:
+                    genai.configure(api_key=key)
+                    model = genai.GenerativeModel(
+                        model_name=self.model_name,
+                        system_instruction=system_prompt,
+                        generation_config=genai.GenerationConfig(
+                            temperature=0.0,
+                            max_output_tokens=150
+                        )
                     )
-                )
-                
-                response = await model.generate_content_async(user_utterance)
-                raw_text = response.text.strip()
-                
-                # Strip markdown if the LLM added it despite instructions
-                if raw_text.startswith("```json"):
-                    raw_text = raw_text.split("```json")[1].split("```")[0].strip()
-                elif raw_text.startswith("```"):
-                    raw_text = raw_text.split("```")[1].strip()
                     
-                return json.loads(raw_text)
-                
-            except ResourceExhausted:
-                print(f"[LLM Gateway] Gemini Key {idx + 1} exhausted! Falling back to next key...")
-                continue
-            except Exception as e:
-                print(f"[LLM Gateway] Gemini error with Key {idx + 1}: {e}")
-                # For non-quota errors, we also try the next key just in case
-                continue
+                    response = await model.generate_content_async(user_utterance)
+                    raw_text = response.text.strip()
+                    
+                    if raw_text.startswith("```json"):
+                        raw_text = raw_text.split("```json")[1].split("```")[0].strip()
+                    elif raw_text.startswith("```"):
+                        raw_text = raw_text.split("```")[1].strip()
+                        
+                    return json.loads(raw_text)
+                    
+                except ResourceExhausted:
+                    print(f"[LLM Gateway] Gemini Key {idx + 1} exhausted! Falling back to next key...")
+                    continue
+                except Exception as e:
+                    print(f"[LLM Gateway] Gemini error with Key {idx + 1}: {e}")
+                    continue
 
-        # 3. Fallback to Local Ollama (llama3.2:3b or llama3.1:8b)
+        # 3. Cloud Groq fallback
+        if self.groq_keys:
+            for idx, key in enumerate(self.groq_keys):
+                try:
+                    groq_client = AsyncOpenAI(
+                        base_url="https://api.groq.com/openai/v1",
+                        api_key=key
+                    )
+                    response = await groq_client.chat.completions.create(
+                        model="llama-3.3-70b-versatile",
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_utterance}
+                        ],
+                        temperature=0.0,
+                        max_tokens=200,
+                        response_format={"type": "json_object"}
+                    )
+                    raw_text = response.choices[0].message.content.strip()
+                    if raw_text.startswith("```json"):
+                        raw_text = raw_text.split("```json")[1].split("```")[0].strip()
+                    elif raw_text.startswith("```"):
+                        raw_text = raw_text.split("```")[1].strip()
+                    return json.loads(raw_text)
+                except Exception as ge:
+                    print(f"[LLM Gateway] Groq error with Key {idx + 1}: {ge}")
+                    continue
+
+        # 4. If not tried yet, fallback to Local Ollama on RTX 4050
+        if not use_local:
+            local_result = await self._classify_via_ollama(user_utterance, system_prompt)
+            if local_result:
+                return local_result
+
+        # If everything fails
+        print("[LLM Gateway] All cloud and local Ollama intent routing attempts failed!")
+        return {"type": "chat_response", "payload": {"text": "I'm having trouble processing that intent right now."}}
+
+    async def _classify_via_ollama(self, user_utterance: str, system_prompt: str) -> dict:
         try:
-            print("[LLM Gateway] Attempting intent classification via local Ollama...", flush=True)
+            print("[LLM Gateway] Running intent classification on RTX 4050 GPU via Ollama...", flush=True)
             client = AsyncOpenAI(
                 base_url="http://localhost:11434/v1",
-                api_key="ollama"
+                api_key="ollama",
+                timeout=10.0
             )
-            
-            # Try llama3.2:3b first (super fast), fallback to llama3.1:8b
-            for local_model in ["llama3.2:3b", "llama3.1:8b", "llama3.2:latest"]:
+            for local_model in ["llama3.2:3b", "llama3.2:latest", "llama3.1:8b"]:
                 try:
                     response = await client.chat.completions.create(
                         model=local_model,
@@ -153,16 +193,12 @@ class LLMGateway:
                         raw_text = raw_text.split("```")[1].strip()
                     
                     parsed = json.loads(raw_text)
-                    print(f"[LLM Gateway] Local Ollama ({local_model}) intent classification successful!", flush=True)
+                    print(f"[LLM Gateway] RTX 4050 Ollama ({local_model}) intent classification successful: {parsed.get('type')}", flush=True)
                     return parsed
                 except Exception as local_err:
                     print(f"[LLM Gateway Warning] Local Ollama model '{local_model}' failed: {local_err}", flush=True)
                     continue
-
         except Exception as e:
-            print(f"[LLM Gateway Error] Local Ollama fallback failed: {e}", flush=True)
-
-        # If everything fails
-        print("[LLM Gateway] All cloud and local Ollama intent routing attempts failed!")
-        return {"type": "chat_response", "payload": {"text": "I'm having trouble processing that intent right now."}}
+            print(f"[LLM Gateway Error] Local Ollama inference failed: {e}", flush=True)
+        return None
 

@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BUPI 2D Tactical Spatial Twin & Fleet Visualizer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-base: #080c14;
+            --bg-card: rgba(15, 23, 42, 0.75);
+            --bg-card-hover: rgba(30, 41, 59, 0.85);
+            --border-card: rgba(148, 163, 184, 0.12);
+            --border-glow: rgba(99, 102, 241, 0.35);
+            --text-main: #f8fafc;
+            --text-sub: #94a3b8;
+            --text-dim: #64748b;
+            --scout-color: #8b5cf6;
+            --scout-glow: rgba(139, 92, 246, 0.35);
+            --spec-color: #10b981;
+            --spec-glow: rgba(16, 185, 129, 0.35);
+            --hazard-color: #ef4444;
+            --hazard-glow: rgba(239, 68, 68, 0.35);
+            --human-color: #f43f5e;
+            --accent-cyan: #06b6d4;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        /* Top Navigation Bar */
+        header {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--border-card);
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 50;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .brand-logo {
+            width: 34px;
+            height: 34px;
+            background: linear-gradient(135deg, #6366f1, #a855f7);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            box-shadow: 0 0 16px rgba(99, 102, 241, 0.4);
+        }
+
+        .brand-text h1 {
+            font-size: 15px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        .brand-text p {
+            font-size: 11px;
+            color: var(--text-sub);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .header-status {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .badge {
+            font-size: 11px;
+            font-family: 'JetBrains Mono', monospace;
+            padding: 4px 10px;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border: 1px solid transparent;
+        }
+
+        .badge-live {
+            background: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+            border-color: rgba(16, 185, 129, 0.3);
+        }
+
+        .badge-live::before {
+            content: '';
+            width: 6px;
+            height: 6px;
+            background: #10b981;
+            border-radius: 50%;
+            box-shadow: 0 0 8px #10b981;
+            animation: pulse 1.8s infinite;
+        }
+
+        .badge-fsm {
+            background: rgba(99, 102, 241, 0.15);
+            color: #818cf8;
+            border-color: rgba(99, 102, 241, 0.3);
+            font-weight: 600;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.4); opacity: 0.5; }
+        }
+
+        /* Main Workspace Grid */
+        main {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1fr 340px;
+            gap: 16px;
+            padding: 16px;
+            max-width: 1720px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        /* Canvas Arena Container */
+        .viewport-card {
+            background: var(--bg-card);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-card);
+            border-radius: 14px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            position: relative;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+
+        .viewport-toolbar {
+            padding: 12px 18px;
+            border-bottom: 1px solid var(--border-card);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(15, 23, 42, 0.5);
+        }
+
+        .legend-group {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            font-size: 11px;
+            color: var(--text-sub);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .legend-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .canvas-wrapper {
+            flex: 1;
+            position: relative;
+            background: radial-gradient(circle at center, #0e1526 0%, #080c14 100%);
+            min-height: 540px;
+            cursor: crosshair;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        .canvas-overlay-stats {
+            position: absolute;
+            bottom: 12px;
+            left: 14px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--text-dim);
+            background: rgba(8, 12, 20, 0.75);
+            padding: 6px 12px;
+            border-radius: 6px;
+            border: 1px solid var(--border-card);
+            pointer-events: none;
+        }
+
+        /* Right Sidebar Panel */
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .panel-card {
+            background: var(--bg-card);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-card);
+            border-radius: 12px;
+            padding: 14px 16px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+        }
+
+        .panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .panel-title {
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: var(--text-sub);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        /* Robot Telemetry Cards */
+        .bot-card {
+            background: rgba(30, 41, 59, 0.35);
+            border: 1px solid var(--border-card);
+            border-radius: 10px;
+            padding: 12px;
+            margin-bottom: 10px;
+            transition: all 0.2s ease;
+        }
+
+        .bot-card:last-child {
+            margin-bottom: 0;
+        }
+
+        .bot-card:hover {
+            background: var(--bg-card-hover);
+            border-color: var(--border-glow);
+        }
+
+        .bot-card-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .bot-name {
+            font-size: 13px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .scout-text { color: var(--scout-color); }
+        .spec-text { color: var(--spec-color); }
+
+        .tele-table {
+            width: 100%;
+            font-size: 11px;
+            font-family: 'JetBrains Mono', monospace;
+            border-collapse: collapse;
+        }
+
+        .tele-table td {
+            padding: 3px 0;
+        }
+
+        .tele-table td:last-child {
+            text-align: right;
+            color: var(--text-main);
+            font-weight: 600;
+        }
+
+        .tele-table td:first-child {
+            color: var(--text-sub);
+        }
+
+        /* Incidents Feed */
+        .incident-item {
+            background: rgba(239, 68, 68, 0.08);
+            border-left: 3px solid var(--hazard-color);
+            padding: 8px 10px;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            font-size: 11px;
+        }
+
+        .incident-item.warning {
+            background: rgba(245, 158, 11, 0.08);
+            border-left-color: #f59e0b;
+        }
+
+        .incident-head {
+            font-weight: 700;
+            color: #f87171;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 3px;
+        }
+
+        .incident-desc {
+            color: var(--text-sub);
+            line-height: 1.4;
+        }
+
+        /* Interactive Action Buttons */
+        .btn-row {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid transparent;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #4f46e5, #6366f1);
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            box-shadow: 0 0 16px rgba(99, 102, 241, 0.4);
+            transform: translateY(-1px);
+        }
+
+        .btn-danger {
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            border-color: rgba(239, 68, 68, 0.3);
+        }
+
+        .btn-danger:hover {
+            background: rgba(239, 68, 68, 0.25);
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="brand">
+            <div class="brand-logo">🤖</div>
+            <div class="brand-text">
+                <h1>BUPI 2D Tactical Spatial Twin</h1>
+                <p>SIH 2026 / SIH26218 Multi-Robot Autonomous Scout Fleet</p>
+            </div>
+        </div>
+        <div class="header-status">
+            <span class="badge badge-fsm" id="hudMissionBadge">FSM: DISPATCHING</span>
+            <span class="badge badge-live" id="hudWsStatus">BRIDGE: CONNECTED (8767/8768)</span>
+        </div>
+    </header>
+
+    <main>
+        <!-- Center/Left: Real-time 2D Canvas Area -->
+        <section class="viewport-card">
+            <div class="viewport-toolbar">
+                <div class="legend-group">
+                    <div class="legend-item">
+                        <div class="legend-dot" style="background: var(--scout-color);"></div>
+                        <span>BUPI-01 Scout (PIR+Ping)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-dot" style="background: var(--spec-color);"></div>
+                        <span>BUPI-02 Specialist (Gas+Ping)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-dot" style="background: var(--human-color);"></div>
+                        <span>Warm Target (Human)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-dot" style="background: #94a3b8;"></div>
+                        <span>Obstacle</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-dot" style="background: #ef4444;"></div>
+                        <span>Hazard Plume</span>
+                    </div>
+                </div>
+                <div style="font-size: 11px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace;">
+                    Scale: 1m = 100px | Room: 5.0m x 4.0m
+                </div>
+            </div>
+
+            <div class="canvas-wrapper">
+                <canvas id="spatialCanvas"></canvas>
+                <div class="canvas-overlay-stats" id="canvasCoords">
+                    Cursor: (0.00m, 0.00m) | Active Units: 2/2 Online
+                </div>
+            </div>
+        </section>
+
+        <!-- Right: Fleet & Incidents Sidebar -->
+        <aside class="sidebar">
+            <!-- Active Fleet Telemetry Panel -->
+            <div class="panel-card">
+                <div class="panel-header">
+                    <span class="panel-title"><span>🛰️</span> Fleet Telemetry HUD</span>
+                    <span style="font-size: 10px; color: var(--text-dim); font-family: 'JetBrains Mono';">20Hz Stream</span>
+                </div>
+
+                <!-- BUPI-01 Scout Card -->
+                <div class="bot-card">
+                    <div class="bot-card-top">
+                        <span class="bot-name scout-text">🟣 BUPI-01 Alpha</span>
+                        <span class="badge badge-live" style="padding: 2px 6px; font-size: 10px;" id="bot1Status">SCOUT</span>
+                    </div>
+                    <table class="tele-table">
+                        <tr><td>Pose (X, Y, θ)</td><td id="b1Pose">1.00m, 1.80m, 0°</td></tr>
+                        <tr><td>Uncertainty Radius</td><td id="b1Uncert">±0.06m</td></tr>
+                        <tr><td>HC-SR04 Obstacle</td><td id="b1Dist">142.0 cm</td></tr>
+                        <tr><td>PIR Human Motion</td><td id="b1Pir" style="color: #f59e0b;">LOW (No Motion)</td></tr>
+                        <tr><td>Heading / Yaw</td><td id="b1Heading">0.0°</td></tr>
+                    </table>
+                </div>
+
+                <!-- BUPI-02 Specialist Card -->
+                <div class="bot-card">
+                    <div class="bot-card-top">
+                        <span class="bot-name spec-text">🟢 BUPI-02 Beta</span>
+                        <span class="badge badge-live" style="padding: 2px 6px; font-size: 10px;" id="bot2Status">SPECIALIST</span>
+                    </div>
+                    <table class="tele-table">
+                        <tr><td>Pose (X, Y, θ)</td><td id="b2Pose">1.00m, 2.60m, 0°</td></tr>
+                        <tr><td>HC-SR04 Obstacle</td><td id="b2Dist">165.0 cm</td></tr>
+                        <tr><td>MQ-2 Combustible Gas</td><td id="b2Gas">65.0 ppm</td></tr>
+                        <tr><td>Ambient Temperature</td><td id="b2Temp">26.4 °C</td></tr>
+                        <tr><td>Heading / Yaw</td><td id="b2Heading">0.0°</td></tr>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Fused Incidents Feed -->
+            <div class="panel-card" style="flex: 1; display: flex; flex-direction: column;">
+                <div class="panel-header">
+                    <span class="panel-title"><span>⚠️</span> Fused Incidents</span>
+                    <span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #f87171;" id="incidentCount">1 ACTIVE</span>
+                </div>
+                <div id="incidentsList" style="flex: 1; overflow-y: auto;">
+                    <div class="incident-item">
+                        <div class="incident-head">
+                            <span>[CRITICAL] Possible Human + Gas</span>
+                            <span>Sector A</span>
+                        </div>
+                        <div class="incident-desc">
+                            Scout localized warm presence at (2.0m, 1.5m). Specialist confirmed gas index 380. Evacuation check advised.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="btn-row">
+                    <button class="btn btn-primary" id="btnSpawnTarget">+ Add Target</button>
+                    <button class="btn btn-danger" id="btnEmergencyStop">🛑 Halt Fleet</button>
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <script>
+        (() => {
+            const canvas = document.getElementById('spatialCanvas');
+            const ctx = canvas.getContext('2d');
+            const coordsEl = document.getElementById('canvasCoords');
+
+            // Virtual Arena Dimensions in Centimeters
+            const ARENA_WIDTH_CM = 500;
+            const ARENA_HEIGHT_CM = 400;
+
+            // Fleet State
+            const fleet = {
+                bupi_01: {
+                    bot_id: 'bupi_01',
+                    role: 'SCOUT',
+                    x: 100,
+                    y: 180,
+                    heading: 0,
+                    distance_cm: 142,
+                    pir: 0,
+                    uncertainty_r: 0.06,
+                    color: '#8b5cf6',
+                    trail: []
+                },
+                bupi_02: {
+                    bot_id: 'bupi_02',
+                    role: 'ENVIRONMENTAL',
+                    x: 100,
+                    y: 280,
+                    heading: 0,
+                    distance_cm: 165,
+                    gas_ppm: 65,
+                    temp_c: 26.4,
+                    color: '#10b981',
+                    trail: []
+                }
+            };
+
+            const humans = [
+                { id: 'h1', x: 330, y: 180, label: 'Warm Human' }
+            ];
+
+            const obstacles = [
+                { id: 'o1', x: 220, y: 90, w: 45, h: 45 }
+            ];
+
+            function resizeCanvas() {
+                const rect = canvas.parentElement.getBoundingClientRect();
+                canvas.width = rect.width;
+                canvas.height = rect.height;
+            }
+            window.addEventListener('resize', resizeCanvas);
+            resizeCanvas();
+
+            // Connect to Live WebSockets (Port 8767 Hardware Bridge or 8768 Spatial Bridge)
+            function connectSockets() {
+                // Primary: Hardware Bridge (8767)
+                const ws7 = new WebSocket('ws://' + window.location.hostname + ':8767');
+                ws7.onmessage = (e) => {
+                    try {
+                        const data = JSON.parse(e.data);
+                        if (data.type === 'telemetry_update' && data.arena) {
+                            updateFromBridge(data);
+                        }
+                    } catch (err) {}
+                };
+
+                // Secondary: Spatial Twin Bridge (8768)
+                const ws8 = new WebSocket('ws://' + window.location.hostname + ':8768');
+                ws8.onmessage = (e) => {
+                    try {
+                        const data = JSON.parse(e.data);
+                        if (data.type === 'spatial.bot_pose') {
+                            const b = fleet[data.bot_id];
+                            if (b) {
+                                b.x = data.x * 100; // to cm
+                                b.y = data.y * 100;
+                                b.heading = (data.theta * 180) / Math.PI;
+                                b.uncertainty_r = data.uncertainty_r;
+                            }
+                        } else if (data.type === 'spatial.mission_state') {
+                            document.getElementById('hudMissionBadge').textContent = 'FSM: ' + (data.mission.state || 'ACTIVE');
+                        }
+                    } catch (err) {}
+                };
+            }
+
+            function updateFromBridge(data) {
+                const b_id = data.bot_id || 'bupi_01';
+                const b = fleet[b_id];
+                if (b && data.state && data.state.environment) {
+                    const env = data.state.environment;
+                    b.distance_cm = env.distance_cm;
+                    b.heading = env.heading_deg;
+                    b.pir = env.motion_detected ? 1 : 0;
+                    b.gas_ppm = env.mq2_raw || b.gas_ppm;
+                }
+
+                if (data.arena && data.arena.fleet) {
+                    for (let id in data.arena.fleet) {
+                        const src = data.arena.fleet[id];
+                        if (fleet[id]) {
+                            fleet[id].x = src.x;
+                            fleet[id].y = src.y;
+                            fleet[id].heading = src.heading_deg;
+                            fleet[id].distance_cm = src.distance_cm;
+                            fleet[id].pir = src.pir;
+                            fleet[id].gas_ppm = src.gas_ppm;
+                            fleet[id].temp_c = src.temp_c;
+                        }
+                    }
+                }
+
+                updateHUD();
+            }
+
+            function updateHUD() {
+                // Bot 1
+                const b1 = fleet.bupi_01;
+                document.getElementById('b1Pose').textContent = `${(b1.x/100).toFixed(2)}m, ${(b1.y/100).toFixed(2)}m, ${b1.heading.toFixed(0)}°`;
+                document.getElementById('b1Dist').textContent = `${b1.distance_cm.toFixed(1)} cm`;
+                document.getElementById('b1Pir').textContent = b1.pir ? 'HIGH (MOTION DETECTED)' : 'LOW (No Motion)';
+                document.getElementById('b1Pir').style.color = b1.pir ? '#f59e0b' : '#94a3b8';
+                document.getElementById('b1Heading').textContent = `${b1.heading.toFixed(1)}°`;
+
+                // Bot 2
+                const b2 = fleet.bupi_02;
+                document.getElementById('b2Pose').textContent = `${(b2.x/100).toFixed(2)}m, ${(b2.y/100).toFixed(2)}m, ${b2.heading.toFixed(0)}°`;
+                document.getElementById('b2Dist').textContent = `${b2.distance_cm.toFixed(1)} cm`;
+                document.getElementById('b2Gas').textContent = `${(b2.gas_ppm || 0).toFixed(1)} ppm`;
+                document.getElementById('b2Temp').textContent = `${(b2.temp_c || 25).toFixed(1)} °C`;
+                document.getElementById('b2Heading').textContent = `${b2.heading.toFixed(1)}°`;
+            }
+
+            // Main 60FPS Render Loop
+            function render() {
+                const w = canvas.width;
+                const h = canvas.height;
+                const scaleX = w / ARENA_WIDTH_CM;
+                const scaleY = h / ARENA_HEIGHT_CM;
+
+                // 1. Clear Backdrop
+                ctx.fillStyle = '#080c14';
+                ctx.fillRect(0, 0, w, h);
+
+                // 2. Metric Grid Lines
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+                ctx.lineWidth = 1;
+                for (let x = 0; x < w; x += 50) {
+                    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+                }
+                for (let y = 0; y < h; y += 40) {
+                    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+                }
+
+                // 3. Sector Quadrants (A, B, C, D)
+                ctx.strokeStyle = 'rgba(99, 102, 241, 0.15)';
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([4, 4]);
+                ctx.beginPath(); ctx.moveTo(w / 2, 0); ctx.lineTo(w / 2, h); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
+                ctx.setLineDash([]);
+
+                ctx.fillStyle = 'rgba(148, 163, 184, 0.3)';
+                ctx.font = '600 11px JetBrains Mono, monospace';
+                ctx.fillText('SECTOR A (NE)', w - 110, 20);
+                ctx.fillText('SECTOR B (NW)', 15, 20);
+                ctx.fillText('SECTOR C (SW)', 15, h - 12);
+                ctx.fillText('SECTOR D (SE)', w - 110, h - 12);
+
+                // 4. Obstacles
+                for (let obs of obstacles) {
+                    const ox = (obs.x - obs.w/2) * scaleX;
+                    const oy = (obs.y - obs.h/2) * scaleY;
+                    const ow = obs.w * scaleX;
+                    const oh = obs.h * scaleY;
+
+                    ctx.fillStyle = 'rgba(71, 85, 105, 0.7)';
+                    ctx.strokeStyle = '#94a3b8';
+                    ctx.lineWidth = 1.5;
+                    ctx.fillRect(ox, oy, ow, oh);
+                    ctx.strokeRect(ox, oy, ow, oh);
+
+                    ctx.fillStyle = '#f8fafc';
+                    ctx.font = '10px Inter, sans-serif';
+                    ctx.fillText('Obstacle', ox + 4, oy + 14);
+                }
+
+                // 5. Warm Humans
+                for (let human of humans) {
+                    const hx = human.x * scaleX;
+                    const hy = human.y * scaleY;
+
+                    const grad = ctx.createRadialGradient(hx, hy, 4, hx, hy, 32);
+                    grad.addColorStop(0, 'rgba(244, 63, 94, 0.75)');
+                    grad.addColorStop(0.5, 'rgba(244, 63, 94, 0.25)');
+                    grad.addColorStop(1, 'rgba(244, 63, 94, 0)');
+                    ctx.fillStyle = grad;
+                    ctx.beginPath(); ctx.arc(hx, hy, 32, 0, Math.PI * 2); ctx.fill();
+
+                    ctx.fillStyle = '#f43f5e';
+                    ctx.beginPath(); ctx.arc(hx, hy, 8, 0, Math.PI * 2); ctx.fill();
+                    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+
+                    ctx.fillStyle = '#fff';
+                    ctx.font = 'bold 10px Inter, sans-serif';
+                    ctx.fillText('Warm Human', hx + 12, hy + 4);
+                }
+
+                // 6. Draw Both Robots
+                for (let id in fleet) {
+                    const bot = fleet[id];
+                    const rx = bot.x * scaleX;
+                    const ry = bot.y * scaleY;
+                    const rRad = 9 * scaleX;
+                    const hRad = (bot.heading * Math.PI) / 180;
+                    const isBot1 = (id === 'bupi_01');
+
+                    // Trail Breadcrumbs
+                    bot.trail.push({ x: rx, y: ry });
+                    if (bot.trail.length > 120) bot.trail.shift();
+
+                    if (bot.trail.length > 1) {
+                        ctx.strokeStyle = isBot1 ? 'rgba(139, 92, 246, 0.4)' : 'rgba(16, 185, 129, 0.4)';
+                        ctx.lineWidth = 2;
+                        ctx.setLineDash([3, 3]);
+                        ctx.beginPath();
+                        ctx.moveTo(bot.trail[0].x, bot.trail[0].y);
+                        for (let p of bot.trail) ctx.lineTo(p.x, p.y);
+                        ctx.stroke();
+                        ctx.setLineDash([]);
+                    }
+
+                    // Bot 1: PIR 100° Cone
+                    if (isBot1) {
+                        const pirRange = 250 * scaleX;
+                        const pirFov = (100 * Math.PI) / 180;
+                        ctx.save();
+                        ctx.fillStyle = bot.pir ? 'rgba(245, 158, 11, 0.35)' : 'rgba(245, 158, 11, 0.12)';
+                        ctx.strokeStyle = bot.pir ? 'rgba(245, 158, 11, 0.9)' : 'rgba(245, 158, 11, 0.4)';
+                        ctx.lineWidth = bot.pir ? 2.5 : 1.2;
+                        ctx.beginPath();
+                        ctx.moveTo(rx, ry);
+                        ctx.arc(rx, ry, pirRange, hRad - pirFov/2, hRad + pirFov/2);
+                        ctx.closePath();
+                        ctx.fill(); ctx.stroke();
+                        ctx.restore();
+                    }
+
+                    // Bot 2: Gas Plume Halo
+                    if (!isBot1) {
+                        const gas = bot.gas_ppm || 0;
+                        const plumeR = Math.min(80, 24 + (gas / 10.0)) * scaleX;
+                        const grad = ctx.createRadialGradient(rx, ry, rRad, rx, ry, plumeR);
+                        if (gas > 300) {
+                            grad.addColorStop(0, 'rgba(239, 68, 68, 0.5)');
+                            grad.addColorStop(1, 'rgba(239, 68, 68, 0)');
+                        } else {
+                            grad.addColorStop(0, 'rgba(16, 185, 129, 0.25)');
+                            grad.addColorStop(1, 'rgba(16, 185, 129, 0)');
+                        }
+                        ctx.fillStyle = grad;
+                        ctx.beginPath(); ctx.arc(rx, ry, plumeR, 0, Math.PI * 2); ctx.fill();
+                    }
+
+                    // Ultrasonic Ping Beam (25°)
+                    const usDist = (bot.distance_cm || 140) * scaleX;
+                    const usFov = (25 * Math.PI) / 180;
+                    ctx.save();
+                    ctx.fillStyle = isBot1 ? 'rgba(99, 102, 241, 0.25)' : 'rgba(16, 185, 129, 0.25)';
+                    ctx.strokeStyle = isBot1 ? 'rgba(99, 102, 241, 0.8)' : 'rgba(16, 185, 129, 0.8)';
+                    ctx.lineWidth = 1.8;
+                    ctx.beginPath();
+                    ctx.moveTo(rx, ry);
+                    ctx.arc(rx, ry, usDist, hRad - usFov/2, hRad + usFov/2);
+                    ctx.closePath();
+                    ctx.fill(); ctx.stroke();
+                    ctx.restore();
+
+                    // Robot Body & Direction Pointer
+                    ctx.fillStyle = bot.color;
+                    ctx.beginPath(); ctx.arc(rx, ry, rRad, 0, Math.PI * 2); ctx.fill();
+                    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+
+                    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.5;
+                    ctx.beginPath();
+                    ctx.moveTo(rx, ry);
+                    ctx.lineTo(rx + Math.cos(hRad) * (rRad + 8), ry + Math.sin(hRad) * (rRad + 8));
+                    ctx.stroke();
+
+                    // Tag Badge
+                    ctx.fillStyle = bot.color;
+                    ctx.font = 'bold 11px Inter, sans-serif';
+                    ctx.fillText(isBot1 ? 'BUPI-01 [Scout]' : 'BUPI-02 [Specialist]', rx - 35, ry - rRad - 6);
+                }
+
+                requestAnimationFrame(render);
+            }
+
+            // Canvas Cursor Tracking
+            canvas.addEventListener('mousemove', (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const mx = ((e.clientX - rect.left) / canvas.width) * (ARENA_WIDTH_CM / 100);
+                const my = ((e.clientY - rect.top) / canvas.height) * (ARENA_HEIGHT_CM / 100);
+                coordsEl.textContent = `Cursor: (${mx.toFixed(2)}m, ${my.toFixed(2)}m) | Active Units: 2/2 Online`;
+            });
+
+            // Quick Actions
+            document.getElementById('btnSpawnTarget').addEventListener('click', () => {
+                humans.push({
+                    id: 'h_' + Date.now(),
+                    x: 200 + Math.random() * 150,
+                    y: 100 + Math.random() * 200,
+                    label: 'Warm Human'
+                });
+            });
+
+            document.getElementById('btnEmergencyStop').addEventListener('click', () => {
+                fetch('http://localhost:8767/command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'stop' })
+                }).catch(() => {});
+                alert('🛑 Emergency fleet halt signal dispatched.');
+            });
+
+            // Boot
+            connectSockets();
+            render();
+        })();
+    </script>
+</body>
+</html>

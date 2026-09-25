@@ -599,7 +599,6 @@ class ActionEngine:
   def activate_meeting_mode(self):
     self.mode_manager.deactivate_mode()
     self.mode_manager.active_mode = "meeting"
-    print(json.dumps({"type": "mode-changed", "value": 2}), flush=True)
     webbrowser.open("https://meet.google.com")
     self._sync_to_notepad("Meeting Notes", "Meeting Mode active. Taking notes here...\nSystem volume muted for focus.")
     pyautogui.press('volumemute')

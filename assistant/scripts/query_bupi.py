@@ -61,8 +61,27 @@ def run_instruction(instruction: str, format_json: bool = False):
     print("\n" + "=" * 70)
     print("📊 [ACTUAL MISSION DATA & TELEMETRY REPORT]")
     print("=" * 70)
+    print(f"  • Operating Robot:    {findings.get('target_bot', 'bupi_01').upper()}")
     print(f"  • Status:             {findings.get('status')}")
     print(f"  • Execution Duration: {findings.get('duration_seconds', elapsed)}s")
+
+    # If environmental / gas / climate data present (Bot 2 Specialist standalone)
+    if "gas_ppm" in findings or "gas_avg_ppm" in findings:
+        gas_ppm = findings.get("gas_ppm", findings.get("gas_avg_ppm", 0.0))
+        air_status = findings.get("air_quality_status", "SAFE")
+        print(f"  • Gas Concentration:  {gas_ppm:.1f} ppm ({air_status})")
+    if "temp_c" in findings or "temperature_c" in findings:
+        temp = findings.get("temp_c", findings.get("temperature_c", 25.0))
+        hum = findings.get("humidity_pct", findings.get("humidity", 50.0))
+        print(f"  • Climate / Ambience: {temp:.1f}°C | {hum:.1f}% Relative Humidity")
+
+    # If cooperative swarm environmental data attached
+    if "bot2_environmental" in findings:
+        b2_env = findings["bot2_environmental"]
+        print(f"\n  🤝 [COOPERATIVE BOT 2 SPECIALIST READINGS]")
+        print(f"  • Air Quality Status: {b2_env.get('air_quality', 'SAFE')}")
+        print(f"  • MQ-2 Gas Level:     {b2_env.get('gas_ppm', 45.0):.1f} ppm")
+        print(f"  • Climate / Ambience: {b2_env.get('temp_c', 25.0):.1f}°C | {b2_env.get('humidity_pct', 50.0):.1f}% Relative Humidity")
 
     # If obstacle / distance data present
     if "final_distance_cm" in findings:
@@ -93,6 +112,21 @@ def run_instruction(instruction: str, format_json: bool = False):
         print(f"  • Current Heading:    {findings['heading_deg']:.1f}°")
     elif "final_heading_deg" in findings:
         print(f"  • Final Heading:      {findings['final_heading_deg']:.1f}° (Rotated {findings.get('total_turned_deg', 0):.1f}°)")
+
+    # Odometry, Steps & Wi-Fi Proximity Report Block
+    if "step_count" in findings or "steps_taken" in findings or "distance_from_laptop_m" in findings or "total_distance_m" in findings:
+        print(f"\n  🧭 [INERTIAL ODOMETRY & WI-FI RANGE]")
+        steps = findings.get("step_count", findings.get("steps_taken", 0))
+        dist_traveled = findings.get("total_distance_m", findings.get("distance_traveled_m", 0.0))
+        print(f"  • Steps Taken:        {steps} steps ({dist_traveled:.2f} meters traveled)")
+        if "x_m" in findings and "y_m" in findings:
+            print(f"  • Cartesian Pose:     X: {findings['x_m']:+.2f} m, Y: {findings['y_m']:+.2f} m (disp: {findings.get('displacement_m', 0.0):.2f} m)")
+        if findings.get("distance_from_laptop_m") is not None:
+            dist_lap = findings["distance_from_laptop_m"]
+            rssi = findings.get("wifi_rssi_dbm", findings.get("wifi_rssi", "N/A"))
+            trend = findings.get("wifi_proximity_trend", "STATIONARY")
+            zone = findings.get("proximity_zone", "")
+            print(f"  • Laptop Distance:    {dist_lap:.1f} meters (RF RSSI: {rssi} dBm, {trend} | {zone})")
 
     # Verbal Debrief
     print("\n🗣️  [VERBAL DEBRIEF]")

@@ -113,3 +113,14 @@ When you encounter specific Arduino libraries in the user's code, you must adapt
   - Subscribe to `bupi/actuators/motors/cmd`.
   - Payloads like "FORWARD", "BACKWARD", "LEFT", "RIGHT", "STOP".
   - Inside the `callback`, map these strings to the appropriate combinations of `digitalWrite` (and `analogWrite` for speed) on the motor pins.
+
+### Chapter F: MQ-2 Gas & Climate Calibration
+- **Role:** Sensor.
+- **Piecewise Calibration:** Do not map raw 12-bit ADC (0-4095) linearly to 0-1000 ppm. In clean air, MQ-2 baseline ADC is ~200-450 (which is 20-50 ppm, NOT 350+ ppm).
+  - Piecewise formula:
+    - ADC 0 to 400: Map to 20 to 50 ppm (Clean air)
+    - ADC 400 to 1200: Map to 50 to 150 ppm (Trace VOCs)
+    - ADC 1200 to 2500: Map to 150 to 300 ppm (Elevated plume)
+    - ADC > 2500: Map to 300 to 1000 ppm (Hazard)
+- **Temperature Compensation:** MPU-6050 internal die temperature has an internal silicon self-heating offset of ~18.5°C. When DHT22 is available, use DHT22 as primary ambient source. If only MPU-6050 is available, subtract 18.5°C.
+

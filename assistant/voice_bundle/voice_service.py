@@ -20,9 +20,25 @@ class VoiceService:
         self._tts_queue = queue.Queue()
         self._playing = False
         
-        # Load local model lazily if Groq API keys are not detected
-        if not self._get_groq_keys():
+        # Load local model lazily if local is preferred or Groq API keys are not detected
+        prefer_local = os.environ.get("PREFER_LOCAL_WHISPER", "false").lower() in ("1", "true", "yes")
+        if prefer_local or not self._get_groq_keys():
             threading.Thread(target=self._lazy_load_whisper, daemon=True).start()
+
+    def _get_device(self):
+        try:
+            import ctranslate2
+            if ctranslate2.get_cuda_device_count() > 0:
+                return "cuda", "float16"
+        except Exception:
+            pass
+        try:
+            import torch
+            if torch.cuda.is_available():
+                return "cuda", "float16"
+        except Exception:
+            pass
+        return "cpu", "int8"
 
     def _get_groq_keys(self):
         from dotenv import load_dotenv
@@ -41,9 +57,10 @@ class VoiceService:
     def _lazy_load_whisper(self):
         try:
             from faster_whisper import WhisperModel
-            print("[VoiceService] No Groq API keys found. Pre-loading local Whisper model in background...", flush=True)
-            self.local_whisper = WhisperModel("small", device="cpu", compute_type="int8")
-            print("[VoiceService] Local Whisper model loaded successfully.", flush=True)
+            device, compute_type = self._get_device()
+            print(f"[VoiceService] Pre-loading local Whisper model in background on {device.upper()} ({compute_type})...", flush=True)
+            self.local_whisper = WhisperModel("small", device=device, compute_type=compute_type)
+            print(f"[VoiceService] Local Whisper model loaded successfully on {device.upper()}.", flush=True)
         except Exception as e:
             print(f"[VoiceService Warning] Failed to lazy load Whisper: {e}", flush=True)
 

@@ -112,6 +112,8 @@ function createNotepadWindow() {
     sendCommand('refresh_nodes');
     sendCommand('get_mission_history');
     sendCommand('get_mission_status');
+    const initialMode = global.currentMode || 1;
+    notepadWindow.webContents.send('mode-changed', initialMode);
     if (global.cachedMissionReport && notepadWindow) {
       notepadWindow.webContents.send('mission-report', global.cachedMissionReport);
     }
@@ -202,8 +204,18 @@ function spawnEngine() {
   const pyCmd = fs.existsSync(venvPython) ? venvPython : 'python';
   console.log("[Main] Spawning Python engine using command:", pyCmd);
   
+  const pyArgs = ['main.py'];
+  for (let i = 2; i < process.argv.length; i++) {
+    if (process.argv[i] === '--mode' || process.argv[i] === '--robot' || process.argv[i] === '--mode2') {
+      pyArgs.push(process.argv[i]);
+      if (process.argv[i] === '--mode' && process.argv[i + 1]) {
+        pyArgs.push(process.argv[i + 1]);
+      }
+    }
+  }
+
   // Spawn Python engine directly without shell to ensure correct venv binary
-  pyEngine = spawn(pyCmd, ['main.py'], {
+  pyEngine = spawn(pyCmd, pyArgs, {
     cwd: __dirname,
     stdio: ['pipe', 'pipe', 'pipe'],
     shell: false
@@ -233,8 +245,12 @@ function spawnEngine() {
             mainWindow.webContents.send('speech-text', msg.value);
           }
         } else if (msg.type === "mode_changed" || msg.type === "mode-changed") {
-          if (mainWindow) {
+          global.currentMode = msg.value;
+          if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('mode-changed', msg.value);
+          }
+          if (notepadWindow && !notepadWindow.isDestroyed()) {
+            notepadWindow.webContents.send('mode-changed', msg.value);
           }
         } else if (msg.type === "draw") {
           if (notepadWindow) {
@@ -542,6 +558,19 @@ if (!gotTheLock) {
     });
     ipcMain.on('stop-mission', () => {
       sendCommand('stop_mission');
+    });
+
+    // Operating Mode Switcher IPC
+    ipcMain.on('set-mode', (event, modeNum) => {
+      console.log("[Main] Received set-mode request from UI:", modeNum);
+      const parsedMode = parseInt(modeNum, 10) || 1;
+      global.currentMode = parsedMode;
+      sendCommand('set_mode', { mode: parsedMode, speak: true });
+    });
+
+    ipcMain.on('request-current-mode', (event) => {
+      const mode = global.currentMode || 1;
+      event.reply('mode-changed', mode);
     });
 
     // Voice triggers for automated tab switching and editor insertions

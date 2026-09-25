@@ -20,7 +20,10 @@ if %errorlevel% neq 0 (
     start /b "" ollama serve >nul 2>&1
 )
 
-:: 3. Clear any stale background processes to guarantee fresh launch
+:: 3. Verify Windows Mobile Hotspot for ESP32 Robots
+call powershell -ExecutionPolicy Bypass -File "%~dp0scripts\ensure_hotspot.ps1"
+
+:: 4. Clear any stale background processes to guarantee fresh launch
 taskkill /f /im electron.exe >nul 2>&1
 taskkill /f /im python.exe >nul 2>&1
 
@@ -31,7 +34,7 @@ echo.
 echo Launching Boopi Desktop Application...
 echo.
 
-call npm start
+call .\node_modules\electron\dist\electron.exe . --mode 2
 
 if %errorlevel% neq 0 (
     echo.

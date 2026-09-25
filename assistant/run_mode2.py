@@ -27,23 +27,6 @@ MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
 LISTEN_TOPIC = "bupi/internal/utterance"
 
-# Terminate any prior stale run_mode2 instance to guarantee strict singleton execution
-PID_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mode2.pid")
-try:
-    if os.path.exists(PID_FILE):
-        with open(PID_FILE, "r") as pf:
-            old_pid = int(pf.read().strip())
-        if old_pid != os.getpid():
-            try:
-                import signal
-                os.kill(old_pid, signal.SIGTERM)
-            except Exception:
-                pass
-    with open(PID_FILE, "w") as pf:
-        pf.write(str(os.getpid()))
-except Exception:
-    pass
-
 hw_bridge = None
 # Fixed client_id ensures Mosquitto automatically replaces any stale zombie sessions
 m2_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="Mode2_Main_Worker")
@@ -51,8 +34,6 @@ m2_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="Mode2_Main_
 def on_connect(client, userdata, flags, reason_code, properties):
     print(f"[Mode 2] Connected. Listening for utterances on {LISTEN_TOPIC}", flush=True)
     client.subscribe(LISTEN_TOPIC)
-    client.subscribe("bupi/nodes/announce")
-    client.subscribe("bupi/nodes/heartbeat")
 
 def on_message(client, userdata, msg):
     if msg.topic == LISTEN_TOPIC:
@@ -65,23 +46,6 @@ def on_message(client, userdata, msg):
                 threading.Thread(target=process_with_crew, args=(text,), daemon=True).start()
         except Exception as e:
             print(f"[Mode 2] Error parsing utterance: {e}", flush=True)
-    elif msg.topic in ["bupi/nodes/announce", "bupi/nodes/heartbeat"]:
-        try:
-            payload = json.loads(msg.payload.decode())
-            node_id = payload.get("client_id", "MQTT_Unknown")
-            device = payload.get("device", "MQTT Node")
-            ip = payload.get("ip", "N/A")
-            capabilities = payload.get("capabilities", ["MQTT"])
-            tasks = payload.get("tasks", ["General MQTT Client"])
-            
-            from bupi_node_server import register_node, update_node_heartbeat
-            if msg.topic == "bupi/nodes/announce":
-                register_node(node_id, ip, "MQTT", device, capabilities, tasks)
-                print(f"[Mode 2] Dynamically registered MQTT Node: {node_id} ({device})", flush=True)
-            else:
-                update_node_heartbeat(node_id)
-        except Exception as e:
-            print(f"[Mode 2] Error parsing MQTT Node announce/heartbeat: {e}", flush=True)
 
 def get_sensor_id_from_text(text):
     """
@@ -192,7 +156,36 @@ def process_with_crew(text):
                     from actions.hardware_tools import read_sensor_status
                     raw_fn = getattr(read_sensor_status, "func", read_sensor_status)
                     res_json = json.loads(raw_fn(sensor_id))
-                    spoken = f"The {sensor_id} reading is {res_json.get('raw_value', 0)}, status is {res_json.get('status', 'UNKNOWN')}."
+                    st = res_json.get("status", "OFFLINE")
+                    val = res_json.get("raw_value")
+                    bot_name = "Bot 2" if res_json.get("robot_id") == "bupi_02" else "Bot 1"
+
+                    if sensor_id in ["distance", "ultrasonic", "hcsr04"]:
+                        if st == "OFFLINE" or val is None:
+                            spoken = "The ultrasonic distance sensor is currently offline. No live telemetry received from the robot."
+                        elif val < 35.0:
+                            spoken = f"Yes, an obstacle is detected {val:.1f} centimeters directly in front of {bot_name}."
+                        else:
+                            spoken = f"No obstacles detected. The path ahead is clear with {val:.1f} centimeters of clearance."
+                    elif sensor_id in ["mq2", "gas", "smoke"]:
+                        if st == "OFFLINE" or val is None:
+                            spoken = "The MQ-2 gas sensor is currently offline. Please ensure Bot 2 is connected."
+                        elif val > 300.0:
+                            spoken = f"Warning! Elevated gas or smoke detected on Bot 2 at {val:.1f} ppm."
+                        else:
+                            spoken = f"Air quality is clean and safe. Gas level is {val:.1f} ppm."
+                    elif sensor_id in ["temp", "temperature", "dht"]:
+                        if st == "OFFLINE" or val is None:
+                            spoken = "The temperature sensor is currently offline."
+                        else:
+                            spoken = f"The ambient temperature is {val:.1f} degrees Celsius, status is {st}."
+                    elif sensor_id in ["humidity"]:
+                        if st == "OFFLINE" or val is None:
+                            spoken = "The humidity sensor is currently offline."
+                        else:
+                            spoken = f"The ambient humidity is {val:.1f} percent, status is {st}."
+                    else:
+                        spoken = f"The {sensor_id} reading is {val}, status is {st}."
                 except Exception as e:
                     spoken = f"Could not read {sensor_id}: {e}"
                 m2_client.publish("bupi/internal/tts", json.dumps({"text": spoken}))
@@ -201,7 +194,9 @@ def process_with_crew(text):
                 try:
                     from core.safety_validator import get_current_world_state
                     ws = get_current_world_state()
-                    spoken = f"World state: gas is {ws.get('gas', 'UNKNOWN')}, front path is {ws.get('distance', 'CLEAR')}."
+                    gas_st = "offline" if ws.get("gas") in ["UNKNOWN_STALE", "OFFLINE", "UNKNOWN"] else ws.get("gas", "safe")
+                    dist_st = "offline" if ws.get("distance") in ["UNKNOWN_STALE", "OFFLINE", "UNKNOWN"] else ws.get("distance", "clear")
+                    spoken = f"World state: gas sensor is {gas_st}, front obstacle path is {dist_st}."
                 except Exception as e:
                     spoken = f"World state check failed: {e}"
                 m2_client.publish("bupi/internal/tts", json.dumps({"text": spoken}))
@@ -228,8 +223,10 @@ def process_with_crew(text):
                 if dev == "motors":
                     from actions.hardware_tools import control_motors
                     fn = getattr(control_motors, "func", getattr(control_motors, "_run", control_motors))
-                    fn(direction=direction)
-                    speech = "Emergency stop triggered. Motors halted." if direction == "stop" else f"Driving {direction}."
+                    target_bot = payload.get("robot_id") or "bupi_01"
+                    fn(direction=direction, robot_id=target_bot)
+                    bot_label = "both bots" if target_bot in ["all", "both", "fleet"] else target_bot
+                    speech = "Emergency stop triggered. Motors halted." if direction == "stop" else f"Driving {direction} ({bot_label})."
                     m2_client.publish("bupi/internal/tts", json.dumps({"text": speech}))
                     return
                 elif dev == "relay":
@@ -282,10 +279,22 @@ async def main():
     global loop
     loop = asyncio.get_running_loop()
 
+    # 0. Ensure Hardware Bridge is active (WebSocket port 8767, USB Serial, and MQTT)
+    try:
+        from bupi_node_server import start_node_server
+        start_node_server()
+    except Exception as nse:
+        print(f"[Mode 2 Warning] Could not start node server: {nse}", flush=True)
+
     global hw_bridge
     # 1. Start the MQTT Bridge (handles any raw hardware intents if still needed by other parts)
     hw_bridge = MQTTBridge()
     hw_bridge.connect()
+    try:
+        import actions.hardware_tools as _hw_tools
+        _hw_tools.active_bridge = hw_bridge
+    except Exception:
+        pass
 
     # (RouterAgent is now replaced by CrewAI)
 
@@ -308,6 +317,28 @@ async def main():
         await asyncio.sleep(1)
 
 if __name__ == "__main__":
+    # Terminate any prior stale run_mode2 instance to guarantee strict singleton execution
+    PID_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mode2.pid")
+    try:
+        curr_pid = os.getpid()
+        parent_pid = os.getppid() if hasattr(os, "getppid") else -1
+        if os.path.exists(PID_FILE):
+            with open(PID_FILE, "r") as pf:
+                old_pid = int(pf.read().strip())
+            if old_pid > 0 and old_pid != curr_pid and old_pid != parent_pid:
+                try:
+                    import subprocess
+                    out = subprocess.check_output(f'powershell -NoProfile -Command "(Get-CimInstance Win32_Process -Filter \\"ProcessId = {old_pid}\\").CommandLine"', shell=True).decode()
+                    if "run_mode2.py" in out:
+                        import signal
+                        os.kill(old_pid, signal.SIGTERM)
+                except Exception:
+                    pass
+        with open(PID_FILE, "w") as pf:
+            pf.write(str(curr_pid))
+    except Exception:
+        pass
+
     try:
         asyncio.run(main())
     except KeyboardInterrupt:

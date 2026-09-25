@@ -17,10 +17,8 @@ class ModeManager:
     self.timer_thread = None
 
   def _set_mascot_mode(self, mode_num: int):
-    import json
-    sys.stdout.write(json.dumps({"type": "mode_changed", "value": mode_num}) + "\n")
-    sys.stdout.write(json.dumps({"type": "mode-changed", "value": mode_num}) + "\n")
-    sys.stdout.flush()
+    # Desktop productivity focus states do not override the system operating mode (Mode 1 Conversational vs Mode 2 Robotic)
+    pass
 
   def _sync_to_notepad(self, title: str, text: str):
     import json
