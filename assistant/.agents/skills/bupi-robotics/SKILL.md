@@ -139,22 +139,19 @@ graph TD
 
 ## 4. Parameterized Dynamic Mission Policies
 
-The `InstructionDecomposer` transforms natural language into executable policy parameters:
+The `InstructionDecomposer` transforms natural language into executable policy parameters using the `PolicyType` enum (`planner/instruction_decomposer.py`):
 
-1. **`CONDITIONAL_MOVE`**:
-   - Drives robot forward/reverse until sensor condition is met (e.g., *"drive forward until obstacle within 25 cm"*).
-2. **`SCAN_SWEEP`**:
-   - Executes 360° rotational scan, sampling sensor readings at 45° or 60° increments to locate targets or map clearance.
-3. **`ENVIRONMENTAL_PROBE`**:
-   - Queries Bot 2 for live gas PPM, temperature, and humidity, applying piecewise calibration and generating a spoken TTS summary.
-4. **`SWARM_RECON`**:
-   - Decomposes into dual parallel tasks: Bot 1 executes a 360° perimeter scan while Bot 2 advances forward sampling environmental safety.
-5. **`MONITOR_HOLD`**:
-   - Enters low-power sentry state, alerting on PIR motion or gas threshold breach.
-6. **`ROTATE_TO`**:
-   - Closed-loop angular turn using MPU-6050 IMU gyro feedback.
-7. **`EXPLORE_SAFE`**:
-   - Continuous wandering with proactive reactive evasion.
+1. **`CONDITIONAL_MOVE`**: Drives robot forward/reverse until a sensor threshold is met (e.g. walk until obstacle within 25 cm).
+2. **`SCAN_SWEEP`**: Rotates/sweeps sensors across sectors (e.g. 360° sweep to find humans or map clearance).
+3. **`APPROACH_TARGET`**: Locates target via scan, rotates to target bearing, and approaches to safe proximity threshold.
+4. **`EXPLORE_SAFE`**: Continuous wandering with proactive reactive obstacle avoidance and sensor sampling.
+5. **`MONITOR_HOLD`**: Enters low-power sentry state, alerting on sensor threshold breaches (PIR motion or gas).
+6. **`ROTATE_TO`**: Closed-loop angular turn using MPU-6050 IMU gyro feedback (`turn_by`).
+7. **`PATROL`**: Perimeter or looping autonomous inspection.
+8. **`DIRECT_ACTION`**: Immediate atomic action (e.g. halt, brake, emergency stop).
+9. **`SWARM_COOPERATIVE`**: Synchronized dual-robot mission coordinating Scout and Specialist in tandem.
+10. **`ODOMETRY_REPORT`**: Status report of steps, distance from laptop, and Cartesian pose.
+11. **`RETURN_TO_ORIGIN`**: Closed-loop return to starting origin using odometry and gyro heading.
 
 ---
 
