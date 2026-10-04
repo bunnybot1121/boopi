@@ -11,8 +11,8 @@ else:
   log.warning("No .env file found, using system environment variables.")
 
 # Provider settings
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").lower()
-GROQ_LLM_MODEL = os.getenv("GROQ_LLM_MODEL", "openai/gpt-oss-120b")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").lower()
+GROQ_LLM_MODEL = os.getenv("GROQ_LLM_MODEL", "qwen/qwen3.8-27b")
 OPENROUTER_LLM_MODEL = os.getenv("OPENROUTER_LLM_MODEL", "google/gemini-3.6-flash")
 
 # Cloud Keys
@@ -43,6 +43,10 @@ AUDIO_GAIN_BOOST = float(os.getenv("AUDIO_GAIN_BOOST", "1.5"))
 TTS_VOICE = os.getenv("TTS_VOICE", "en-US-AnaNeural")
 USE_CLOUD_TTS = os.getenv("USE_CLOUD_TTS", "true").lower() == "true"
 
+# Piper Offline Neural TTS Settings (100% Local, Studio-Quality Neural Voice)
+PIPER_VOICE = os.getenv("PIPER_VOICE", "en_US-amy-medium")
+PIPER_MODEL_DIR = os.getenv("PIPER_MODEL_DIR", os.path.join(os.path.dirname(__file__), "assets", "models", "piper"))
+
 # Speech Emotion classification setting (Optional, disable by default for latency optimization)
 ENABLE_SPEECH_EMOTION = os.getenv("ENABLE_SPEECH_EMOTION", "false").lower() == "true"
 
@@ -50,11 +54,11 @@ ENABLE_SPEECH_EMOTION = os.getenv("ENABLE_SPEECH_EMOTION", "false").lower() == "
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")
 ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "EXAVITQu4vr4xnSDxMaL")
 
-# STT Settings
-USE_CLOUD_STT = os.getenv("USE_CLOUD_STT", "true").lower() == "true"
-LOCAL_WHISPER_MODEL = os.getenv("LOCAL_WHISPER_MODEL", "base")
+# STT Settings (100% Local, GPU-Accelerated Faster-Whisper)
+USE_CLOUD_STT = os.getenv("USE_CLOUD_STT", "false").lower() == "true"
+LOCAL_WHISPER_MODEL = os.getenv("LOCAL_WHISPER_MODEL", "medium.en")
 GROQ_STT_MODEL = os.getenv("GROQ_STT_MODEL", "whisper-large-v3")
-SILENCE_FRAMES = int(os.getenv("SILENCE_FRAMES", "18")) # 540ms matching Hackathon
+SILENCE_FRAMES = int(os.getenv("SILENCE_FRAMES", "12")) # 360ms fast conversational pause
 
 
 def validate_config():

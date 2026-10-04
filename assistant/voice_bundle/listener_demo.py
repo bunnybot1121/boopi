@@ -21,12 +21,7 @@ SILENCE_FRAMES = 25      # Wait ~750ms of silence before stopping transcription
 MIN_SPEECH_FRAMES = 10   # Reject audio shorter than 300ms
 PRE_ROLL_FRAMES = 20     # Keep 600ms of audio before speech begins
 
-PROMPT_CONTEXT = (
-    "Boopi, Bupi, Boopy, Boopie, how are you, shift to Mode 2, shift to Mode 1, Mode 2, Mode 1, "
-    "display readings, show sensor values, highest reading, MQ2 gas sensor, LCD screen, relay, "
-    "turn on, turn off, message Chintu on WhatsApp, send email, write draft in Notepad, "
-    "YouTube, OpenRouter, Claude, summarize, rewrite."
-)
+PROMPT_CONTEXT = "Boopi, Bupi."
 
 def strip_punctuation(word: str) -> str:
     return "".join(c for c in word if c not in string.punctuation)
@@ -169,17 +164,22 @@ def transcribe_audio(audio: np.ndarray, local_model=None):
         print(f"\n[STT] Running local Whisper model on {device.upper()} ({compute_type})...")
         if local_model is None:
             from faster_whisper import WhisperModel
-            print(f"[STT] Loading local model 'small' (device: {device}, compute_type: {compute_type})...")
-            local_model = WhisperModel("small", device=device, compute_type=compute_type)
+            print(f"[STT] Loading local model 'small.en' (device: {device}, compute_type: {compute_type})...")
+            try:
+                local_model = WhisperModel("small.en", device=device, compute_type=compute_type)
+            except Exception:
+                local_model = WhisperModel("base.en", device=device, compute_type=compute_type)
         
         audio_f32 = audio.astype(np.float32) / 32768.0
         segments, _ = local_model.transcribe(
             audio_f32, 
             language="en", 
             initial_prompt=PROMPT_CONTEXT, 
-            condition_on_previous_text=False
+            condition_on_previous_text=False,
+            beam_size=5,
+            vad_filter=False
         )
-        text = "".join([segment.text for segment in segments]).strip()
+        text = " ".join([segment.text for segment in segments]).strip()
 
     # Hallucination Filtering
     clean_text = text.replace(",", "").replace(".", "").strip().lower()

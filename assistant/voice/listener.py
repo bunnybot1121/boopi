@@ -32,23 +32,12 @@ PRE_ROLL_FRAMES = 20
 
 # Settings from config / environment variables with safe fallbacks (matching Hackathon project)
 USE_CLOUD_STT = getattr(config, "USE_CLOUD_STT", False)
-LOCAL_WHISPER_MODEL = getattr(config, "LOCAL_WHISPER_MODEL", "base")
+LOCAL_WHISPER_MODEL = getattr(config, "LOCAL_WHISPER_MODEL", "medium.en")
 GROQ_STT_MODEL = getattr(config, "GROQ_STT_MODEL", "whisper-large-v3")
 AUDIO_GAIN_BOOST = getattr(config, "AUDIO_GAIN_BOOST", 1.5)
-SILENCE_FRAMES = int(os.environ.get("SILENCE_FRAMES", getattr(config, "SILENCE_FRAMES", 13)))
+SILENCE_FRAMES = int(os.environ.get("SILENCE_FRAMES", getattr(config, "SILENCE_FRAMES", 12)))
 
-PROMPT_CONTEXT = (
-    "Prag, prag, PRAG, bot, robot, bot 1, bot 2, Scout, Specialist, move bot 1, move bot 2, bot 1 only, bot 2 only, move the bot 1 only, "
-    "scan the room and if you find any person move towards him, move towards him, approach person, "
-    "mark out the points of the room and give the readings of each point, points of the room, readings of each point, environmental survey, "
-    "move the bot 10 cm, move 12 cm, move 20 cm, scan the room, scan, "
-    "Boopi, Bupi, Boopy, Boopie, find the human in the room, find human, locate person, search room, "
-    "turn 90 degrees, turn left, turn right, spin, rotate 180 degrees, turn around, walk until obstacle, "
-    "patrol area, patrol and inspect, explore, start obstacle avoidance, stop obstacle avoidance, auto avoid, roam around, "
-    "move forward, move backward, drive reverse, turn left, turn right, stop, halt, freeze, emergency stop, e-stop, "
-    "what did you find, mission report, debrief, relay on, relay off, gas reading, mq2 gas sensor, check gas sensor, "
-    "ultrasonic distance, front distance, check distance, check temperature, status, world state, esp32 connected, active nodes."
-)
+PROMPT_CONTEXT = "Boopi, Bupi."
 
 class SimpleLogger:
     def info(self, msg):
@@ -159,6 +148,7 @@ class ListenerThread(QThread):
     listening_started   = pyqtSignal()
     listening_stopped   = pyqtSignal()
     error_occurred      = pyqtSignal(str)
+    model_ready         = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -206,19 +196,50 @@ class ListenerThread(QThread):
                 
             device = "cuda" if cuda_avail else "cpu"
             compute_type = "float16" if device == "cuda" else "int8"
-            log.info(f"Initializing local Faster-Whisper model ({LOCAL_WHISPER_MODEL}) on {device} ({compute_type})...")
+            target_model = LOCAL_WHISPER_MODEL or "medium.en"
+            log.info(f"Initializing local Faster-Whisper model ({target_model}) on {device} ({compute_type})...")
             # Disable symlink warnings on Windows to avoid clutter
             os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
-            # Restrict CPU threads to avoid OpenMP deadlocks on Windows CPU execution
-            self.whisper_model = WhisperModel(
-                LOCAL_WHISPER_MODEL, 
-                device=device, 
-                compute_type=compute_type,
-                cpu_threads=4
-            )
-            log.info(f"Local Faster-Whisper model ({LOCAL_WHISPER_MODEL}) loaded successfully on {device}!")
+            try:
+                self.whisper_model = WhisperModel(
+                    target_model, 
+                    device=device, 
+                    compute_type=compute_type,
+                    cpu_threads=4
+                )
+                log.info(f"Local Faster-Whisper model ({target_model}) loaded successfully on {device}!")
+            except Exception as load_err:
+                log.warning(f"Could not load primary model '{target_model}': {load_err}. Falling back to 'small.en'...")
+                try:
+                    self.whisper_model = WhisperModel(
+                        "small.en", 
+                        device=device, 
+                        compute_type=compute_type,
+                        cpu_threads=4
+                    )
+                    log.info("Local Faster-Whisper fallback model (small.en) loaded successfully on {device}!")
+                except Exception:
+                    self.whisper_model = WhisperModel(
+                        "base.en", 
+                        device=device, 
+                        compute_type=compute_type,
+                        cpu_threads=4
+                    )
+                    log.info("Local Faster-Whisper fallback model (base.en) loaded successfully on {device}!")
+
+            # Pre-warm CUDA forward pass to eliminate first-inference 1.2s JIT delay
+            try:
+                log.info("Pre-warming local Faster-Whisper on CUDA...")
+                dummy_pcm = np.zeros(16000, dtype=np.float32)
+                list(self.whisper_model.transcribe(dummy_pcm, language="en", beam_size=1)[0])
+                log.info(f"Local Faster-Whisper model ({target_model}) fully pre-warmed and ready for sub-200ms inference!")
+                self.model_ready.emit(target_model)
+            except Exception as warm_err:
+                log.warning(f"Whisper pre-warm warning: {warm_err}")
+                self.model_ready.emit(target_model)
         except Exception as e:
             log.warning(f"Could not load local faster-whisper ({e}). Will use cloud STT fallback.")
+            self.model_ready.emit("cloud")
 
     def stop(self):
         self._running = False
@@ -341,8 +362,8 @@ class ListenerThread(QThread):
                         if self._paused or getattr(self, "is_speaking", False):
                             if speaking_blocked_since is None:
                                 speaking_blocked_since = time.time()
-                            elif time.time() - speaking_blocked_since > 3.0:
-                                log.warning("[Listener Watchdog] Speech lock stuck >3s. Auto-unmuting microphone to keep Boopi responsive!")
+                            elif time.time() - speaking_blocked_since > 45.0:
+                                log.warning("[Listener Watchdog] Speech lock stuck >45s. Auto-unmuting microphone to keep Boopi responsive!")
                                 self.is_speaking = False
                                 self._paused = False
                                 speaking_blocked_since = None
@@ -439,8 +460,8 @@ class ListenerThread(QThread):
                                     speech_detected = True
                                     break
                               
-                            # Max recording length limit of 15 seconds
-                            if len(voiced_frames) > int(15000 / FRAME_MS):
+                            # Max recording length limit of 35 seconds
+                            if len(voiced_frames) > int(35000 / FRAME_MS):
                                 speech_detected = True
                                 break
 
@@ -543,21 +564,20 @@ class ListenerThread(QThread):
                     
             if self.whisper_model:
                 try:
-                    # Enforce language="en" so multilingual base model transcribes directly in English
+                    # Enforce language="en" so model transcribes directly in English
+                    # vad_filter=False because WebRTC VAD already isolated spoken audio; secondary VAD cuts off words
                     segments, info = self.whisper_model.transcribe(
                         audio_norm, 
                         language="en", 
                         initial_prompt=PROMPT_CONTEXT, 
                         condition_on_previous_text=False,
-                        beam_size=1,
-                        best_of=1,
+                        beam_size=2,
+                        best_of=2,
                         temperature=0.0,
-                        repetition_penalty=1.2,
-                        no_repeat_ngram_size=3,
                         no_speech_threshold=0.6,
                         compression_ratio_threshold=2.4,
                         log_prob_threshold=-1.0,
-                        vad_filter=True
+                        vad_filter=False
                     )
                     text = " ".join([segment.text for segment in segments]).strip()
                     log.info(f"Local Faster-Whisper Transcription: '{text}'")
@@ -566,22 +586,22 @@ class ListenerThread(QThread):
                     text = ""
 
         if text:
-            # Hallucination Filtering from Voice Bundle
-            clean_text = text.replace(",", "").replace(".", "").strip().lower()
-            clean_prompt = PROMPT_CONTEXT.replace(",", "").replace(".", "").strip().lower()
-            
-            hallucinations = ["thank you", "thanks for watching", "please subscribe", "thank you.", "screencast", "goodbye"]
-            
-            prompt_words = [w for w in clean_prompt.split() if len(w) > 3]
-            matched_words = sum(1 for w in prompt_words if w in clean_text)
-            prompt_density = (matched_words / len(prompt_words)) if prompt_words else 0
-            
-            is_exact_prompt = (clean_text == clean_prompt) or (prompt_density > 0.6 and len(clean_text) > 40)
-            is_hallucination = any(h in clean_text for h in hallucinations) or is_exact_prompt or is_hallucinated_output(text)
-            
-            if is_hallucination or (len(clean_text) <= 2 and clean_text not in ["hi", "go", "ok", "no"]):
-                log.info(f"Filtered silence/hallucination (prompt density: {prompt_density:.2f}, robust check: {is_hallucinated_output(text)})")
+            # Hallucination Filtering: Check pattern-based and common hallucinations
+            if is_hallucinated_output(text):
+                log.info(f"Filtered hallucination via repetitive pattern check: '{text}'")
                 text = ""
+            else:
+                clean_text = text.replace(",", "").replace(".", "").strip().lower()
+                hallucinations = [
+                    "thank you for watching", "thanks for watching", "please subscribe", 
+                    "like and subscribe", "screencast", "see you next time", "see you in the next video",
+                    "bupi is an autonomous robot assistant"
+                ]
+                if any(h in clean_text for h in hallucinations) or (clean_text in ["...", "thank you", "thanks", "bye bye", "goodbye", "you"]):
+                    log.info(f"Filtered stock Whisper hallucination: '{text}'")
+                    text = ""
+                elif len(clean_text) <= 1:
+                    text = ""
 
         self.transcription_ready.emit(text)
 

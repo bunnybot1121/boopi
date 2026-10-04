@@ -166,29 +166,49 @@ class VoiceService:
         if not text or not text.strip():
             return
             
+        played_file = None
+        # 1. Primary: Edge-TTS with authentic Boopi voice
         temp_file = f"temp_speech_service_{int(time.time())}.mp3"
-        
-        # Async generation runner
         async def run_tts():
             import edge_tts
-            communicate = edge_tts.Communicate(text, self.voice)
+            communicate = edge_tts.Communicate(text, self.voice, pitch="+10Hz", rate="+0%")
             await communicate.save(temp_file)
-            
         try:
-            # edge-tts is fully async, run it in loop
             asyncio.run(run_tts())
-            
-            # Play using ffplay subprocess
-            from speaker_demo import play_audio
-            if os.path.exists(temp_file):
-                self._playing = True
-                play_audio(temp_file)
+            if os.path.exists(temp_file) and os.path.getsize(temp_file) > 200:
+                played_file = temp_file
         except Exception as e:
-            print(f"[VoiceService ERROR] Failed to perform TTS: {e}")
+            print(f"[VoiceService] Edge-TTS error ({e}), attempting offline fallback...")
+
+        # 2. Offline Fallback: Piper TTS if network is unavailable
+        if not played_file:
+            try:
+                import piper
+                import wave
+                parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                piper_dir = os.path.join(parent_dir, "assets", "models", "piper")
+                model_path = os.path.join(piper_dir, "en_US-amy-medium.onnx")
+                config_path = os.path.join(piper_dir, "en_US-amy-medium.onnx.json")
+                if os.path.exists(model_path) and os.path.exists(config_path):
+                    piper_voice = piper.PiperVoice.load(model_path, config_path=config_path)
+                    wav_file = f"temp_speech_service_{int(time.time())}.wav"
+                    with wave.open(wav_file, "wb") as wf:
+                        piper_voice.synthesize_wav(text, wf)
+                    if os.path.exists(wav_file) and os.path.getsize(wav_file) > 200:
+                        played_file = wav_file
+            except Exception as p_err:
+                print(f"[VoiceService ERROR] Offline fallback failed: {p_err}")
+
+        # 3. Play audio
+        try:
+            from speaker_demo import play_audio
+            if played_file and os.path.exists(played_file):
+                self._playing = True
+                play_audio(played_file)
         finally:
             self._playing = False
-            if os.path.exists(temp_file):
-                try: os.remove(temp_file)
+            if played_file and os.path.exists(played_file):
+                try: os.remove(played_file)
                 except: pass
 
     def speak_async(self, text):

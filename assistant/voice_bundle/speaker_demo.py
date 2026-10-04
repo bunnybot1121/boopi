@@ -24,54 +24,79 @@ def find_ffplay():
 
 def play_audio(path):
     ffplay_bin = find_ffplay()
-    if not ffplay_bin:
-        print(f"\n[Playback ERROR] ffplay executable could not be found.")
-        print(f"  Audio has been synthesized successfully and saved to: {os.path.abspath(path)}")
-        print(f"  Please play this MP3 file manually or add 'ffplay' to your PATH.")
-        return False
-        
-    print(f"[Playback] Playing synthesized speech via ffplay ({ffplay_bin})...")
-    
-    # Hide command window for clean UX on Windows
-    startupinfo = None
-    creationflags = 0
-    if sys.platform == "win32":
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        startupinfo.wShowWindow = subprocess.SW_HIDE
-        creationflags = subprocess.CREATE_NO_WINDOW
-        
+    if ffplay_bin:
+        print(f"[Playback] Playing synthesized speech via ffplay ({ffplay_bin})...")
+        startupinfo = None
+        creationflags = 0
+        if sys.platform == "win32":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+            creationflags = subprocess.CREATE_NO_WINDOW
+        try:
+            proc = subprocess.Popen(
+                [ffplay_bin, "-nodisp", "-autoexit", "-loglevel", "quiet", path],
+                startupinfo=startupinfo,
+                creationflags=creationflags
+            )
+            proc.wait()
+            return True
+        except Exception as e:
+            print(f"[Playback ERROR] Failed to spawn ffplay player: {e}")
+
+    # Fallback: Local ffmpeg + native Windows winsound
     try:
-        proc = subprocess.Popen(
-            [ffplay_bin, "-nodisp", "-autoexit", "-loglevel", "quiet", path],
-            startupinfo=startupinfo,
-            creationflags=creationflags
-        )
-        proc.wait() # Wait for audio to finish playing
-        return True
-    except Exception as e:
-        print(f"[Playback ERROR] Failed to spawn ffplay player: {e}")
-        return False
+        import winsound
+        parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        ffmpeg_bin = os.path.join(parent_dir, "ffmpeg.exe")
+        if os.path.exists(ffmpeg_bin):
+            print("[Playback] Playing audio via native Windows audio subsystem...")
+            temp_wav = path + ".wav"
+            subprocess.run([ffmpeg_bin, "-y", "-i", path, temp_wav], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if os.path.exists(temp_wav):
+                winsound.PlaySound(temp_wav, winsound.SND_FILENAME)
+                try: os.remove(temp_wav)
+                except Exception: pass
+                return True
+    except Exception as fallback_err:
+        print(f"[Playback Warning] Native audio playback fallback failed: {fallback_err}")
+
+    print(f"\n[Playback Notice] Audio synthesized and saved to: {os.path.abspath(path)}")
+    return False
 
 async def generate_speech(text, voice, path):
-    import edge_tts
-    print(f"[TTS] Synthesizing speech using voice '{voice}'...")
-    print(f"[TTS] Text: \"{text}\"")
-    
-    communicate = edge_tts.Communicate(text, voice)
-    await communicate.save(path)
-    print(f"[TTS] Audio successfully written to {path} ({os.path.getsize(path)} bytes).")
+    try:
+        import edge_tts
+        print(f"[TTS] Synthesizing speech using Boopi voice '{voice}'...")
+        communicate = edge_tts.Communicate(text, voice, pitch="+10Hz", rate="+0%")
+        await communicate.save(path)
+        print(f"[TTS] Audio successfully written to {path} ({os.path.getsize(path)} bytes).")
+        return path
+    except Exception as e:
+        print(f"[TTS] Edge-TTS error ({e}), attempting offline fallback...")
+
+    # Offline Piper fallback if network is down
+    try:
+        import piper
+        import wave
+        parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        piper_dir = os.path.join(parent_dir, "assets", "models", "piper")
+        model_path = os.path.join(piper_dir, "en_US-amy-medium.onnx")
+        config_path = os.path.join(piper_dir, "en_US-amy-medium.onnx.json")
+        if os.path.exists(model_path) and os.path.exists(config_path):
+            print(f"[TTS] Synthesizing speech using offline Piper fallback...")
+            piper_voice = piper.PiperVoice.load(model_path, config_path=config_path)
+            wav_path = path[:-4] + ".wav" if path.endswith(".mp3") else path
+            with wave.open(wav_path, "wb") as wf:
+                piper_voice.synthesize_wav(text, wf)
+            return wav_path
+    except Exception as fallback_err:
+        print(f"[TTS] Offline fallback error: {fallback_err}")
+    return path
 
 def main():
     print("=== Standalone Text-to-Speech Speaker ===")
     
-    # Check edge_tts
-    try:
-        import edge_tts
-    except ImportError:
-        print("[ERROR] edge-tts package is not installed. Run install.bat first.")
-        sys.exit(1)
-        
     # Check arguments
     if len(sys.argv) > 1:
         text = " ".join(sys.argv[1:])
@@ -82,21 +107,24 @@ def main():
         print("[ERROR] No text input provided.")
         sys.exit(1)
         
-    # Run async TTS generation
+    actual_path = None
+    # Run TTS generation
     try:
-        asyncio.run(generate_speech(text, DEFAULT_VOICE, TEMP_FILE))
+        actual_path = asyncio.run(generate_speech(text, DEFAULT_VOICE, TEMP_FILE))
         # Play the audio
-        play_audio(TEMP_FILE)
+        if actual_path and os.path.exists(actual_path):
+            play_audio(actual_path)
     except Exception as e:
         print(f"[ERROR] Failed to run text-to-speech: {e}")
     finally:
         # Clean up temporary audio file
-        if os.path.exists(TEMP_FILE):
-            try:
-                os.remove(TEMP_FILE)
-                print("[Cleanup] Removed temporary speech file.")
-            except Exception as e:
-                print(f"[Cleanup Warning] Could not remove {TEMP_FILE}: {e}")
+        for f in [TEMP_FILE, actual_path]:
+            if f and os.path.exists(f):
+                try:
+                    os.remove(f)
+                    print(f"[Cleanup] Removed temporary speech file {f}.")
+                except Exception as e:
+                    print(f"[Cleanup Warning] Could not remove {f}: {e}")
 
 if __name__ == "__main__":
     main()

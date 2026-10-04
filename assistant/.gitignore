@@ -20,6 +20,8 @@ screenshot_*.png
 node_modules/
 *.exe
 ffmpeg.exe
+*.onnx
+assets/models/
 
 # Virtual environments
 venv312/

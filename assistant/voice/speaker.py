@@ -41,7 +41,7 @@ import config
 ELEVENLABS_API_KEY = getattr(config, "ELEVENLABS_API_KEY", "")
 ELEVENLABS_VOICE_ID = getattr(config, "ELEVENLABS_VOICE_ID", "")
 TTS_VOICE = getattr(config, "TTS_VOICE", "en-US-AnaNeural")
-USE_CLOUD_TTS = getattr(config, "USE_CLOUD_TTS", False)
+USE_CLOUD_TTS = getattr(config, "USE_CLOUD_TTS", True)
 
 # -------------------------------------------------------------
 # Helpers
@@ -75,6 +75,19 @@ def make_fluent(text: str) -> str:
     clean = clean.replace("!", ".")
     clean = re.sub(r'\s+', ' ', clean)
     return clean.strip()
+
+def apply_mascot_pitch_shift(wav_path: str, semitones: float = 3.5):
+    """Applies real-time pitch shifting to offline Piper speech to match Boopi's cute mascot pitch."""
+    try:
+        import soundfile as sf
+        import torch
+        import torchaudio
+        data, sr = sf.read(wav_path)
+        tensor = torch.from_numpy(data).float().unsqueeze(0)
+        shifted = torchaudio.functional.pitch_shift(tensor, sr, n_steps=semitones)
+        sf.write(wav_path, shifted.squeeze(0).numpy(), sr)
+    except Exception:
+        pass
 
 # -------------------------------------------------------------
 # 0-ms Audio Voice Cache
@@ -147,11 +160,41 @@ class SpeakerThread(QThread):
         except Exception:
             pass
 
+        self.piper_voice = None
+        # Initialize Local Offline Piper Neural Voice eagerly in background
+        threading.Thread(target=self._init_piper, daemon=True).start()
+
         # Start background synthesis loop
         self._synthesis_thread = threading.Thread(target=self._synthesis_loop, daemon=True)
         self._synthesis_thread.start()
         
         self.start()
+
+    def _init_piper(self):
+        try:
+            import piper
+            piper_dir = getattr(config, "PIPER_MODEL_DIR", None)
+            if not piper_dir or not os.path.isdir(piper_dir):
+                piper_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "models", "piper"))
+            voice_name = getattr(config, "PIPER_VOICE", "en_US-amy-medium")
+            model_path = os.path.join(piper_dir, f"{voice_name}.onnx")
+            config_path = os.path.join(piper_dir, f"{voice_name}.onnx.json")
+            
+            if not os.path.exists(model_path) and os.path.isdir(piper_dir):
+                for f in os.listdir(piper_dir):
+                    if f.endswith(".onnx"):
+                        model_path = os.path.join(piper_dir, f)
+                        config_path = os.path.join(piper_dir, f + ".json")
+                        break
+
+            if os.path.exists(model_path) and os.path.exists(config_path):
+                log.info(f"Loading local offline Piper Neural TTS model ({os.path.basename(model_path)})...")
+                self.piper_voice = piper.PiperVoice.load(model_path, config_path=config_path)
+                log.info("Local Piper Neural TTS model loaded successfully!")
+            else:
+                log.warning(f"Piper model files not found at {model_path}. Will use SAPI5 fallback.")
+        except Exception as e:
+            log.warning(f"Could not initialize Piper TTS: {e}. Will use SAPI5 fallback.")
 
     def speak(self, text: str):
         self.say(text)
@@ -368,11 +411,26 @@ class SpeakerThread(QThread):
                 tts_text = strip_emojis(text_val)
                 fluent_text = make_fluent(tts_text)
 
-                # 0. 100% Local Offline Windows SAPI Speech (Zero Cloud, Zero Network, ~100ms)
+                # 0. 100% Local Offline High-Quality Neural Speech via Piper TTS
                 if not USE_CLOUD_TTS:
+                    wav_path = path_val[:-4] + ".wav" if path_val.endswith(".mp3") else path_val
+                    
+                    # Try local Piper Neural TTS first (fast, natural studio-grade offline voice)
+                    if self.piper_voice:
+                        try:
+                            import wave
+                            with wave.open(wav_path, "wb") as wf:
+                                self.piper_voice.synthesize_wav(fluent_text, wf)
+                            if os.path.exists(wav_path) and os.path.getsize(wav_path) > 200:
+                                temp_path = wav_path
+                                log.info(f"Local Piper Neural speech generated (offline fallback): {os.path.basename(wav_path)}")
+                                return
+                        except Exception as piper_err:
+                            log.warning(f"Piper synthesis error: {piper_err}. Falling back to SAPI.")
+
+                    # Fallback to Windows SAPI5 if Piper not ready
                     try:
                         import win32com.client
-                        sapi_path = path_val[:-4] + ".wav" if path_val.endswith(".mp3") else path_val
                         speaker_obj = win32com.client.Dispatch("SAPI.SpVoice")
                         for v in speaker_obj.GetVoices():
                             desc = v.GetDescription().lower()
@@ -380,13 +438,13 @@ class SpeakerThread(QThread):
                                 speaker_obj.Voice = v
                                 break
                         stream = win32com.client.Dispatch("SAPI.SpFileStream")
-                        stream.Open(sapi_path, 3, False)
+                        stream.Open(wav_path, 3, False)
                         speaker_obj.AudioOutputStream = stream
                         speaker_obj.Speak(fluent_text)
                         stream.Close()
-                        if os.path.exists(sapi_path) and os.path.getsize(sapi_path) > 500:
-                            temp_path = sapi_path
-                            log.info(f"Local SAPI speech generated (100% offline): {os.path.basename(sapi_path)}")
+                        if os.path.exists(wav_path) and os.path.getsize(wav_path) > 200:
+                            temp_path = wav_path
+                            log.info(f"Local SAPI speech generated (offline fallback): {os.path.basename(wav_path)}")
                             return
                     except Exception as sapi_err:
                         log.error(f"Local SAPI synthesis error: {sapi_err}")
@@ -484,11 +542,22 @@ class SpeakerThread(QThread):
                 if edge_success:
                     return
 
-                # 3. Emergency Offline SAPI fallback (only as absolute last resort when offline)
-                log.warning(f"Edge-TTS unavailable after {max_retries} attempts ({last_edge_err}). Falling back to offline Windows SAPI speech...")
+                # 3. Emergency Offline Neural Piper / SAPI fallback
+                log.warning(f"Edge-TTS unavailable after {max_retries} attempts ({last_edge_err}). Falling back to offline speech...")
+                wav_path = path_val[:-4] + ".wav" if path_val.endswith(".mp3") else path_val
+                if self.piper_voice:
+                    try:
+                        import wave
+                        with wave.open(wav_path, "wb") as wf:
+                            self.piper_voice.synthesize_wav(fluent_text, wf)
+                        if os.path.exists(wav_path) and os.path.getsize(wav_path) > 200:
+                            temp_path = wav_path
+                            log.info(f"Offline Piper Neural speech generated: {os.path.basename(wav_path)}")
+                            return
+                    except Exception as p_err:
+                        log.warning(f"Offline Piper fallback failed: {p_err}")
                 try:
                     import win32com.client
-                    sapi_path = path_val[:-4] + ".wav" if path_val.endswith(".mp3") else path_val
                     speaker_obj = win32com.client.Dispatch("SAPI.SpVoice")
                     try:
                         for v in speaker_obj.GetVoices():
@@ -499,12 +568,12 @@ class SpeakerThread(QThread):
                     except Exception as v_err:
                         log.warning(f"Could not set female SAPI voice: {v_err}")
                     stream = win32com.client.Dispatch("SAPI.SpFileStream")
-                    stream.Open(sapi_path, 3, False)
+                    stream.Open(wav_path, 3, False)
                     speaker_obj.AudioOutputStream = stream
                     speaker_obj.Speak(fluent_text)
                     stream.Close()
-                    if os.path.exists(sapi_path) and os.path.getsize(sapi_path) > 500:
-                        temp_path = sapi_path
+                    if os.path.exists(wav_path) and os.path.getsize(wav_path) > 200:
+                        temp_path = wav_path
                 except Exception as sapi_err:
                     log.error(f"Offline SAPI fallback failed: {sapi_err}")
                     raise sapi_err

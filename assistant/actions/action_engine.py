@@ -13,6 +13,7 @@ from brain.db_manager import db_manager
 from actions.context_file_resolver import ContextFileResolver
 from actions.system_monitor_service import SystemMonitorService
 from actions.mode_manager import ModeManager
+from actions.automation_agent import send_whatsapp_message, send_email_playwright, send_linkedin_playwright, AutomationAgent
 
 class ActionEngine:
   def __init__(self):
@@ -98,6 +99,34 @@ class ActionEngine:
         self.control_media("next")
       elif cmd_lower in ["media_prev", "prev"]:
         self.control_media("prev")
+
+      # YouTube & WhatsApp Direct Commands
+      elif cmd_lower in ["youtube", "yt", "open_youtube"]:
+        webbrowser.open("https://www.youtube.com")
+        
+      elif cmd_lower in ["whatsapp", "open_whatsapp", "whatsapp_web"]:
+        webbrowser.open("https://web.whatsapp.com/")
+
+      elif cmd_lower.startswith("open_url:"):
+        url = action_cmd.split("open_url:")[-1].strip()
+        if not url.startswith("http://") and not url.startswith("https://"):
+          url = "https://" + url
+        webbrowser.open(url)
+
+      elif cmd_lower.startswith("search_youtube:"):
+        query = action_cmd.split("search_youtube:")[-1].strip()
+        encoded = urllib.parse.quote(query)
+        webbrowser.open(f"https://www.youtube.com/results?search_query={encoded}")
+
+      elif cmd_lower.startswith("send_whatsapp:"):
+        parts = action_cmd.split("send_whatsapp:")[-1].split(":")
+        if len(parts) >= 2:
+          recip = parts[0].strip()
+          msg = ":".join(parts[1:]).strip()
+          threading.Thread(target=lambda: AutomationAgent().send_whatsapp_message(recip, msg), daemon=True).start()
+        elif len(parts) == 1:
+          recip = parts[0].strip()
+          threading.Thread(target=lambda: AutomationAgent().send_whatsapp_via_existing_tab(recip, ""), daemon=True).start()
 
       # YouTube Music Routing
       elif cmd_lower.startswith("play_music:"):
@@ -391,13 +420,26 @@ class ActionEngine:
         return
 
       web_mappings = {
+          "youtube": "https://www.youtube.com/",
+          "yt": "https://www.youtube.com/",
+          "youtube music": "https://music.youtube.com/",
+          "yt music": "https://music.youtube.com/",
+          "whatsapp": "https://web.whatsapp.com/",
+          "whatsapp web": "https://web.whatsapp.com/",
           "linkedin": "https://www.linkedin.com/",
           "gmail": "https://mail.google.com/",
           "google mail": "https://mail.google.com/",
-          "whatsapp": "https://web.whatsapp.com/",
           "github": "https://github.com/",
           "calendar": "https://calendar.google.com/",
-          "google calendar": "https://calendar.google.com/"
+          "google calendar": "https://calendar.google.com/",
+          "spotify": "https://open.spotify.com/",
+          "chatgpt": "https://chatgpt.com/",
+          "claude": "https://claude.ai/",
+          "reddit": "https://www.reddit.com/",
+          "twitter": "https://twitter.com/",
+          "x": "https://x.com/",
+          "maps": "https://maps.google.com/",
+          "google maps": "https://maps.google.com/"
       }
       if app_name_clean in web_mappings:
         url = web_mappings[app_name_clean]
@@ -691,26 +733,29 @@ class ActionEngine:
       log.error(f"Media control error: {e}")
 
   def _get_first_youtube_video(self, query: str) -> str:
-    import urllib.request
-    import re
-    query_encoded = urllib.parse.quote(query)
-    url = f"https://www.youtube.com/results?search_query={query_encoded}"
-    req = urllib.request.Request(
-      url, 
-      headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-    )
-    try:
-      with urllib.request.urlopen(req, timeout=5) as response:
-        html = response.read().decode('utf-8', errors='ignore')
-        video_ids = re.findall(r"\"videoId\":\"([a-zA-Z0-9_-]{11})\"", html)
-        if video_ids:
-          return video_ids[0]
-        video_ids = re.findall(r"/watch\?v=([a-zA-Z0-9_-]{11})", html)
-        if video_ids:
-          return video_ids[0]
-    except Exception as e:
-      log.error(f"Failed to fetch YouTube ID: {e}")
-    return None
+    return fetch_first_youtube_video(query)
+
+def fetch_first_youtube_video(query: str) -> str:
+  import urllib.request
+  import re
+  query_encoded = urllib.parse.quote(query)
+  url = f"https://www.youtube.com/results?search_query={query_encoded}"
+  req = urllib.request.Request(
+    url, 
+    headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+  )
+  try:
+    with urllib.request.urlopen(req, timeout=5) as response:
+      html = response.read().decode('utf-8', errors='ignore')
+      video_ids = re.findall(r"\"videoId\":\"([a-zA-Z0-9_-]{11})\"", html)
+      if video_ids:
+        return video_ids[0]
+      video_ids = re.findall(r"/watch\?v=([a-zA-Z0-9_-]{11})", html)
+      if video_ids:
+        return video_ids[0]
+  except Exception as e:
+    log.error(f"Failed to fetch YouTube ID: {e}")
+  return None
 
 
 # ---------------- LEGACY OFFLINE PATTERN MATCHERS ----------------
@@ -767,12 +812,43 @@ def _open_calculator(match=None):
   return "Opening Calculator."
 
 def _open_whatsapp(match=None):
+  try:
+    from actions.automation_agent import AutomationAgent
+    agent = AutomationAgent()
+    if agent.find_and_activate_whatsapp_tab():
+      return "Focusing WhatsApp."
+  except Exception:
+    pass
   webbrowser.open("https://web.whatsapp.com/")
   return "Opening WhatsApp Web."
 
 def _send_whatsapp(match):
-  webbrowser.open("https://web.whatsapp.com/")
-  return "Opening WhatsApp Web so you can send your message!"
+  text = match.string if hasattr(match, 'string') else ""
+  contact = ""
+  message = ""
+  
+  m1 = re.search(r"to\s+([^:\s]+(?:\s+[^:\s]+)?)(?:\s*[:\-]\s*|\s+saying\s+|\s+that\s+)(.+)", text, re.I)
+  if m1:
+    contact = m1.group(1).strip()
+    message = m1.group(2).strip()
+  else:
+    m2 = re.search(r"(?:message|text)\s+([^:\s]+(?:\s+[^:\s]+)?)\s+(?:on\s+whatsapp\s+)?(?:saying\s+|[:\-]\s*)(.+)", text, re.I)
+    if m2:
+      contact = m2.group(1).strip()
+      message = m2.group(2).strip()
+      
+  if contact and message:
+    try:
+      from actions.automation_agent import send_whatsapp_message
+      import threading
+      t = threading.Thread(target=send_whatsapp_message, args=(contact, message), daemon=True)
+      t.start()
+      return f"Sending WhatsApp message to {contact}."
+    except Exception as e:
+      return f"Failed to send WhatsApp message: {e}"
+  else:
+    webbrowser.open("https://web.whatsapp.com/")
+    return "Opening WhatsApp Web."
 
 def _open_email(match):
   webbrowser.open("https://mail.google.com/")
@@ -782,14 +858,81 @@ def _send_linkedin(match):
   webbrowser.open("https://www.linkedin.com/")
   return "Opening LinkedIn."
 
+def _search_youtube(match):
+  groups = [g for g in match.groups() if g]
+  query = groups[-1].strip() if groups else ""
+  if query:
+    webbrowser.open(f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}")
+    return f"Searching YouTube for {query}."
+  else:
+    webbrowser.open("https://www.youtube.com")
+    return "Opening YouTube."
+
 def _play_music(match):
-  query = match.group(1).strip()
-  webbrowser.open(f"https://music.youtube.com/search?q={urllib.parse.quote(query)}")
-  return f"Searching YouTube Music for: {query}"
+  raw_query = match.group(1).strip()
+  clean_query = re.sub(r"\s+on\s+(youtube\s+music|youtube|spotify)$", "", raw_query, flags=re.I).strip()
+  if not clean_query:
+    clean_query = raw_query
+  
+  if "spotify" in raw_query.lower():
+    webbrowser.open(f"https://open.spotify.com/search/{urllib.parse.quote(clean_query)}")
+    return f"Playing {clean_query} on Spotify."
+  
+  video_id = fetch_first_youtube_video(clean_query)
+  if video_id:
+    webbrowser.open(f"https://www.youtube.com/watch?v={video_id}&autoplay=1")
+    return f"Playing {clean_query} on YouTube."
+  else:
+    webbrowser.open(f"https://www.youtube.com/results?search_query={urllib.parse.quote(clean_query)}")
+    return f"Playing {clean_query} on YouTube."
 
 def _open_youtube(match=None):
   webbrowser.open("https://www.youtube.com")
   return "Opening YouTube."
+
+def _volume_up(match=None):
+  try:
+    for _ in range(5):
+      pyautogui.press('volumeup')
+    return "Volume increased."
+  except Exception as e:
+    return f"Failed to increase volume: {e}"
+
+def _volume_down(match=None):
+  try:
+    for _ in range(5):
+      pyautogui.press('volumedown')
+    return "Volume decreased."
+  except Exception as e:
+    return f"Failed to decrease volume: {e}"
+
+def _volume_mute(match=None):
+  try:
+    pyautogui.press('volumemute')
+    return "Audio muted."
+  except Exception as e:
+    return f"Failed to mute audio: {e}"
+
+def _media_pause(match=None):
+  try:
+    pyautogui.press('playpause')
+    return "Playback toggled."
+  except Exception as e:
+    return f"Failed to toggle playback: {e}"
+
+def _media_next(match=None):
+  try:
+    pyautogui.press('nexttrack')
+    return "Skipped to next track."
+  except Exception as e:
+    return f"Failed to skip track: {e}"
+
+def _media_prev(match=None):
+  try:
+    pyautogui.press('prevtrack')
+    return "Returned to previous track."
+  except Exception as e:
+    return f"Failed to go to previous track: {e}"
 
 def _get_time(match=None):
   t_str = time.strftime("%I:%M %p")
@@ -871,20 +1014,27 @@ def _birthday_surprise(match=None):
   return "Happy birthday to you! I prepared a little surprise with a cake, and I am putting on some music for you!"
 
 PATTERNS = [
-    (re.compile(r"(?:call me|my name is)\s+(.+)",     re.I), _set_name),
-    (re.compile(r"(?:remember that|note that)\s+(.+)",             re.I), _remember_fact),
-    (re.compile(r"(?:search|google)\s+(?:for\s+)?(.+)",         re.I), _google_search),
-    (re.compile(r"(?:open|start|launch)\s+(?:up\s+|the\s+|google\s+)*(?:chrome|browser|firefox)",re.I), _open_browser),
-    (re.compile(r"(?:open|start|launch)\s+(?:up\s+|the\s+)*(?:vs\s?code|code editor)", re.I), _open_vscode),
-    (re.compile(r"(?:open|start|launch)\s+(?:up\s+|the\s+|my\s+)*(?:notepad|notes|text)", re.I), _open_notepad),
-    (re.compile(r"(?:open|start|launch)\s+(?:up\s+|the\s+)*spotify",                 re.I), _open_spotify),
-    (re.compile(r"(?:open|start|launch)\s+(?:up\s+|the\s+)*(?:calculator|calc)",       re.I), _open_calculator),
-    (re.compile(r"(?:open|check)\s+(?:the\s+|my\s+)*whatsapp",                re.I), _open_whatsapp),
-    (re.compile(r"(?:send|message|text|whatsapp).*(?:on whatsapp|to)", re.I), _send_whatsapp),
+    (re.compile(r"(?:call me|my name is)\s+(.+)", re.I), _set_name),
+    (re.compile(r"(?:remember that|note that)\s+(.+)", re.I), _remember_fact),
+    (re.compile(r"(?:search\s+(?:on\s+)?youtube\s+for|search\s+for\s+(.+?)\s+on\s+youtube|youtube\s+search\s+(?:for\s+)?)\s*(.+)", re.I), _search_youtube),
+    (re.compile(r"(?:search|google)\s+(?:for\s+)?(.+)", re.I), _google_search),
+    (re.compile(r"(?:open|start|launch|go\s+to)\s+(?:up\s+|the\s+|google\s+)*(?:chrome|browser|firefox)", re.I), _open_browser),
+    (re.compile(r"(?:open|start|launch|go\s+to)\s+(?:up\s+|the\s+)*(?:vs\s?code|code editor)", re.I), _open_vscode),
+    (re.compile(r"(?:open|start|launch|go\s+to)\s+(?:up\s+|the\s+|my\s+)*(?:notepad|notes|text)", re.I), _open_notepad),
+    (re.compile(r"(?:open|start|launch|go\s+to)\s+(?:up\s+|the\s+)*spotify", re.I), _open_spotify),
+    (re.compile(r"(?:open|start|launch|go\s+to)\s+(?:up\s+|the\s+)*(?:calculator|calc)", re.I), _open_calculator),
+    (re.compile(r"^(?:open|start|launch|go\s+to|check)?\s*(?:the\s+|my\s+)*whatsapp(?:\s*web)?$", re.I), _open_whatsapp),
+    (re.compile(r"(?:send|message|text|whatsapp).*(?:on whatsapp|to\s+\w+)", re.I), _send_whatsapp),
     (re.compile(r"(?:send|email|mail).*(?:email|mail)", re.I), _open_email),
     (re.compile(r"(?:send|message).*(?:on linkedin)", re.I), _send_linkedin),
-    (re.compile(r"(?:play|listen\s+to|stream)\s+(.+)",                 re.I), _play_music),
-    (re.compile(r"(?:open|start|launch)\s+(?:up\s+|the\s+)*(?:youtube|yt)",                    re.I), _open_youtube),
+    (re.compile(r"(?:play|listen\s+to|stream)\s+(.+)", re.I), _play_music),
+    (re.compile(r"^(?:open|start|launch|go\s+to)?\s*(?:up\s+|the\s+)*(?:youtube|yt)$", re.I), _open_youtube),
+    (re.compile(r"\b(?:volume\s*up|increase\s*volume|turn\s*up\s*the\s*volume|louder)\b", re.I), _volume_up),
+    (re.compile(r"\b(?:volume\s*down|decrease\s*volume|turn\s*down\s*the\s*volume|softer|quieter)\b", re.I), _volume_down),
+    (re.compile(r"\b(?:mute|unmute|mute\s*volume|silence\s*audio)\b", re.I), _volume_mute),
+    (re.compile(r"\b(?:pause\s*music|pause\s*song|pause\s*video|resume\s*music|resume\s*song|resume\s*video|pause\s*playback|stop\s*playback)\b", re.I), _media_pause),
+    (re.compile(r"\b(?:next\s*song|next\s*track|skip\s*song|skip\s*track)\b", re.I), _media_next),
+    (re.compile(r"\b(?:previous\s*song|previous\s*track|last\s*song)\b", re.I), _media_prev),
     (re.compile(r"(?:what.?s the time|current time|time now|what time)", re.I), _get_time),
     (re.compile(r"(?:what.?s today|what day|today.?s date)", re.I), _get_date),
     (re.compile(r"(?:take a screenshot|take screenshot|take a picture of my screen)", re.I), _take_screenshot),

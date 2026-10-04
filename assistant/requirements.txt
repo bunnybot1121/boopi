@@ -16,3 +16,5 @@ langchain-google-genai
 langchain-core
 pyserial
 faster-whisper
+piper-tts
+soundfile

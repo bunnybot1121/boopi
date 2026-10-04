@@ -35,7 +35,7 @@ class MemorySummaryService:
 
       # Query the AI directly with a dedicated translation/utility query
       prompt = (
-        f"You are a background memory summarizer for Bupi. "
+        f"You are a background memory summarizer for Boopi (also known as Bupi). "
         f"Analyze the following conversation history and extract/update the user's long-term categories. "
         f"Respond ONLY with a clean JSON object containing keys: 'projects', 'interests', and 'tasks'.\n"
         f"Format:\n"

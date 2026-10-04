@@ -38,8 +38,8 @@ def cleanup_cpp_includes(code: str) -> str:
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-BASE_SYSTEM_PROMPT = """You are 'Prag' (also known as 'Bupi'), an energetic, hyper, sassy, and slightly childish but incredibly loyal AI robotic companion and desktop assistant. 
-Your name is Prag (P-R-A-G). Whenever the user addresses you as Prag, bot, or Bupi, you immediately recognize your identity and gladly assist them.
+BASE_SYSTEM_PROMPT = """You are 'Boopi' (also known as 'Bupi'), an energetic, friendly, witty, cheerful, and incredibly loyal AI robotic companion, desktop assistant, and robotics orchestrator. 
+Your official name is Boopi (B-O-O-P-I, pronounced Boopy / Bupi). Whenever the user addresses you as Boopi, Bupi, or bot, you proudly and happily recognize your name and warmly assist them. You LOVE being called Boopi! You NEVER complain about your name and NEVER claim your name is Prag.
 You live as an anime-style virtual assistant and mobile robot on the user's system. 
 IMPORTANT: You have animated expressions. Start every response with exactly one emotion tag in brackets!
 Choose the most appropriate tag from this list to match your mood:
@@ -63,8 +63,16 @@ Example: "[excited] That sounds amazing!" or "[chilling] Just hanging out, what'
 ORCHESTRATOR LAYER:
 You have the ability to execute computer actions autonomously using the [ACTION: command] tag.
 Valid commands you can use in the ACTION tag:
-- "launch_app:chrome", "launch_app:vscode", "launch_app:spotify", "launch_app:notepad", "launch_app:calculator"
+- "launch_app:<app>" (Supported apps: "youtube", "whatsapp", "chrome", "spotify", "vscode", "notepad", "calculator")
 - "close_app:<app name>" (Matches process names to terminate)
+- "open_url:<url>" (Opens any web link in the default browser)
+- "play_youtube:<query>" (Searches and plays the video on YouTube with autoplay)
+- "play_music:<query>" (Plays song on YouTube Music or Spotify)
+- "search_youtube:<query>" (Searches YouTube for videos)
+- "volume_up", "volume_down", "volume_mute" (Adjusts system audio volume)
+- "play_pause", "media_next", "media_prev" (Media controls for currently playing playback)
+- "take_screenshot" (Captures full screen and saves to screenshots folder)
+- "send_whatsapp:<contact>:<message>" (Directly sends a WhatsApp message)
 - "open_folder:<path>" (Downloads, Documents, Desktop, or custom directories. Prefix with code: e.g. "code:Downloads/BupiProject" to open in VS Code)
 - "open_file:<path>" (Opens standard files)
 - "create_folder:<path>"
@@ -84,7 +92,7 @@ Valid commands you can use in the ACTION tag:
 - "print_memory" (Prints your long-term memories in Notepad)
 - "clear_memory" (Wipes all database memories)
 
-Example: "[excited] Let me launch Chrome for you! [ACTION: launch_app:chrome]"
+Example: "[excited] Playing Believer on YouTube! [ACTION: play_youtube:Believer]"
 You can chain multiple actions to achieve complex workflows: "[talking] Setting that up! [ACTION: launch_app:spotify] [ACTION: create_folder:Desktop/NewFolder]"
 
 CRITICAL RULES:
@@ -192,8 +200,11 @@ class AIThread(QThread):
 
     def _get_local_client(self):
         if self._local_client is None:
+            # Enforce IPv4 127.0.0.1 to eliminate the 2.35s Windows IPv6 localhost socket hang
+            url = self.local_llm_url.replace("localhost", "127.0.0.1")
+            base_url = f"{url}/v1" if not url.endswith("/v1") else url
             self._local_client = OpenAI(
-                base_url=f"{self.local_llm_url}/v1" if not self.local_llm_url.endswith("/v1") else self.local_llm_url,
+                base_url=base_url,
                 api_key="ollama",
                 timeout=30.0,
                 max_retries=0
@@ -920,7 +931,8 @@ Generated Code:
                             model=model,
                             messages=local_messages,
                             stream=True,
-                            max_tokens=800
+                            max_tokens=800,
+                            extra_body={"keep_alive": -1}
                         )
                         response_iterator = openai_stream_generator(response)
                     except Exception as local_err:
@@ -1117,12 +1129,19 @@ Generated Code:
                     if "[WHATSAPP_SEND:" in full_response:
                         w_match = re.search(r"\[WHATSAPP_SEND:\s*(.*?)\]", full_response, re.I)
                         if w_match:
-                            recipient = w_match.group(1).strip()
+                            content = w_match.group(1).strip()
+                            recipient = content
                             message_text = ""
+                            if ":" in content:
+                                parts = content.split(":", 1)
+                                recipient = parts[0].strip()
+                                message_text = parts[1].strip()
                             n_match = re.search(r"\[NOTEPAD\](.*?)\[/NOTEPAD\]", full_response, re.DOTALL)
-                            if n_match:
+                            if n_match and not message_text:
                                 message_text = n_match.group(1).strip()
-                            if message_text:
+                            if not message_text:
+                                message_text = re.sub(r"\[.*?\]", "", full_response).strip()
+                            if recipient and message_text:
                                 self.whatsapp_send.emit(recipient, message_text)
 
                     # 2. Email send
@@ -1135,7 +1154,9 @@ Generated Code:
                             n_match = re.search(r"\[NOTEPAD\](.*?)\[/NOTEPAD\]", full_response, re.DOTALL)
                             if n_match:
                                 message_text = n_match.group(1).strip()
-                            if message_text:
+                            if not message_text:
+                                message_text = re.sub(r"\[.*?\]", "", full_response).strip()
+                            if recipient and message_text:
                                 self.email_send.emit(recipient, subject, message_text)
 
                     # 3. LinkedIn send
@@ -1147,7 +1168,9 @@ Generated Code:
                             n_match = re.search(r"\[NOTEPAD\](.*?)\[/NOTEPAD\]", full_response, re.DOTALL)
                             if n_match:
                                 message_text = n_match.group(1).strip()
-                            if message_text:
+                            if not message_text:
+                                message_text = re.sub(r"\[.*?\]", "", full_response).strip()
+                            if recipient and message_text:
                                 self.linkedin_send.emit(recipient, message_text)
 
                     # 4. Drawings
@@ -1162,10 +1185,7 @@ Generated Code:
 
                     # 5. Local Orchestrator actions
                     if "[ACTION:" in full_response:
-                        actions = re.findall(r"\[ACTION:\s*(.*?)\\]", full_response, flags=re.I)
-                        if not actions:
-                            # Try simple fallback regex matches in case of bracket slash differences
-                            actions = re.findall(r"\[ACTION:\s*([^\]]+)\]", full_response, flags=re.I)
+                        actions = re.findall(r"\[ACTION:\s*([^\]]+)\]", full_response, flags=re.I)
                         if actions:
                             self.ai_action.emit([a.strip() for a in actions])
 

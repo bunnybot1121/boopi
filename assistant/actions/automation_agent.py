@@ -4,7 +4,10 @@ import urllib.parse
 import webbrowser
 from PIL import Image
 from io import BytesIO
-from playwright.sync_api import sync_playwright
+try:
+  from playwright.sync_api import sync_playwright
+except ImportError:
+  sync_playwright = None
 import pyautogui
 
 from logger import log
@@ -417,3 +420,31 @@ class AutomationAgent:
       except Exception as e:
         log.error(f"Failed to fetch LinkedIn notifications: {e}")
         return f"LinkedIn automation error: {e}"
+
+
+# ---------------- STANDALONE AUTOMATION HELPERS ----------------
+
+def send_whatsapp_message(contact_name: str, message_text: str) -> str:
+    """Standalone helper to send WhatsApp message via AutomationAgent."""
+    agent = AutomationAgent()
+    success = agent.send_whatsapp_message(contact_name, message_text)
+    if success:
+        return f"WhatsApp message successfully sent to {contact_name}!"
+    return f"Error: Could not send WhatsApp message to {contact_name}."
+
+def send_email_playwright(recipient: str, subject: str, message: str) -> str:
+    """Standalone helper to open Gmail compose via AutomationAgent."""
+    agent = AutomationAgent()
+    success = agent.open_gmail_compose(recipient, subject, message)
+    if success:
+        return f"Gmail compose opened for {recipient}."
+    return f"Error: Could not open Gmail compose for {recipient}."
+
+def send_linkedin_playwright(recipient: str, message: str) -> str:
+    """Standalone helper to send LinkedIn message via AutomationAgent."""
+    agent = AutomationAgent()
+    success = agent.send_linkedin_message(recipient, message)
+    if success:
+        return f"LinkedIn messaging opened for {recipient}."
+    return f"Error: Could not open LinkedIn messaging for {recipient}."
+
