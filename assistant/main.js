@@ -17,22 +17,6 @@ console.error = (...args) => {
 // Disable hardware acceleration to guarantee flawless transparent frameless window compositing on Windows DWM
 app.disableHardwareAcceleration();
 
-// Single instance lock to prevent duplicate conflicting Boopi processes
-const gotTheLock = app.requestSingleInstanceLock();
-if (!gotTheLock) {
-  console.log("[Main] Another instance of Boopi is already running. Focusing existing instance and exiting...");
-  app.quit();
-  process.exit(0);
-}
-
-app.on('second-instance', () => {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
-  }
-});
-
 let mainWindow;
 let tray;
 let pyEngine;
