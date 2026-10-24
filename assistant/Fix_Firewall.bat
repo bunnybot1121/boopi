@@ -7,10 +7,10 @@ if %errorLevel% neq 0 (
     exit /b
 )
 
-echo Opening port 1883 for Mosquitto in Windows Firewall...
-netsh advfirewall firewall add rule name="Mosquitto MQTT" dir=in action=allow protocol=TCP localport=1883
-echo Opening port 8767 for WebSockets in Windows Firewall...
-netsh advfirewall firewall add rule name="Bupi WebSockets" dir=in action=allow protocol=TCP localport=8767
+echo Opening port 1883 for Mosquitto in Windows Firewall (Any profile)...
+netsh advfirewall firewall add rule name="Mosquitto MQTT" dir=in action=allow protocol=TCP localport=1883 profile=any
+echo Opening port 8767 for WebSockets in Windows Firewall (Any profile)...
+netsh advfirewall firewall add rule name="Bupi WebSockets" dir=in action=allow protocol=TCP localport=8767 profile=any
 echo.
-echo Firewall rules added! You can now check your ESP32 screen.
+echo Firewall rules added with Profile=Any! The robots will stay connected even on Public networks.
 pause

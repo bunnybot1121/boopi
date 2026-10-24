@@ -180,6 +180,58 @@ class ActionEngine:
             value = ":".join(parts[2:]).strip()
           self.ax_set_value(app_name, label, value)
 
+      # ---------------- ROBOTICS & HARDWARE MOTOR ACTIONS ----------------
+      elif cmd_lower.startswith("robot_move:") or cmd_lower.startswith("control_motors:") or cmd_lower.startswith("motor:"):
+        parts = action_cmd.split(":", 2)
+        direction = parts[1].strip() if len(parts) > 1 else "forward"
+        bot_id = parts[2].strip() if len(parts) > 2 else "bupi_01"
+        try:
+          from actions.hardware_tools import control_motors
+          raw_fn = getattr(control_motors, "func", getattr(control_motors, "_run", control_motors))
+          raw_fn(direction=direction, speed=255, duration_seconds=1.5, robot_id=bot_id)
+        except Exception as he:
+          log.error(f"Robot motor action failed: {he}")
+
+      elif cmd_lower in ["robot_stop", "stop_motors", "stop_robot", "halt_robot", "e_stop"]:
+        try:
+          from actions.hardware_tools import control_motors
+          raw_fn = getattr(control_motors, "func", getattr(control_motors, "_run", control_motors))
+          raw_fn(direction="stop", speed=0, duration_seconds=0, robot_id="all")
+        except Exception as he:
+          log.error(f"Robot stop action failed: {he}")
+
+      elif cmd_lower in ["move_forward", "robot_forward"]:
+        try:
+          from actions.hardware_tools import control_motors
+          raw_fn = getattr(control_motors, "func", getattr(control_motors, "_run", control_motors))
+          raw_fn(direction="forward", speed=255, duration_seconds=1.5, robot_id="bupi_01")
+        except Exception as he:
+          log.error(f"Robot forward action failed: {he}")
+
+      elif cmd_lower in ["move_backward", "move_back", "robot_backward", "robot_reverse"]:
+        try:
+          from actions.hardware_tools import control_motors
+          raw_fn = getattr(control_motors, "func", getattr(control_motors, "_run", control_motors))
+          raw_fn(direction="reverse", speed=255, duration_seconds=1.5, robot_id="bupi_01")
+        except Exception as he:
+          log.error(f"Robot reverse action failed: {he}")
+
+      elif cmd_lower in ["turn_left", "robot_left"]:
+        try:
+          from actions.hardware_tools import control_motors
+          raw_fn = getattr(control_motors, "func", getattr(control_motors, "_run", control_motors))
+          raw_fn(direction="left", speed=255, duration_seconds=1.5, robot_id="bupi_01")
+        except Exception as he:
+          log.error(f"Robot left action failed: {he}")
+
+      elif cmd_lower in ["turn_right", "robot_right"]:
+        try:
+          from actions.hardware_tools import control_motors
+          raw_fn = getattr(control_motors, "func", getattr(control_motors, "_run", control_motors))
+          raw_fn(direction="right", speed=255, duration_seconds=1.5, robot_id="bupi_01")
+        except Exception as he:
+          log.error(f"Robot right action failed: {he}")
+
       # ---------------- DESKTOP CONTROL & PRODUCTIVITY ACTIONS ----------------
       elif action_cmd.startswith("close_app:"):
         app_name = action_cmd.split("close_app:")[-1].strip()

@@ -54,11 +54,11 @@ ENABLE_SPEECH_EMOTION = os.getenv("ENABLE_SPEECH_EMOTION", "false").lower() == "
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")
 ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "EXAVITQu4vr4xnSDxMaL")
 
-# STT Settings (100% Local, GPU-Accelerated Faster-Whisper)
-USE_CLOUD_STT = os.getenv("USE_CLOUD_STT", "false").lower() == "true"
-LOCAL_WHISPER_MODEL = os.getenv("LOCAL_WHISPER_MODEL", "medium.en")
+# STT Settings (Cloud Whisper-large-v3 via Groq with Gemini & Local Faster-Whisper Fallback)
+USE_CLOUD_STT = os.getenv("USE_CLOUD_STT", "true").lower() == "true"
+LOCAL_WHISPER_MODEL = os.getenv("LOCAL_WHISPER_MODEL", "base.en")
 GROQ_STT_MODEL = os.getenv("GROQ_STT_MODEL", "whisper-large-v3")
-SILENCE_FRAMES = int(os.getenv("SILENCE_FRAMES", "12")) # 360ms fast conversational pause
+SILENCE_FRAMES = int(os.getenv("SILENCE_FRAMES", "18")) # 540ms natural conversational pause
 
 
 def validate_config():

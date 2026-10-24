@@ -18,10 +18,10 @@ echo allow_anonymous true >> "%temp%\mosquitto.conf.tmp"
 
 move /y "%temp%\mosquitto.conf.tmp" "C:\Program Files\mosquitto\mosquitto.conf"
 
-echo Restarting Mosquitto Service...
-net stop mosquitto
-net start mosquitto
+echo Configuring Mosquitto for delayed-auto start and auto-restart recovery...
+sc config mosquitto start= delayed-auto
+sc failure mosquitto reset= 86400 actions= restart/5000/restart/5000/restart/5000
 
 echo.
-echo Fix applied! The broker should be running with Websocket support on port 9001.
+echo Fix applied! The broker is configured with delayed-auto startup, auto-restart, and Websocket port 9001.
 pause

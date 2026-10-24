@@ -28,8 +28,8 @@ MQTT_PORT = 1883
 LISTEN_TOPIC = "bupi/internal/utterance"
 
 hw_bridge = None
-# Fixed client_id ensures Mosquitto automatically replaces any stale zombie sessions
-m2_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="Mode2_Main_Worker")
+# Unique client_id per PID ensures Mosquitto never clashes or disconnects multiple workers
+m2_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=f"Mode2_Worker_{os.getpid()}")
 
 def on_connect(client, userdata, flags, reason_code, properties):
     print(f"[Mode 2] Connected. Listening for utterances on {LISTEN_TOPIC}", flush=True)
@@ -341,7 +341,16 @@ if __name__ == "__main__":
 
     try:
         asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\nShutting down Mode 2...")
-        m2_client.loop_stop()
-        m2_client.disconnect()
+    except (KeyboardInterrupt, SystemExit):
+        print("\nShutting down Mode 2...", flush=True)
+    finally:
+        try:
+            m2_client.loop_stop()
+            m2_client.disconnect()
+        except Exception:
+            pass
+        if os.path.exists(PID_FILE):
+            try:
+                os.remove(PID_FILE)
+            except Exception:
+                pass

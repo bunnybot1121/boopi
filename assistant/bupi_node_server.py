@@ -611,9 +611,28 @@ def dispatch_to_esp32(cmd_str: str, target_bot_id: Optional[str] = None) -> bool
 
     # 2. Try WebSocket hardware nodes (targeted if target_bot_id is provided)
     if _loop is not None and _loop.is_running():
-        if norm_target in ["all", "both", "fleet", "swarm", None]:
+        hw_list = list(hardware_clients)
+        if len(hw_list) == 1:
+            # Smart single-bot routing: If exactly one ESP32 is online, ALWAYS dispatch command to it
+            ws = hw_list[0]
+            try:
+                single_bot_payload = cmd_payload
+                try:
+                    p = json.loads(cmd_payload)
+                    if isinstance(p, dict) and p.get("bot_id") not in [None, "all"]:
+                        p["bot_id"] = "all"
+                        p["robot_id"] = "all"
+                        single_bot_payload = json.dumps(p)
+                except Exception:
+                    pass
+                asyncio.run_coroutine_threadsafe(ws.send(single_bot_payload), _loop)
+                print(f"[Hardware Bridge -> WS Single-Bot Dispatched]: {single_bot_payload}", flush=True)
+                success = True
+            except Exception as we:
+                print(f"[Hardware Bridge] WS write failed: {we}", flush=True)
+        elif norm_target in ["all", "both", "fleet", "swarm", None]:
             # Broadcast to all connected hardware bots
-            for ws in list(hardware_clients):
+            for ws in hw_list:
                 try:
                     asyncio.run_coroutine_threadsafe(ws.send(cmd_payload), _loop)
                     print(f"[Hardware Bridge -> WS Broadcast] Dispatched: {cmd_payload}", flush=True)
@@ -637,15 +656,21 @@ def dispatch_to_esp32(cmd_str: str, target_bot_id: Optional[str] = None) -> bool
                 except Exception as we:
                     print(f"[Hardware Bridge] WS write to {norm_target} failed: {we}", flush=True)
             else:
-                # Fallback if specific bot socket not yet registered:
-                # Dispatch wrapped JSON with bot_id so the intended robot accepts it and other ignores
-                for ws in list(hardware_clients):
+                # Fallback if specific bot socket not yet registered
+                for ws in hw_list:
                     try:
                         asyncio.run_coroutine_threadsafe(ws.send(cmd_payload), _loop)
                         print(f"[Hardware Bridge -> WS TX (Targeted {norm_target})] Dispatched: {cmd_payload}", flush=True)
                         success = True
                     except Exception as we:
                         print(f"[Hardware Bridge] WS write failed: {we}", flush=True)
+
+    # 3. Also sync to MQTT for external observers
+    if mqtt_client:
+        try:
+            mqtt_client.publish("bupi/actuators/motors/cmd/json", cmd_payload)
+        except Exception:
+            pass
 
     return success
 
@@ -702,11 +727,13 @@ def serial_supervisor_thread():
             port = find_esp32_port()
             if port:
                 try:
-                    ser = serial.Serial(port, 115200, timeout=0.1, write_timeout=0.2)
+                    ser = serial.Serial(port, 115200, timeout=0.1, write_timeout=0.2, dsrdtr=False, rtscts=False)
+                    ser.dtr = False
+                    ser.rts = False
                     with serial_lock:
                         serial_port_obj = ser
                         active_serial_port = port
-                    print(f"\n[Hardware Bridge] ✅ Connected to ESP32 on {port} @ 115200 baud!", flush=True)
+                    print(f"\n[Hardware Bridge] ✅ Connected to ESP32 on {port} @ 115200 baud (no-reset mode)!", flush=True)
                     register_node("ESP32_SERIAL", "COM3", "Serial", "BUPI Mobile Platform", ["differential_drive", "HC-SR04", "PIR", "MPU6050"], ["Robotic Navigation", "Sensing"])
                 except Exception as e:
                     time.sleep(1.5)
@@ -787,7 +814,7 @@ async def handle_connection(websocket):
                     if websocket in ui_clients:
                         ui_clients.discard(websocket)
                     hardware_clients.add(websocket)
-                    bot_id_claimed = data.get("bot_id") or data.get("robot_id")
+                    bot_id_claimed = data.get("bot_id") or data.get("robot_id") or "bupi_01"
                     if bot_id_claimed:
                         hardware_clients_by_bot[bot_id_claimed] = websocket
                         norm_b = _normalize_bot_id(bot_id_claimed)
@@ -957,26 +984,22 @@ def send_to_esp32(title, message="", duration=0):
         
     dispatch_to_esp32(json.dumps({"title": str(title)[:16], "message": str(message)[:16]}))
 
+def _is_hotspot_ip_active() -> bool:
+    try:
+        import socket
+        ips = socket.gethostbyname_ex(socket.gethostname())[2]
+        return any(ip.startswith("192.168.137.") for ip in ips)
+    except Exception:
+        return False
+
 def hotspot_watchdog_thread():
     """Background watchdog: continuously verifies Windows Mobile Hotspot is active for robots."""
     script_path = os.path.join(PROJECT_ROOT, "scripts", "ensure_hotspot.ps1")
     if not os.path.exists(script_path):
         return
 
-    # Initial check on startup
-    try:
-        startupinfo = None
-        if sys.platform == "win32":
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        subprocess.run(["powershell", "-ExecutionPolicy", "Bypass", "-File", script_path],
-                       capture_output=True, timeout=10, startupinfo=startupinfo)
-    except Exception:
-        pass
-
-    # Recurring check every 12 seconds
-    while True:
-        time.sleep(12)
+    # Check if hotspot IP is already active on startup
+    if not _is_hotspot_ip_active():
         try:
             startupinfo = None
             if sys.platform == "win32":
@@ -986,6 +1009,20 @@ def hotspot_watchdog_thread():
                            capture_output=True, timeout=10, startupinfo=startupinfo)
         except Exception:
             pass
+
+    # Recurring check every 25 seconds; only call powershell if hotspot IP disappeared
+    while True:
+        time.sleep(25)
+        if not _is_hotspot_ip_active():
+            try:
+                startupinfo = None
+                if sys.platform == "win32":
+                    startupinfo = subprocess.STARTUPINFO()
+                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                subprocess.run(["powershell", "-ExecutionPolicy", "Bypass", "-File", script_path],
+                               capture_output=True, timeout=10, startupinfo=startupinfo)
+            except Exception:
+                pass
 
 async def _ui_heartbeat_worker():
     """Periodically streams telemetry and arena snapshot to connected UI clients (1Hz) when idle."""
@@ -1010,8 +1047,8 @@ async def _start_server():
         handle_connection, 
         "0.0.0.0", 
         8767,
-        ping_interval=15,
-        ping_timeout=10,
+        ping_interval=25,
+        ping_timeout=20,
         compression=None
     )
     asyncio.create_task(_ui_heartbeat_worker())
@@ -1044,6 +1081,8 @@ def start_node_server():
 
     if is_port_active:
         print("[Hardware Bridge] Port 8767 is already actively serving. Reusing existing WebSocket server instance.", flush=True)
+        init_mqtt()
+        return
     else:
         # Start WebSocket Server only if port 8767 is not already active
         def run_ws_loop():

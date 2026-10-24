@@ -30,12 +30,12 @@ VAD_AGGRESSIVENESS = 3 # High-rejection mode (suppresses room noise, fan hum, ty
 MIN_SPEECH_FRAMES = 12 # Discards sub-360ms transient acoustic clicks
 PRE_ROLL_FRAMES = 20
 
-# Settings from config / environment variables with safe fallbacks (matching Hackathon project)
-USE_CLOUD_STT = getattr(config, "USE_CLOUD_STT", False)
-LOCAL_WHISPER_MODEL = getattr(config, "LOCAL_WHISPER_MODEL", "medium.en")
+# Settings from config / environment variables with safe fallbacks
+USE_CLOUD_STT = getattr(config, "USE_CLOUD_STT", True)
+LOCAL_WHISPER_MODEL = getattr(config, "LOCAL_WHISPER_MODEL", "base.en")
 GROQ_STT_MODEL = getattr(config, "GROQ_STT_MODEL", "whisper-large-v3")
 AUDIO_GAIN_BOOST = getattr(config, "AUDIO_GAIN_BOOST", 1.5)
-SILENCE_FRAMES = int(os.environ.get("SILENCE_FRAMES", getattr(config, "SILENCE_FRAMES", 12)))
+SILENCE_FRAMES = int(os.environ.get("SILENCE_FRAMES", getattr(config, "SILENCE_FRAMES", 18)))
 
 PROMPT_CONTEXT = "Boopi, Bupi."
 
@@ -80,7 +80,9 @@ def is_hallucinated_output(text: str) -> bool:
         "thanks for listening", "thank you so much", "please subscribe",
         "like and subscribe", "see you next time", "see you in the next video",
         "bye bye", "...", ".", ",", "!", "?", "thank you", "thank you.",
-        "thanks.", "bye.", "goodbye.", "goodbye"
+        "thanks.", "bye.", "goodbye.", "goodbye",
+        "boopi, bupi.", "boopi, bupi", "boopi bupi", "boopi bupi bupi",
+        "bupi bupi", "boopi boopi", "bupi boopi"
     ]
     
     if normalized in always_hallucination or stripped in always_hallucination:
@@ -532,7 +534,8 @@ class ListenerThread(QThread):
         
         # Generate WAV bytes in memory for cloud STT if enabled
         wav_bytes = None
-        if USE_CLOUD_STT:
+        use_cloud = getattr(config, "USE_CLOUD_STT", True) or (os.getenv("USE_CLOUD_STT", "true").lower() == "true")
+        if use_cloud:
             try:
                 wav_io = io.BytesIO()
                 with wave.open(wav_io, 'wb') as wav_file:
@@ -544,8 +547,8 @@ class ListenerThread(QThread):
             except Exception as e:
                 log.error(f"Failed to generate WAV bytes in memory: {e}")
 
-        # 1. Primary: Cloud STT (Groq whisper-large-v3) - fastest and most accurate for all accents
-        if USE_CLOUD_STT and wav_bytes:
+        # 1. Primary: Cloud STT (Groq whisper-large-v3-turbo) - fastest and most accurate for all accents
+        if use_cloud and wav_bytes:
             groq_keys = get_groq_keys()
             if groq_keys:
                 text = self._groq_stt(wav_bytes, groq_keys)
@@ -605,7 +608,11 @@ class ListenerThread(QThread):
 
         self.transcription_ready.emit(text)
 
-    def _groq_stt(self, wav_bytes, keys):
+    def _groq_stt(self, wav_bytes, keys=None):
+        if keys is None:
+            keys = get_groq_keys()
+        if not keys:
+            return ""
         log.info("Running cloud transcription via Groq Whisper API...")
         import requests
         url = "https://api.groq.com/openai/v1/audio/transcriptions"
@@ -619,8 +626,9 @@ class ListenerThread(QThread):
                 files = {
                     "file": ("speech.wav", wav_bytes, "audio/wav")
                 }
+                model_name = os.environ.get("GROQ_STT_MODEL", getattr(config, "GROQ_STT_MODEL", "whisper-large-v3"))
                 data = {
-                    "model": GROQ_STT_MODEL,
+                    "model": model_name,
                     "prompt": PROMPT_CONTEXT,
                     "response_format": "json"
                 }
@@ -641,7 +649,11 @@ class ListenerThread(QThread):
               
         return ""
 
-    def _gemini_stt(self, wav_bytes, keys):
+    def _gemini_stt(self, wav_bytes, keys=None):
+        if keys is None:
+            keys = get_google_keys()
+        if not keys:
+            return ""
         log.info("Running cloud transcription via Gemini 2.5 Flash API...")
         from google import genai
         from google.genai import types

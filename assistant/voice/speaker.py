@@ -503,12 +503,12 @@ class SpeakerThread(QThread):
                 # Strictly lock voice identity and acoustic parameters across all sentences
                 voice = TTS_VOICE or 'en-US-AnaNeural'
                 rate = "+0%"
-                pitch = "+10Hz"
+                pitch = "+0Hz"
                 
                 tts_text = strip_emojis(text_val)
                 fluent_text = make_fluent(tts_text)
                 
-                max_retries = 3
+                max_retries = 2
                 edge_success = False
                 last_edge_err = None
                 
@@ -520,7 +520,7 @@ class SpeakerThread(QThread):
                             except: pass
                             
                         communicate = edge_tts.Communicate(fluent_text, voice, rate=rate, pitch=pitch)
-                        await asyncio.wait_for(communicate.save(path_val), timeout=12.0)
+                        await asyncio.wait_for(communicate.save(path_val), timeout=6.0)
                         
                         if os.path.exists(path_val) and os.path.getsize(path_val) > 500:
                             edge_success = True

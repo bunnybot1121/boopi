@@ -17,6 +17,22 @@ console.error = (...args) => {
 // Disable hardware acceleration to guarantee flawless transparent frameless window compositing on Windows DWM
 app.disableHardwareAcceleration();
 
+// Single instance lock to prevent duplicate conflicting Boopi processes
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  console.log("[Main] Another instance of Boopi is already running. Focusing existing instance and exiting...");
+  app.quit();
+  process.exit(0);
+}
+
+app.on('second-instance', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+});
+
 let mainWindow;
 let tray;
 let pyEngine;
@@ -201,7 +217,17 @@ function createWindow() {
 
 function spawnEngine() {
   const venvPython = path.join(__dirname, 'venv312', 'Scripts', 'python.exe');
-  const pyCmd = fs.existsSync(venvPython) ? venvPython : 'python';
+  if (!fs.existsSync(venvPython)) {
+    console.error("[Main Fatal] Python virtual environment (venv312) not found at:", venvPython);
+    const { dialog } = require('electron');
+    dialog.showErrorBox(
+      "Python Environment Missing",
+      `Boopi requires the dedicated Python 3.12 virtual environment at:\n${venvPython}\n\nPlease ensure venv312 is present before launching Boopi.`
+    );
+    app.quit();
+    return;
+  }
+  const pyCmd = venvPython;
   console.log("[Main] Spawning Python engine using command:", pyCmd);
   
   const pyArgs = ['main.py'];
@@ -656,8 +682,14 @@ if (!gotTheLock) {
   app.on('will-quit', () => {
     stopRunningAnimation();
     globalShortcut.unregisterAll();
-    if (pyEngine) {
-      pyEngine.kill();
+    if (pyEngine && pyEngine.pid) {
+      console.log(`[Main] Terminating Python process tree for PID ${pyEngine.pid}...`);
+      try {
+        const { execSync } = require('child_process');
+        execSync(`taskkill /pid ${pyEngine.pid} /t /f`, { stdio: 'ignore' });
+      } catch (e) {
+        try { pyEngine.kill(); } catch (err) {}
+      }
     }
     if (footmoBackend) {
       console.log("[Main] Killing FootMo2 v2 Backend...");

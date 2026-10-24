@@ -4,20 +4,21 @@ echo   BWE HIL Device-in-the-Loop Bridge Launcher
 echo ==================================================
 echo.
 
-:: 1. Check for Python
-python --version >nul 2>&1
-if %errorLevel% neq 0 (
-    echo [ERROR] Python is not installed or not in your system PATH.
-    echo Please install Python and try again.
+:: 1. Check for dedicated venv312 Python
+if not exist "%~dp0venv312\Scripts\python.exe" (
+    echo [ERROR] Dedicated Python virtual environment (venv312) not found.
+    echo Please ensure venv312 is present at "%~dp0venv312".
     pause
     exit /b
 )
 
-:: 2. Install dependencies
-echo Checking and installing Python dependencies...
-python -m pip install pyserial paho-mqtt
+set "PY_EXE=%~dp0venv312\Scripts\python.exe"
+
+:: 2. Install dependencies via venv312
+echo Checking and installing Python dependencies in venv312...
+"%PY_EXE%" -m pip install pyserial paho-mqtt
 if %errorLevel% neq 0 (
-    echo [Warning] Failed to verify packages via standard pip. Attempting fallback...
+    echo [Warning] Failed to verify packages via venv pip.
 )
 
 echo.
@@ -27,6 +28,6 @@ echo ==================================================
 echo.
 
 :: 3. Run the bridge
-python "%~dp0bwe_serial_mqtt_bridge.py"
+"%PY_EXE%" "%~dp0bwe_serial_mqtt_bridge.py"
 
 pause

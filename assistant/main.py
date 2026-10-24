@@ -478,18 +478,19 @@ def start_listening():
 
 # Thinking Watchdog: Guarantees Bupi NEVER gets stuck in thinking state
 thinking_watchdog = QTimer()
-thinking_watchdog.setInterval(25000) # 25 seconds max thinking timeout (allows local LLM / multi-step planning)
+thinking_watchdog.setInterval(45000) # 45 seconds max thinking timeout (allows local LLM VRAM loading & deep planning)
 thinking_watchdog.setSingleShot(True)
 
 def on_thinking_timeout():
     if state_mgr.current == "thinking":
-        print("[Watchdog] ⚠️ Thinking state timed out after 25s. Auto-recovering to idle...", flush=True)
+        print("[Watchdog] ⚠️ Thinking state timed out after 45s. Gracefully informing user and resetting...", flush=True)
         try:
             ai.interrupt()
         except Exception:
             pass
-        state_mgr.transition("idle")
-        start_listening()
+        state_mgr.transition("talking")
+        speaker.say("Sorry, my brain took too long to think! Please ask me again.")
+        QTimer.singleShot(3500, lambda: (state_mgr.transition("idle"), start_listening()))
 
 thinking_watchdog.timeout.connect(on_thinking_timeout)
 
@@ -717,12 +718,18 @@ def _handle_transcription(text: str):
                 is_robot_command = True
 
         direct_robot_actions = [
+            r"^(?:please\s+)?(?:go|move|drive|run|step|walk)?\s*(?:forward|ahead|straight|front)\b",
+            r"^(?:please\s+)?(?:go|move|drive|run|step|walk)?\s*(?:backward|backwards|back|reverse)\b",
+            r"^(?:please\s+)?(?:turn|go|spin|rotate)?\s*(?:left|right)\b",
+            r"^(?:please\s+)?(?:stop|halt|freeze|brake)\b",
+            r"\b(go forward|go back|go backward|go ahead|back up|backup|move ahead|drive ahead|come forward|reverse|halt|freeze|turn around|u-turn)\b",
             r"\b(move forward|move backward|move back|turn left|turn right|spin|rotate|drive forward|drive back|drive reverse|advance|step forward|step back)\b",
-            r"\b(stop motors|halt|emergency stop|brake|stop moving|stop driving|stop the robot|e-stop)\b",
+            r"\b(stop motors|halt|emergency stop|brake|stop moving|stop driving|stop the robot|e-stop|stop bot)\b",
             r"\b(patrol|explore|scan the room|scan room|find the human|find human|find person|locate human|search room|approach|move towards)\b",
-            r"\b(turn on relay|turn off relay|check gas|check smoke|front distance|ultrasonic reading)\b",
+            r"\b(turn on relay|turn off relay|check gas|check smoke|front distance|ultrasonic reading|sensor reading)\b",
             r"\b(points?\s+of\s+the\s+room|mark\s+out|give\s+(?:the\s+)?readings|take\s+readings|environmental\s+survey|survey\s+the\s+room)\b",
-            r"\b(?:bot\s*[12]|bupi\s*[12]|scout|specialist)\b"
+            r"\b(?:bot\s*[12]|bupi\s*[12]|scout|specialist|esp32|motors?)\b",
+            r"\b(obstacle avoidance|avoid obstacles|roam|wander)\b"
         ]
         if any(re.search(pat, text, re.I) for pat in direct_robot_actions):
             is_robot_command = True
@@ -730,6 +737,8 @@ def _handle_transcription(text: str):
         if is_robot_command:
             print(f"[Mode 1 Auto-Bridge] 🤖 Robotics command detected: '{text}' -> Seamlessly activating Mode 2 and executing!", flush=True)
             set_active_mode(2, notify_speaker=False)
+            if not fast_intent:
+                fast_intent = router.quick_regex_classify(text)
             # Fall through into Mode 2 robotic orchestration below!
         else:
             # 1. Fast offline desktop automations (YouTube, WhatsApp, volume, music, apps, screenshot, media)

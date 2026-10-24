@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BUPI Character Studio - State Tester (Idle & Blink)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #090d16;
+      --panel-bg: rgba(18, 24, 38, 0.75);
+      --panel-border: rgba(255, 255, 255, 0.08);
+      --accent: #6366f1;
+      --accent-glow: rgba(99, 102, 241, 0.35);
+      --accent-cyan: #06b6d4;
+      --accent-pink: #ec4899;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --success: #10b981;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+
+    body {
+      font-family: 'Outfit', sans-serif;
+      background: var(--bg-dark);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+      background-image: 
+        radial-gradient(circle at 15% 20%, rgba(99, 102, 241, 0.12) 0%, transparent 40%),
+        radial-gradient(circle at 85% 80%, rgba(236, 72, 153, 0.10) 0%, transparent 40%),
+        radial-gradient(circle at 50% 50%, rgba(6, 182, 212, 0.05) 0%, transparent 60%);
+    }
+
+    /* HEADER */
+    header {
+      padding: 16px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--panel-border);
+      backdrop-filter: blur(12px);
+      background: rgba(9, 13, 22, 0.85);
+      z-index: 100;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-badge {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #6366f1, #a855f7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 1.1rem;
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+
+    .brand-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      background: linear-gradient(to right, #fff, #94a3b8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .brand-sub {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .stats-bar {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+    }
+
+    .stat-pill {
+      background: rgba(255, 255, 255, 0.04);
+      padding: 6px 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .stat-pill .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+    }
+
+    /* MAIN WORKSPACE */
+    .workspace {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      gap: 20px;
+      padding: 24px 28px;
+      height: calc(100vh - 72px);
+    }
+
+    /* VIEWPORT STAGE */
+    .stage-container {
+      background: var(--panel-bg);
+      border-radius: 20px;
+      border: 1px solid var(--panel-border);
+      backdrop-filter: blur(16px);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+    }
+
+    .stage-toolbar {
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--panel-border);
+      background: rgba(0, 0, 0, 0.15);
+      z-index: 10;
+    }
+
+    .tool-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-tool {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: var(--text-main);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      font-family: inherit;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+
+    .btn-tool:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .btn-tool.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      box-shadow: 0 0 14px var(--accent-glow);
+    }
+
+    .stage-viewport {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+      cursor: pointer;
+    }
+
+    /* Background Modes */
+    .bg-dark {
+      background: radial-gradient(circle at center, #1e293b 0%, #090d16 100%);
+    }
+
+    .bg-light {
+      background: radial-gradient(circle at center, #f8fafc 0%, #cbd5e1 100%);
+    }
+
+    .bg-checker {
+      background-color: #1e293b;
+      background-image: 
+        linear-gradient(45deg, #0f172a 25%, transparent 25%), 
+        linear-gradient(-45deg, #0f172a 25%, transparent 25%), 
+        linear-gradient(45deg, transparent 75%, #0f172a 75%), 
+        linear-gradient(-45deg, transparent 75%, #0f172a 75%);
+      background-size: 24px 24px;
+      background-position: 0 0, 0 12px, 12px -12px, -12px 0px;
+    }
+
+    .bg-green {
+      background: #00b140;
+    }
+
+    .bg-cyber {
+      background: 
+        linear-gradient(rgba(99, 102, 241, 0.08) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(99, 102, 241, 0.08) 1px, transparent 1px),
+        #090d16;
+      background-size: 32px 32px;
+    }
+
+    /* CHARACTER DISPLAY */
+    #character-canvas {
+      max-width: 85%;
+      max-height: 85%;
+      object-fit: contain;
+      filter: drop-shadow(0 15px 35px rgba(0, 0, 0, 0.5));
+      transition: transform 0.15s ease-out;
+      pointer-events: none;
+    }
+
+    .character-bounce {
+      animation: bounce 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    @keyframes bounce {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.08) translateY(-10px); }
+      100% { transform: scale(1); }
+    }
+
+    .hud-overlay {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(10px);
+      padding: 8px 16px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      display: flex;
+      gap: 16px;
+      z-index: 10;
+    }
+
+    .hud-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 6px;
+      background: rgba(99, 102, 241, 0.2);
+      color: #818cf8;
+      font-weight: 600;
+    }
+
+    /* CONTROL PANEL */
+    .control-panel {
+      background: var(--panel-bg);
+      border-radius: 20px;
+      border: 1px solid var(--panel-border);
+      backdrop-filter: blur(16px);
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      padding: 24px;
+      overflow-y: auto;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+    }
+
+    .section-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .section-title::before {
+      content: '';
+      width: 4px;
+      height: 14px;
+      background: var(--accent);
+      border-radius: 2px;
+    }
+
+    /* STATE SELECTOR BUTTONS */
+    .state-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .btn-state {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: var(--text-main);
+      padding: 14px;
+      border-radius: 14px;
+      font-family: inherit;
+      font-weight: 600;
+      font-size: 0.9rem;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 4px;
+      transition: all 0.25s;
+    }
+
+    .btn-state:hover {
+      background: rgba(255, 255, 255, 0.08);
+      transform: translateY(-2px);
+    }
+
+    .btn-state.active {
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(168, 85, 247, 0.25));
+      border-color: #6366f1;
+      box-shadow: 0 0 20px rgba(99, 102, 241, 0.25);
+    }
+
+    .btn-state .state-meta {
+      font-size: 0.72rem;
+      font-weight: 400;
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* AUTO BLINK MODE HERO CARD */
+    .hero-mode-card {
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(6, 182, 212, 0.15));
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      border-radius: 16px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      cursor: pointer;
+      transition: all 0.25s;
+    }
+
+    .hero-mode-card:hover {
+      border-color: var(--accent);
+      box-shadow: 0 0 25px rgba(99, 102, 241, 0.2);
+    }
+
+    .hero-mode-card.active {
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.3), rgba(6, 182, 212, 0.3));
+      border-color: #38bdf8;
+      box-shadow: 0 0 30px rgba(56, 189, 248, 0.3);
+    }
+
+    .hero-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .hero-title {
+      font-weight: 700;
+      font-size: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .hero-desc {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      line-height: 1.4;
+    }
+
+    /* PLAYBACK CONTROLS */
+    .controls-box {
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 14px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .playback-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+    }
+
+    .btn-action {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #fff;
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.2rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-action:hover {
+      background: rgba(255, 255, 255, 0.16);
+      transform: scale(1.05);
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      width: 54px;
+      height: 54px;
+      font-size: 1.4rem;
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+
+    .btn-primary:hover {
+      background: #4f46e5;
+      transform: scale(1.08);
+    }
+
+    /* SLIDERS */
+    .slider-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .slider-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .range-slider {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 4px;
+      outline: none;
+    }
+
+    .range-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      box-shadow: 0 0 10px var(--accent);
+      transition: all 0.15s;
+    }
+
+    .range-slider::-webkit-slider-thumb:hover {
+      transform: scale(1.2);
+    }
+
+    /* FRAME FILMSTRIP */
+    .filmstrip {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 10px 4px;
+      scrollbar-width: thin;
+    }
+
+    .filmstrip::-webkit-scrollbar {
+      height: 4px;
+    }
+
+    .filmstrip::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 4px;
+    }
+
+    .frame-thumb {
+      flex: 0 0 54px;
+      height: 54px;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      transition: all 0.2s;
+    }
+
+    .frame-thumb:hover {
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+
+    .frame-thumb.current {
+      border-color: var(--accent);
+      background: rgba(99, 102, 241, 0.2);
+      box-shadow: 0 0 12px var(--accent-glow);
+    }
+
+    /* FOOTER TIPS */
+    .tip-box {
+      background: rgba(255, 255, 255, 0.03);
+      border-radius: 12px;
+      padding: 12px 14px;
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      line-height: 1.5;
+      border: 1px dashed rgba(255, 255, 255, 0.08);
+    }
+
+    .tip-box strong {
+      color: var(--text-main);
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <div class="brand-badge">⚡</div>
+      <div>
+        <div class="brand-title">BUPI Character Studio</div>
+        <div class="brand-sub">SVG Animation Inspector & State Tester</div>
+      </div>
+    </div>
+
+    <div class="stats-bar">
+      <div class="stat-pill">
+        <div class="dot"></div>
+        <span id="load-status">Loading Frames...</span>
+      </div>
+      <div class="stat-pill">
+        <span>FPS: <strong id="live-fps" style="color: #38bdf8;">10</strong></span>
+      </div>
+      <div class="stat-pill">
+        <span>Res: <strong>1023×1029</strong></span>
+      </div>
+    </div>
+  </header>
+
+  <div class="workspace">
+    <!-- VIEWPORT STAGE -->
+    <div class="stage-container">
+      <div class="stage-toolbar">
+        <div class="tool-group">
+          <span style="font-size: 0.8rem; color: var(--text-muted); margin-right: 6px;">Background:</span>
+          <button class="btn-tool active" onclick="setBg('dark', this)">Dark</button>
+          <button class="btn-tool" onclick="setBg('checker', this)">Transparency</button>
+          <button class="btn-tool" onclick="setBg('cyber', this)">Grid</button>
+          <button class="btn-tool" onclick="setBg('green', this)">Chroma Green</button>
+          <button class="btn-tool" onclick="setBg('light', this)">Light</button>
+        </div>
+
+        <div class="tool-group">
+          <span style="font-size: 0.8rem; color: var(--text-muted); margin-right: 6px;">Scale:</span>
+          <button class="btn-tool" onclick="setScale(0.6, this)">60%</button>
+          <button class="btn-tool active" onclick="setScale(0.85, this)">85%</button>
+          <button class="btn-tool" onclick="setScale(1.0, this)">100%</button>
+          <button class="btn-tool" onclick="setScale(1.25, this)">125%</button>
+        </div>
+      </div>
+
+      <div class="stage-viewport bg-dark" id="stage" onclick="onStageClick()">
+        <canvas id="character-canvas" width="1023" height="1029"></canvas>
+        <div class="hud-overlay">
+          <div>STATE: <span class="hud-badge" id="hud-state">IDLE</span></div>
+          <div>FRAME: <span style="color: #fff; font-weight: 600;" id="hud-frame">2.svg (1/8)</span></div>
+          <div>MODE: <span style="color: var(--text-muted);" id="hud-mode">Continuous Loop</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CONTROL PANEL -->
+    <div class="control-panel">
+      <!-- HERO AUTO BLINK CARD -->
+      <div>
+        <div class="section-title">Natural Companion Mode</div>
+        <div class="hero-mode-card active" id="hero-auto-blink" onclick="enableAutoBlinkMode()">
+          <div class="hero-header">
+            <div class="hero-title">✨ Living Auto-Blink</div>
+            <span class="hud-badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8;">RECOMMENDED</span>
+          </div>
+          <div class="hero-desc">
+            Seamlessly loops <strong>Idle</strong> and naturally triggers <strong>Blink</strong> every 3.5s to mimic realistic living AI mascot behavior.
+          </div>
+        </div>
+      </div>
+
+      <!-- DIRECT STATE SELECTION -->
+      <div>
+        <div class="section-title">Manual State Triggers</div>
+        <div class="state-grid">
+          <button class="btn-state" id="btn-state-idle" onclick="setManualState('idle')">
+            <span>Idle State</span>
+            <span class="state-meta">8 Frames (2.svg - 9.svg)</span>
+          </button>
+          <button class="btn-state" id="btn-state-blink" onclick="setManualState('blink')">
+            <span>Blink State</span>
+            <span class="state-meta">6 Frames (2.svg - 7.svg)</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- PLAYBACK ENGINE -->
+      <div>
+        <div class="section-title">Playback Engine</div>
+        <div class="controls-box">
+          <div class="playback-row">
+            <button class="btn-action" title="Previous Frame" onclick="stepFrame(-1)">⏮</button>
+            <button class="btn-action btn-primary" id="btn-play-pause" title="Play/Pause" onclick="togglePlayPause()">⏸</button>
+            <button class="btn-action" title="Next Frame" onclick="stepFrame(1)">⏭</button>
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>Playback Speed (FPS)</span>
+              <span id="fps-display">10 FPS</span>
+            </div>
+            <input type="range" class="range-slider" id="fps-slider" min="1" max="24" value="10" oninput="onFpsChange(this.value)">
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-label">
+              <span>Timeline Scrubber</span>
+              <span id="scrubber-display">Frame 1 of 8</span>
+            </div>
+            <input type="range" class="range-slider" id="frame-scrubber" min="0" max="7" value="0" oninput="onScrubChange(this.value)">
+          </div>
+        </div>
+      </div>
+
+      <!-- FILMSTRIP -->
+      <div>
+        <div class="section-title">Active Sequence Filmstrip</div>
+        <div class="filmstrip" id="filmstrip-container">
+          <!-- Dynamically populated -->
+        </div>
+      </div>
+
+      <!-- TIP BOX -->
+      <div class="tip-box">
+        💡 <strong>Pro-Tip:</strong> Click anywhere on the character to trigger an immediate pet/blink reaction!
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Frame definitions
+    const STATE_CONFIG = {
+      idle: {
+        name: "Idle",
+        folder: "idle",
+        frames: ["2.svg", "3.svg", "4.svg", "5.svg", "6.svg", "7.svg", "8.svg", "9.svg"]
+      },
+      blink: {
+        name: "Blink",
+        folder: "blink",
+        frames: ["2.svg", "3.svg", "4.svg", "5.svg", "6.svg", "7.svg"]
+      }
+    };
+
+    // Preloaded image caches
+    const imageCache = {
+      idle: [],
+      blink: []
+    };
+
+    let currentState = "idle";
+    let isAutoBlink = true;
+    let isPlaying = true;
+    let currentFrameIndex = 0;
+    let targetFps = 10;
+    let lastFrameTime = 0;
+    let autoBlinkTimer = null;
+    let nextBlinkDelay = 3500;
+    let loadedCount = 0;
+    const totalFrames = STATE_CONFIG.idle.frames.length + STATE_CONFIG.blink.frames.length;
+
+    const canvas = document.getElementById("character-canvas");
+    const ctx = canvas.getContext("2d");
+
+    // UI Elements
+    const loadStatus = document.getElementById("load-status");
+    const liveFps = document.getElementById("live-fps");
+    const hudState = document.getElementById("hud-state");
+    const hudFrame = document.getElementById("hud-frame");
+    const hudMode = document.getElementById("hud-mode");
+    const btnPlayPause = document.getElementById("btn-play-pause");
+    const fpsDisplay = document.getElementById("fps-display");
+    const fpsSlider = document.getElementById("fps-slider");
+    const scrubberDisplay = document.getElementById("scrubber-display");
+    const frameScrubber = document.getElementById("frame-scrubber");
+    const filmstripContainer = document.getElementById("filmstrip-container");
+    const heroCard = document.getElementById("hero-auto-blink");
+    const btnStateIdle = document.getElementById("btn-state-idle");
+    const btnStateBlink = document.getElementById("btn-state-blink");
+
+    // Preload all frames
+    function preloadFrames() {
+      ["idle", "blink"].forEach(stateKey => {
+        const conf = STATE_CONFIG[stateKey];
+        conf.frames.forEach((filename, idx) => {
+          const img = new Image();
+          img.src = `${conf.folder}/${filename}`;
+          img.onload = () => {
+            loadedCount++;
+            loadStatus.innerText = `Loaded ${loadedCount}/${totalFrames} Frames`;
+            if (loadedCount === totalFrames) {
+              loadStatus.innerText = "All Frames Ready (100%)";
+              renderCurrentFrame();
+            }
+          };
+          img.onerror = (e) => {
+            console.error(`Failed to load ${conf.folder}/${filename}:`, e);
+          };
+          imageCache[stateKey][idx] = img;
+        });
+      });
+      updateFilmstrip();
+    }
+
+    // Render active frame to Canvas
+    function renderCurrentFrame() {
+      const activeFrames = imageCache[currentState];
+      if (!activeFrames || activeFrames.length === 0) return;
+
+      const img = activeFrames[currentFrameIndex];
+      if (img && img.complete) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      }
+
+      // Update HUD & Controls
+      hudState.innerText = STATE_CONFIG[currentState].name.toUpperCase();
+      hudFrame.innerText = `${STATE_CONFIG[currentState].frames[currentFrameIndex]} (${currentFrameIndex + 1}/${STATE_CONFIG[currentState].frames.length})`;
+      scrubberDisplay.innerText = `Frame ${currentFrameIndex + 1} of ${STATE_CONFIG[currentState].frames.length}`;
+      frameScrubber.max = STATE_CONFIG[currentState].frames.length - 1;
+      frameScrubber.value = currentFrameIndex;
+
+      // Update Filmstrip Highlights
+      document.querySelectorAll(".frame-thumb").forEach((el, idx) => {
+        if (idx === currentFrameIndex) el.classList.add("current");
+        else el.classList.remove("current");
+      });
+    }
+
+    // Main Animation Loop
+    function animationLoop(timestamp) {
+      if (!lastFrameTime) lastFrameTime = timestamp;
+      const interval = 1000 / targetFps;
+      const elapsed = timestamp - lastFrameTime;
+
+      if (isPlaying && elapsed >= interval) {
+        lastFrameTime = timestamp - (elapsed % interval);
+        advanceFrame();
+      }
+
+      requestAnimationFrame(animationLoop);
+    }
+
+    // Advance to next frame
+    function advanceFrame() {
+      const frames = STATE_CONFIG[currentState].frames;
+      currentFrameIndex++;
+
+      if (currentFrameIndex >= frames.length) {
+        if (currentState === "blink") {
+          // If in Blink state, check if we return to Idle
+          if (isAutoBlink) {
+            currentState = "idle";
+            currentFrameIndex = 0;
+            scheduleNextBlink();
+            updateFilmstrip();
+          } else {
+            currentFrameIndex = 0; // Loop blink if manually set
+          }
+        } else {
+          currentFrameIndex = 0; // Loop idle
+        }
+      }
+
+      renderCurrentFrame();
+    }
+
+    // Schedule natural periodic blink
+    function scheduleNextBlink() {
+      if (!isAutoBlink) return;
+      if (autoBlinkTimer) clearTimeout(autoBlinkTimer);
+
+      // Random delay between 2.5s and 5.5s
+      const delay = Math.floor(Math.random() * 3000) + 2500;
+      autoBlinkTimer = setTimeout(() => {
+        if (isAutoBlink && currentState === "idle") {
+          currentState = "blink";
+          currentFrameIndex = 0;
+          updateFilmstrip();
+        }
+      }, delay);
+    }
+
+    // Mode: Living Auto-Blink
+    function enableAutoBlinkMode() {
+      isAutoBlink = true;
+      currentState = "idle";
+      currentFrameIndex = 0;
+      heroCard.classList.add("active");
+      btnStateIdle.classList.remove("active");
+      btnStateBlink.classList.remove("active");
+      hudMode.innerText = "Living Auto-Blink (Idle + Periodic Blink)";
+      scheduleNextBlink();
+      updateFilmstrip();
+      renderCurrentFrame();
+    }
+
+    // Mode: Manual State Selection
+    function setManualState(stateKey) {
+      isAutoBlink = false;
+      if (autoBlinkTimer) clearTimeout(autoBlinkTimer);
+      currentState = stateKey;
+      currentFrameIndex = 0;
+
+      heroCard.classList.remove("active");
+      if (stateKey === "idle") {
+        btnStateIdle.classList.add("active");
+        btnStateBlink.classList.remove("active");
+        hudMode.innerText = "Manual Loop: Idle (8 frames)";
+      } else {
+        btnStateIdle.classList.remove("active");
+        btnStateBlink.classList.add("active");
+        hudMode.innerText = "Manual Loop: Blink (6 frames)";
+      }
+
+      updateFilmstrip();
+      renderCurrentFrame();
+    }
+
+    // Play / Pause Toggle
+    function togglePlayPause() {
+      isPlaying = !isPlaying;
+      btnPlayPause.innerText = isPlaying ? "⏸" : "▶";
+    }
+
+    // Step Frame Manually
+    function stepFrame(delta) {
+      isPlaying = false;
+      btnPlayPause.innerText = "▶";
+      const total = STATE_CONFIG[currentState].frames.length;
+      currentFrameIndex = (currentFrameIndex + delta + total) % total;
+      renderCurrentFrame();
+    }
+
+    // FPS Change Slider
+    function onFpsChange(val) {
+      targetFps = parseInt(val, 10);
+      fpsDisplay.innerText = `${targetFps} FPS`;
+      liveFps.innerText = targetFps;
+    }
+
+    // Timeline Scrubber Change
+    function onScrubChange(val) {
+      isPlaying = false;
+      btnPlayPause.innerText = "▶";
+      currentFrameIndex = parseInt(val, 10);
+      renderCurrentFrame();
+    }
+
+    // Stage Click Interaction
+    function onStageClick() {
+      canvas.classList.remove("character-bounce");
+      void canvas.offsetWidth; // Force reflow
+      canvas.classList.add("character-bounce");
+
+      // Trigger blink immediately on click!
+      currentState = "blink";
+      currentFrameIndex = 0;
+      renderCurrentFrame();
+      updateFilmstrip();
+    }
+
+    // Background Selector
+    function setBg(type, btn) {
+      document.querySelectorAll(".tool-group .btn-tool").forEach(b => {
+        if (b.innerText.toLowerCase().includes("scale")) return;
+      });
+      btn.parentElement.querySelectorAll(".btn-tool").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+
+      const stage = document.getElementById("stage");
+      stage.className = `stage-viewport bg-${type}`;
+    }
+
+    // Scale Selector
+    function setScale(scaleVal, btn) {
+      btn.parentElement.querySelectorAll(".btn-tool").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      canvas.style.transform = `scale(${scaleVal})`;
+    }
+
+    // Update Filmstrip thumbnails
+    function updateFilmstrip() {
+      filmstripContainer.innerHTML = "";
+      const frames = STATE_CONFIG[currentState].frames;
+      frames.forEach((f, idx) => {
+        const thumb = document.createElement("div");
+        thumb.className = `frame-thumb ${idx === currentFrameIndex ? 'current' : ''}`;
+        thumb.innerHTML = `<span style="font-size: 0.9rem;">🖼</span><span>#${f.replace('.svg', '')}</span>`;
+        thumb.onclick = () => {
+          isPlaying = false;
+          btnPlayPause.innerText = "▶";
+          currentFrameIndex = idx;
+          renderCurrentFrame();
+        };
+        filmstripContainer.appendChild(thumb);
+      });
+    }
+
+    // Init
+    preloadFrames();
+    requestAnimationFrame(animationLoop);
+    scheduleNextBlink();
+  </script>
+</body>
+</html>

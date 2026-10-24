@@ -151,6 +151,11 @@ def control_motors(direction: str, speed: int = 255, duration_seconds: float = 1
             for top in topics:
                 publish.single(f"{top}/json", payload, hostname="localhost")
                 publish.single(top, f"turn_by {degrees}", hostname="localhost")
+            try:
+                import bupi_node_server
+                bupi_node_server.dispatch_to_esp32(payload, target_bot_id=target_bot)
+            except Exception:
+                pass
             return f"[{target_bot}] Rotating {degrees}° using closed-loop MPU6050 gyro feedback."
 
         # Run safety validation against obstacles / collision risk
@@ -173,13 +178,26 @@ def control_motors(direction: str, speed: int = 255, duration_seconds: float = 1
             publish.single(f"{top}/json", payload, hostname="localhost")
             publish.single(top, direction, hostname="localhost")
         
+        # Direct local bridge dispatch (WebSocket & USB Serial with 0ms latency)
+        try:
+            import bupi_node_server
+            bupi_node_server.dispatch_to_esp32(payload, target_bot_id=target_bot)
+        except Exception:
+            pass
+        
         # Timed auto-stop if duration specified and not already handled
         if duration_seconds > 0 and direction != "stop":
             def auto_stop():
                 time.sleep(duration_seconds)
+                stop_payload = json.dumps({"action": "stop", "speed": 0, "bot_id": target_bot, "robot_id": target_bot})
                 for top in topics:
                     publish.single(top, "stop", hostname="localhost")
-                    publish.single(f"{top}/json", json.dumps({"action": "stop", "speed": 0, "bot_id": target_bot, "robot_id": target_bot}), hostname="localhost")
+                    publish.single(f"{top}/json", stop_payload, hostname="localhost")
+                try:
+                    import bupi_node_server
+                    bupi_node_server.dispatch_to_esp32(stop_payload, target_bot_id=target_bot)
+                except Exception:
+                    pass
             threading.Thread(target=auto_stop, daemon=True).start()
             return f"[{target_bot}] Motors moving {direction} at speed {speed} for {duration_seconds}s."
             

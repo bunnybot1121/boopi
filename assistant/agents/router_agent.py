@@ -141,7 +141,69 @@ class RouterAgent:
                 "payload": {}
             }
 
-        # 4. Instant Semantic Plan Fast-Pass via InstructionDecomposer (<1ms execution)
+        # 4. Quick Sensor Telemetry Queries (<1ms bypass)
+        # Evaluated before multi-step missions so quick readings ("check the temperature", "gas level") return instant telemetry
+        is_explicit_mission = bool(
+            re.search(r"\b(survey|patrol|explore|scan|sweep|points?\s+of\s+the\s+room|each\s+point|mark\s+out|drive\s+until|walk\s+until|move\s+until)\b", clean)
+        )
+
+        if not is_explicit_mission:
+            # Gas / Smoke (MQ2) & Air Quality -> Bot 2 Specialist
+            if re.search(r"\b(?:gas|smoke|lpg|mq2|air\s*quality|hazard|gas\s*leak|fumes)\b", clean) and \
+               re.search(r"\b(?:level|reading|sensor|status|value|read|check|is\s+there|any|whats|what\s+is|show|detect|smell|leak)\b", clean):
+                return {
+                    "type": "sensor_query",
+                    "payload": {"sensor_id": "mq2", "robot_id": "bupi_02"}
+                }
+
+            # Temperature & Humidity (DHT22 / Climate) -> Bot 2 Specialist
+            if re.search(r"\b(?:humidity|humid|moisture)\b", clean) and \
+               re.search(r"\b(?:level|reading|sensor|status|value|read|check|is\s+it|whats|what\s+is|show|how\s+humid)\b", clean):
+                return {
+                    "type": "sensor_query",
+                    "payload": {"sensor_id": "humidity", "robot_id": "bupi_02"}
+                }
+            if re.search(r"\b(?:room\s+|indoor\s+|current\s+|ambient\s+)?(?:temperature|temp|climate|heat)\b", clean) and \
+               re.search(r"\b(?:reading|sensor|status|value|read|check|how\s+hot|how\s+warm|whats|what\s+is|show)\b", clean):
+                return {
+                    "type": "sensor_query",
+                    "payload": {"sensor_id": "temp", "robot_id": "bupi_02"}
+                }
+
+            # Motion & PIR -> Bot 1 Scout
+            if re.search(r"\b(?:motion|pir|movement|person|someone|people)\b", clean) and \
+               re.search(r"\b(?:detect|detected|status|check|any|is\s+there|sensor|reading|value|see|alert)\b", clean):
+                return {
+                    "type": "sensor_query",
+                    "payload": {"sensor_id": "pir", "robot_id": "bupi_01"}
+                }
+
+            # Ultrasonic Distance, Obstacle Detection & Path Clearance
+            if (
+                re.search(r"\b(?:is\s+there\s+(?:an?\s+)?obstacle|any\s+obstacle|obstacles?\s+ahead|obstacle\s+in\s+front|check\s+(?:whether\s+)?(?:if\s+)?(?:there\s+is\s+)?(?:an?\s+)?obstacles?|front\s+clearance|path\s+clear|clearance\s+ahead|front\s+distance|ultrasonic|distance\s+sensor|wall\s+distance|blocked\s+ahead)\b", clean) or
+                re.search(r"\b(?:check|read|what\s+is|whats|how\s+far|show|is\s+there|are\s+there|any|detect)\b.*?\b(?:distance|ultrasonic|clearance|obstacle|obstacles|barrier|blockage)\b", clean) or
+                re.search(r"\b(?:obstacle|obstacles|clearance|path)\b.*?\b(?:ahead|in\s+front|clear|blocked|or\s+not|check|status)\b", clean)
+            ) and not re.search(r"\b(avoid|bypass|detour|dodge|another\s+path|different\s+path|taking\s+another|evade|cross\s+out)\b", clean):
+                return {
+                    "type": "sensor_query",
+                    "payload": {"sensor_id": "distance", "robot_id": target_bot}
+                }
+
+            # World State & System Status
+            if re.search(r"\b(?:world\s*state|environment\s*state|robot\s*status|telemetry\s*status|sensor\s*status|system\s*status|environmental\s*report)\b|\b(?:check|what\s+is|whats|show)\b.*?\b(?:world\s*state|robot\s*status|system\s*status|environment)\b", clean):
+                return {
+                    "type": "world_state_query",
+                    "payload": {}
+                }
+
+            # ESP32 Connection & Node Presence (<1ms bypass)
+            if re.search(r"\b(?:any\s+)?(?:esp32|esp|node|nodes)\b.*?\b(?:connected|online|active|status|reach|found|working|there|available)\b|\b(?:check|is|are|any)\b.*?\b(?:esp32|esp|node|nodes)\b", clean):
+                return {
+                    "type": "nodes_query",
+                    "payload": {}
+                }
+
+        # 5. Instant Semantic Plan Fast-Pass via InstructionDecomposer (<1ms execution)
         # Evaluated BEFORE simple locomotion so compound missions ("scan the room and if you find any person move towards him"),
         # conditional moves ("walk until obstacle comes"), approach target, step moves, and distance moves are compiled accurately!
         try:
@@ -174,7 +236,7 @@ class RouterAgent:
         except Exception:
             pass
 
-        # 5. Autonomous High-Level Robotic Missions Regex Fallback (<1ms fast-pass)
+        # 6. Autonomous High-Level Robotic Missions Regex Fallback (<1ms fast-pass)
         has_distance = bool(re.search(r"(\d+(?:\.\d+)?)\s*(?:cm|centimeter|centimeters|cms|m|meter|meters|inch|inches|mm|millimeters)\b", clean))
         has_degrees = bool(re.search(r"(\d+(?:\.\d+)?)\s*(?:deg|degree|degrees)\b", clean)) or bool(re.search(r"\bturn around\b", clean))
 
@@ -188,72 +250,27 @@ class RouterAgent:
                 "payload": {"mission": clean}
             }
 
-        # 6. Quick Sensor Telemetry Queries (<1ms bypass)
-        # Gas / Smoke (MQ2) & Air Quality -> Bot 2 Specialist
-        if re.search(r"\b(?:gas|smoke|lpg|mq2|air\s*quality|hazard|gas\s*leak|fumes)\b", clean) and \
-           re.search(r"\b(?:level|reading|sensor|status|value|read|check|is\s+there|any|whats|what\s+is|show|detect|smell|leak)\b", clean):
-            return {
-                "type": "sensor_query",
-                "payload": {"sensor_id": "mq2", "robot_id": "bupi_02"}
-            }
-
-        # Temperature & Humidity (DHT22 / Climate) -> Bot 2 Specialist
-        if re.search(r"\b(?:humidity|humid|moisture)\b", clean) and \
-           re.search(r"\b(?:level|reading|sensor|status|value|read|check|is\s+it|whats|what\s+is|show|how\s+humid)\b", clean):
-            return {
-                "type": "sensor_query",
-                "payload": {"sensor_id": "humidity", "robot_id": "bupi_02"}
-            }
-        if re.search(r"\b(?:room\s+|indoor\s+|current\s+|ambient\s+)?(?:temperature|temp|climate|heat)\b", clean) and \
-           re.search(r"\b(?:reading|sensor|status|value|read|check|how\s+hot|how\s+warm|whats|what\s+is|show)\b", clean):
-            return {
-                "type": "sensor_query",
-                "payload": {"sensor_id": "temp", "robot_id": "bupi_02"}
-            }
-
-        # Motion & PIR -> Bot 1 Scout
-        if re.search(r"\b(?:motion|pir|movement|person|someone|people)\b", clean) and \
-           re.search(r"\b(?:detect|detected|status|check|any|is\s+there|sensor|reading|value|see|alert)\b", clean):
-            return {
-                "type": "sensor_query",
-                "payload": {"sensor_id": "pir", "robot_id": "bupi_01"}
-            }
-
-        # Ultrasonic Distance, Obstacle Detection & Path Clearance
-        if (
-            re.search(r"\b(?:is\s+there\s+(?:an?\s+)?obstacle|any\s+obstacle|obstacles?\s+ahead|obstacle\s+in\s+front|check\s+(?:whether\s+)?(?:if\s+)?(?:there\s+is\s+)?(?:an?\s+)?obstacles?|front\s+clearance|path\s+clear|clearance\s+ahead|front\s+distance|ultrasonic|distance\s+sensor|wall\s+distance|blocked\s+ahead)\b", clean) or
-            re.search(r"\b(?:check|read|what\s+is|whats|how\s+far|show|is\s+there|are\s+there|any|detect)\b.*?\b(?:distance|ultrasonic|clearance|obstacle|obstacles|barrier|blockage)\b", clean) or
-            re.search(r"\b(?:obstacle|obstacles|clearance|path)\b.*?\b(?:ahead|in\s+front|clear|blocked|or\s+not|check|status)\b", clean)
-        ) and not re.search(r"\b(avoid|bypass|detour|dodge|another\s+path|different\s+path|taking\s+another|evade|cross\s+out)\b", clean):
-            return {
-                "type": "sensor_query",
-                "payload": {"sensor_id": "distance", "robot_id": target_bot}
-            }
-
-        # World State & System Status
-        if re.search(r"\b(?:world\s*state|environment\s*state|robot\s*status|telemetry\s*status|sensor\s*status|system\s*status|environmental\s*report)\b|\b(?:check|what\s+is|whats|show)\b.*?\b(?:world\s*state|robot\s*status|system\s*status|environment)\b", clean):
-            return {
-                "type": "world_state_query",
-                "payload": {}
-            }
-
-        # ESP32 Connection & Node Presence (<1ms bypass)
-        if re.search(r"\b(?:any\s+)?(?:esp32|esp|node|nodes)\b.*?\b(?:connected|online|active|status|reach|found|working|there|available)\b|\b(?:check|is|are|any)\b.*?\b(?:esp32|esp|node|nodes)\b", clean):
-            return {
-                "type": "nodes_query",
-                "payload": {}
-            }
-
         # 7. Strictly-Constrained Direct Directional Locomotion (<1ms fast-pass)
         is_reverse_cmd = bool(
-            re.search(r"\b(move backward|move backwards|move back|drive backward|drive backwards|drive back|drive reverse|go backward|go backwards|go back|backward|backwards|reverse|back up|backup|go in reverse|step back|move the bot backward|move bot backward)\b", clean) and
+            (re.search(r"\b(move backward|move backwards|move back|drive backward|drive backwards|drive back|drive reverse|go backward|go backwards|go back|backward|backwards|reverse|back up|backup|go in reverse|step back|move the bot backward|move bot backward)\b", clean) or
+             re.search(r"^(?:please\s+)?(?:drive|move|go|step|run)?\s*(?:the\s+)?(?:bot\s*1|bot\s*2|bot|robot)?\s*(?:backward|backwards|back|reverse)\b", clean) or
+             clean in ["backward", "backwards", "back", "reverse", "back up", "go back", "move back"]) and
             not re.search(r"\b(original|origin|base|home|where\s+(?:you|it|they)\s+started|starting|start)\b", clean)
         )
-        is_left_cmd = bool(re.search(r"\b(turn left|spin left|rotate left|go left|take a left|turn to the left|turn towards left|drive left)\b", clean))
-        is_right_cmd = bool(re.search(r"\b(turn right|spin right|rotate right|go right|take a right|turn to the right|turn towards right|drive right)\b", clean))
+        is_left_cmd = bool(
+            re.search(r"\b(turn left|spin left|rotate left|go left|take a left|turn to the left|turn towards left|drive left)\b", clean) or
+            re.search(r"^(?:please\s+)?(?:turn|go|spin|rotate|drive|move)?\s*(?:the\s+)?(?:bot\s*1|bot\s*2|bot|robot)?\s*(?:left|to\s+the\s+left)\b", clean) or
+            clean in ["left", "turn left", "go left"]
+        )
+        is_right_cmd = bool(
+            re.search(r"\b(turn right|spin right|rotate right|go right|take a right|turn to the right|turn towards right|drive right)\b", clean) or
+            re.search(r"^(?:please\s+)?(?:turn|go|spin|rotate|drive|move)?\s*(?:the\s+)?(?:bot\s*1|bot\s*2|bot|robot)?\s*(?:right|to\s+the\s+right)\b", clean) or
+            clean in ["right", "turn right", "go right"]
+        )
         is_forward_cmd = bool(
-            re.search(r"\b(move forward|drive forward|go forward|step forward|drive ahead|go ahead|advance|move ahead|move the bot forward|move bot forward|drive the bot forward|move both the bots|move both bots|move the bots)\b", clean) or
-            re.search(r"^(?:please\s+)?(?:drive|move|go|step|advance)?\s*(?:the\s+)?(?:bot\s*1|bot\s*2|bot|robot)?\s*(?:forward|ahead|straight)\b", clean) or
+            re.search(r"\b(move forward|drive forward|go forward|step forward|drive ahead|go ahead|advance|move ahead|move front|go front|move the bot forward|move bot forward|drive the bot forward|move both the bots|move both bots|move the bots|go straight|move straight)\b", clean) or
+            re.search(r"^(?:please\s+)?(?:drive|move|go|step|advance|head|run)?\s*(?:the\s+)?(?:bot\s*1|bot\s*2|bot|robot)?\s*(?:forward|ahead|straight|front)\b", clean) or
+            clean in ["forward", "ahead", "straight", "front", "go forward", "move forward", "advance"] or
             (has_explicit_bot and re.search(r"\b(move|drive|go)\s+(?:the\s+)?(?:bot\s*[12]|robot\s*[12]|scout|specialist)\b", clean) and not (is_reverse_cmd or is_left_cmd or is_right_cmd)) or
             (has_explicit_bot and re.search(r"\b(?:bot\s*[12]|robot\s*[12]|scout|specialist)\s+(?:move|drive|go)\b", clean) and not (is_reverse_cmd or is_left_cmd or is_right_cmd))
         )
