@@ -19,34 +19,40 @@ class KnowledgeBaseService:
     self.vector_store = None
     self.embeddings = None
     
-    # Initialize indexer in background thread to prevent startup latency
-    threading.Thread(target=self._initialize_vector_db, daemon=True).start()
+    # Initialize indexer in background thread after startup stabilizes (prevents concurrent CUDA / PyTorch DLL collision)
+    self._indexer_timer = threading.Timer(12.0, self._initialize_vector_db)
+    self._indexer_timer.daemon = True
+    self._indexer_timer.start()
 
   def _initialize_vector_db(self):
+    if self.ready:
+      return
     try:
+      if self.ready:
+        return
+      log.info("Initializing Local Knowledge Base (LangChain + ChromaDB + SentenceTransformers)...")
       with import_lock:
-        log.info("Initializing Local Knowledge Base (LangChain + ChromaDB + SentenceTransformers)...")
         from langchain_community.embeddings import HuggingFaceEmbeddings
         from langchain_community.vectorstores import Chroma
-        
-        try:
-          # Try loading completely offline first (no network checks/latency)
-          self.embeddings = HuggingFaceEmbeddings(
-            model_name="all-MiniLM-L6-v2",
-            model_kwargs={'device': 'cpu', 'local_files_only': True}
-          )
-          log.info("Hugging Face embeddings loaded from local cache.")
-        except Exception as cache_err:
-          log.warning(f"Could not load embeddings from local cache offline, trying online: {cache_err}")
-          self.embeddings = HuggingFaceEmbeddings(
-            model_name="all-MiniLM-L6-v2",
-            model_kwargs={'device': 'cpu', 'local_files_only': False}
-          )
-        
-        self.vector_store = Chroma(
-          persist_directory=self.db_dir,
-          embedding_function=self.embeddings
+      
+      try:
+        # Try loading completely offline first (no network checks/latency)
+        self.embeddings = HuggingFaceEmbeddings(
+          model_name="all-MiniLM-L6-v2",
+          model_kwargs={'device': 'cpu', 'local_files_only': True}
         )
+        log.info("Hugging Face embeddings loaded from local cache.")
+      except Exception as cache_err:
+        log.warning(f"Could not load embeddings from local cache offline, trying online: {cache_err}")
+        self.embeddings = HuggingFaceEmbeddings(
+          model_name="all-MiniLM-L6-v2",
+          model_kwargs={'device': 'cpu', 'local_files_only': False}
+        )
+      
+      self.vector_store = Chroma(
+        persist_directory=self.db_dir,
+        embedding_function=self.embeddings
+      )
       
       # Perform initial auto-indexing check
       self.index_documents()
@@ -159,7 +165,7 @@ class KnowledgeBaseService:
 
   def search_kb(self, query: str, k=4) -> str:
     """Searches the indexed documents and returns relevant chunks formatted as a context string."""
-    if self.vector_store is None:
+    if not self.ready or self.vector_store is None:
       return "Knowledge Base is still initializing, please wait!"
       
     try:

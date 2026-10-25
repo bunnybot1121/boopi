@@ -129,6 +129,12 @@ def get_cached_voice_file(text: str):
 
     return None
 
+_global_speaker_is_playing = False
+
+def is_speaker_playing() -> bool:
+    global _global_speaker_is_playing
+    return _global_speaker_is_playing
+
 # -------------------------------------------------------------
 # Speaker Thread
 # -------------------------------------------------------------
@@ -144,6 +150,8 @@ class SpeakerThread(QThread):
         self._epoch = 0
         self._exit_flag = False
         self._lock = threading.Lock()
+        self._output_lock = threading.Lock()
+        self._output_stream = None
         self._chunk_counter = 0
         
         # Clean up any leftover temp audio files from previous sessions
@@ -227,7 +235,12 @@ class SpeakerThread(QThread):
     def stop(self):
         self.interrupt(emit_finished=True)
 
+    def is_playing(self) -> bool:
+        global _global_speaker_is_playing
+        return _global_speaker_is_playing
+
     def interrupt(self, emit_finished=False):
+        global _global_speaker_is_playing
         with self._lock:
             self._epoch += 1
             
@@ -250,12 +263,11 @@ class SpeakerThread(QThread):
                     break
                 except Exception as e:
                     log.warning(f"Error cleaning play queue during interrupt: {e}")
-            
-            # Instantly stop active hardware playback (<10ms)
-            try:
-                sd.stop()
-            except Exception:
-                pass
+        
+        # Instantly mark not playing. Incrementing self._epoch cleanly terminates
+        # the playback loop in run() within <40ms on its own thread, avoiding PortAudio C-level Access Violations.
+        with self._output_lock:
+            _global_speaker_is_playing = False
         
         if emit_finished:
             try:
@@ -268,13 +280,10 @@ class SpeakerThread(QThread):
         self._exit_flag = True
         self._text_queue.put(None)
         self._play_queue.put(None)
-        try:
-            sd.stop()
-        except Exception:
-            pass
         self.wait(1000)
 
     def run(self):
+        global _global_speaker_is_playing
         while not self._exit_flag:
             item = self._play_queue.get()
             if item is None:
@@ -326,17 +335,53 @@ class SpeakerThread(QThread):
             print(f"From Python: [TTS] Playing audio ({len(data)/fs:.2f}s)...", flush=True)
             
             self.speech_started.emit()
+            _global_speaker_is_playing = True
 
             try:
-                sd.play(data, fs)
-                while sd.get_stream() and sd.get_stream().active:
+                channels = 1 if data.ndim == 1 else data.shape[1]
+                stream = sd.OutputStream(
+                    samplerate=fs,
+                    channels=channels,
+                    dtype='float32'
+                )
+                with self._output_lock:
                     if epoch != self._epoch or self._exit_flag:
-                        sd.stop()
+                        stream.close(ignore_errors=True)
+                        _global_speaker_is_playing = False
+                        continue
+                    self._output_stream = stream
+                    stream.start()
+
+                # Stream audio in small 1024-frame chunks (~42ms) with instant epoch interrupt check
+                chunk_size = 1024
+                num_frames = len(data)
+                offset = 0
+                while offset < num_frames and not self._exit_flag:
+                    if epoch != self._epoch:
                         break
-                    time.sleep(0.015)
+                    end_idx = min(offset + chunk_size, num_frames)
+                    chunk = data[offset:end_idx]
+                    try:
+                        stream.write(chunk)
+                    except Exception:
+                        break
+                    offset = end_idx
+
+                with self._output_lock:
+                    if self._output_stream == stream:
+                        try:
+                            stream.stop(ignore_errors=True)
+                            stream.close(ignore_errors=True)
+                        except Exception:
+                            pass
+                        self._output_stream = None
             except Exception as play_err:
                 log.error(f"Playback error via sounddevice: {play_err}")
                 self.error_occurred.emit(str(play_err))
+                with self._output_lock:
+                    self._output_stream = None
+            finally:
+                _global_speaker_is_playing = False
             
             # Check if this was the last item for this epoch
             with self._lock:

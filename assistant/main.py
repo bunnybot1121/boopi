@@ -66,7 +66,7 @@ activity_monitor.start()
 
 daily_briefing = DailyBriefingService(ai, speaker)
 
-conversation_mode = False  # Start in Idle Mode by default (requires wake word)
+conversation_mode = True  # Always start in active conversation mode so Boopi is immediately responsive
 mode2_active = False
 on_hold = False
 
@@ -83,9 +83,12 @@ elif "--robot" in sys.argv or "--mode2" in sys.argv:
     mode2_active = True
 
 def set_active_mode(target_mode: int, notify_speaker: bool = True):
-    global mode2_active
+    global mode2_active, conversation_mode
     mode_num = 2 if target_mode == 2 else 1
     mode2_active = (mode_num == 2)
+    if mode_num == 1:
+        conversation_mode = True
+        touch_conversation()
     print(f"[Mode Manager] Active Mode set to Mode {mode_num} (Robotic: {mode2_active})", flush=True)
     print(json.dumps({"type": "mode_changed", "value": mode_num}), flush=True)
     print(json.dumps({"type": "mode-changed", "value": mode_num}), flush=True)
@@ -427,7 +430,7 @@ def check_hold_or_resume(text: str) -> bool:
 # -------------------------------------------------------------
 # Conversational Inactivity Timer (Returns Boopi to Idle Mode)
 # -------------------------------------------------------------
-CONVERSATION_TIMEOUT_MS = 20000  # 20 seconds of silence returns Boopi to Idle Mode
+CONVERSATION_TIMEOUT_MS = 300000  # 5 minutes of silence returns Boopi to Idle Mode
 
 conversation_inactivity_timer = QTimer()
 conversation_inactivity_timer.setInterval(CONVERSATION_TIMEOUT_MS)
@@ -436,7 +439,7 @@ conversation_inactivity_timer.setSingleShot(True)
 def on_conversation_timeout():
     global conversation_mode
     if conversation_mode and not on_hold and state_mgr.current != "talking":
-        print("[Conversation Manager] 💤 Inactivity timeout (20s). Returning to Idle Mode (wake-word only).", flush=True)
+        print("[Conversation Manager] 💤 Inactivity timeout (5m). Entering standby mode.", flush=True)
         conversation_mode = False
         state_mgr.transition("idle")
 
@@ -498,15 +501,28 @@ def on_thinking_timeout():
 
 thinking_watchdog.timeout.connect(on_thinking_timeout)
 
+# Listening Watchdog: Guarantees Bupi NEVER gets stuck in listening state (safety timeout)
+listening_watchdog = QTimer()
+listening_watchdog.setInterval(12000) # 12 seconds max listening safety net
+listening_watchdog.setSingleShot(True)
+
+def on_listening_timeout():
+    if state_mgr.current == "listening":
+        print("[Watchdog] ⚠️ Listening timed out after 12s without end-of-speech. Resetting mascot to idle...", flush=True)
+        state_mgr.force("idle")
+        setattr(listener, "is_speaking", False)
+
+listening_watchdog.timeout.connect(on_listening_timeout)
+
 # -------------------------------------------------------------
 # Wiring Listener
 # -------------------------------------------------------------
 def on_listening_started():
-    if state_mgr.current == "thinking" or getattr(listener, "is_speaking", False):
-        # Don't let mic noise or speaker audio bleed interrupt STT transcription or active thinking
+    if state_mgr.current == "thinking":
         return
     thinking_watchdog.stop()
-    if state_mgr.current == "talking":
+    listening_watchdog.start()
+    if state_mgr.current == "talking" or getattr(listener, "is_speaking", False):
         print("[Barge-In] User started speaking while assistant talking. Stopping speech...", flush=True)
         try:
             speaker.stop()
@@ -516,9 +532,12 @@ def on_listening_started():
             ai.interrupt()
         except Exception:
             pass
-    state_mgr.transition("listening")
+        setattr(listener, "is_speaking", False)
+    print("[Listener] Voice activity detected! Switching mascot to LISTENING 🎙️", flush=True)
+    state_mgr.force("listening")
 
 def on_listening_stopped():
+    listening_watchdog.stop()
     state_mgr.transition("thinking")
     thinking_watchdog.start()
 
@@ -527,8 +546,14 @@ listener.listening_stopped.connect(on_listening_stopped)
 listener.error_occurred.connect(lambda e: (
     print(json.dumps({"type": "log", "message": f"[Listener Error] {e}"}), flush=True),
     thinking_watchdog.stop(),
+    listening_watchdog.stop(),
     state_mgr.force("error"),
-    QTimer.singleShot(2000, lambda: state_mgr.force("idle"))
+    # Auto-heal: return to idle and re-arm listener after brief error display
+    QTimer.singleShot(2000, lambda: (
+        state_mgr.force("idle"),
+        setattr(listener, "is_speaking", False),
+        start_listening()
+    ))
 ))
 
 instruction_queue = []
@@ -570,6 +595,7 @@ def _handle_transcription(text: str):
     global instruction_queue
     global mode2_active
     
+    listening_watchdog.stop()
     thinking_watchdog.stop()
     
     if text:
@@ -617,7 +643,7 @@ def _handle_transcription(text: str):
         return
 
     # ONLY explicit conversation stop phrases toggle conversation mode off (NOT motor stop / halt commands!)
-    if re.search(r"\b(stop listening|stop conversation|go to sleep|sleep now|take a rest|that's all|that is all|okay let's stop it|goodbye|bye)\b", text, re.I):
+    if re.search(r"\b(stop listening|stop conversation|go to sleep|sleep now|take a rest|that's all|that is all|okay let's stop it|goodbye boopi|bye boopi|bye-bye boopi)\b", text, re.I):
         if conversation_mode:
             conversation_mode = False
             state_mgr.transition("talking")
@@ -648,8 +674,17 @@ def _handle_transcription(text: str):
     fast_intent = router.quick_regex_classify(text)
     has_robot_intent = (fast_intent is not None)
 
+    has_direct_greeting = bool(re.match(r"^\s*(?:hey|hello|hi|hiya|yo|hey there|hello there)\b", text, re.I))
+
     if not conversation_mode:
-        if has_wake or has_bot or (mode2_active and (is_direct_mission_or_estop or has_robot_intent)):
+        is_engaged = has_wake or has_bot or has_direct_greeting or (mode2_active and (is_direct_mission_or_estop or has_robot_intent))
+        if not is_engaged:
+            # If the user asks a question, gives an instruction, or speaks any substantive phrase (>=2 words), engage automatically!
+            words = [w for w in re.sub(r"[^\w\s]", "", text).split() if w]
+            if len(words) >= 2 or text.strip().endswith("?") or any(w.lower() in ["who", "what", "where", "when", "why", "how", "can", "could", "would", "will", "is", "are", "do", "does", "tell", "show", "play", "open", "run", "start", "help", "listen", "hear", "speak", "talk", "responding", "answering"] for w in words):
+                is_engaged = True
+
+        if is_engaged:
             conversation_mode = True
             touch_conversation()
             cleaned = re.sub(wake_words, "", text, flags=re.I).strip()
@@ -665,7 +700,7 @@ def _handle_transcription(text: str):
             text = cleaned
             fast_intent = router.quick_regex_classify(text)
         else:
-            print(f"[Idle Filter] 😴 In Idle Mode. Ignoring speech without wake word: '{text}'", flush=True)
+            print(f"[Idle Filter] 😴 In Idle Mode. Ignoring non-conversational noise: '{text}'", flush=True)
             state_mgr.transition("idle")
             return
     else:
@@ -690,7 +725,8 @@ def _handle_transcription(text: str):
 
     # Fast Conversational Greeting & Check-in Whitelist (Instant 0-ms Mascot Response)
     clean_norm = re.sub(r"[^\w\s]", "", text).strip().lower()
-    clean_sub = re.sub(r"^(?:hey|hi|hello|yo|ok|okay|please)\s+", "", clean_norm).strip()
+    clean_sub = re.sub(r"^(?:(?:hey|hi|hello|yo|ok|okay|please|boopi|bupi)\s+)+", "", clean_norm).strip()
+    clean_sub = re.sub(r"(?:\s+(?:boopi|bupi|please))+$", "", clean_sub).strip()
     fast_convo = {
         "how are you": "I'm doing great! How can I help you today?",
         "how are you doing": "I'm doing awesome! All systems running smoothly. What's up?",
@@ -699,6 +735,14 @@ def _handle_transcription(text: str):
         "hows it going": "It's going wonderful! Ready for action.",
         "whats up": "Hey! I'm here and ready to help.",
         "what is up": "Hey! I'm here and ready to help.",
+        "whats going on": "Everything is running smoothly! Ready to help whenever you are.",
+        "what is going on": "All systems are active and running smoothly! How can I help you?",
+        "what are you doing": "I'm right here assisting you! Ready to chat, automate tasks, or drive our robots.",
+        "what are you up to": "Just standing by and ready for your commands! What's on your mind?",
+        "what are you working on": "I'm currently standing by and monitoring our system. What would you like to work on?",
+        "what do you think": "I think everything is looking great! What would you like to do next?",
+        "what are you thinking": "Just thinking about what we should build or explore next! What would you like to do?",
+        "what are you thinking about": "Just thinking about what we should build or explore next! What would you like to do?",
         "who are you": "I'm Boopi, your AI companion and robotics assistant!",
         "what is your name": "My name is Boopi! I'm your AI companion and robotics assistant.",
         "whats your name": "My name is Boopi! I'm your AI companion and robotics assistant.",
@@ -706,10 +750,20 @@ def _handle_transcription(text: str):
         "tell me your name": "I'm Boopi! Your AI companion and robotics assistant.",
         "are you bupi": "Yes! I'm Boopi, also known as Bupi! Ready to help you.",
         "are you boopi": "Yes! I'm Boopi! Your energetic AI companion and robotics assistant.",
-        "what can you do": "I can chat, automate your desktop, and command the physical BUPI robots! Just let me know what you need."
+        "what can you do": "I can chat, automate your desktop, and command the physical BUPI robots! Just let me know what you need.",
+        "can you hear me": "Yes, I can hear you loud and clear! How can I help you?",
+        "can you hear me now": "Yes, I can hear you loud and clear! What's on your mind?",
+        "can you hear": "Yes, I can hear you clearly! What do you need?",
+        "are you listening": "Yes, I'm listening! What can I do for you?",
+        "are you there": "I'm right here! Ready to help you.",
+        "he is not responding": "I'm right here and listening! Sorry about that, I am completely ready for your instructions.",
+        "he is not responding to me": "I'm right here and listening to you! Sorry about that, all systems are active and ready. What can I do for you?",
+        "you are not responding": "I'm right here and listening! How can I help you?",
+        "you are not listening": "I am listening! Please tell me what you need."
     }
     match_val = fast_convo.get(clean_norm) or fast_convo.get(clean_sub)
     if match_val:
+        last_ai_response = match_val
         state_mgr.transition("talking")
         speaker.say(match_val)
         return
@@ -1118,6 +1172,8 @@ def on_ai_response_ready(full_text: str):
         if spoken_text:
             state_mgr.force("talking")
             speaker.say(spoken_text)
+    elif not full_text.strip() and state_mgr.current == "thinking":
+        state_mgr.transition("idle")
 
 ai.response_ready.connect(on_ai_response_ready)
 
@@ -1150,9 +1206,9 @@ def analyze_sentiment(text: str) -> str:
     if any(w in text_lower for w in ["proud", "congrats", "congratulations", "achievement", "success", "bravo", "genius", "smart", "accomplished", "winner"]) or any(e in text for e in ["🏆", "🥇", "👑"]):
         return "praise"
         
-    # Check waving
+    # Check waving / greeting
     if any(w in text_lower for w in ["wave", "hello", "hi", "hey", "welcome", "goodbye", "bye", "see ya"]) or "👋" in text:
-        return "startup"
+        return "happy"
         
     # Check curious
     if any(w in text_lower for w in ["curious", "wonder", "question", "interesting", "fascinating", "hmm", "tell me more", "explore"]) or any(e in text for e in ["🔍", "🔎", "❓", "❔"]):
@@ -1169,8 +1225,8 @@ def analyze_sentiment(text: str) -> str:
     return "idle"
 
 def on_speech_finished():
-    # Allow 600ms acoustic cooldown for speaker room echo to settle before unmuting VAD
-    QTimer.singleShot(600, lambda: setattr(listener, "is_speaking", False))
+    # Allow a brief 200ms acoustic cooldown for speaker room echo to settle before unmuting VAD
+    QTimer.singleShot(200, lambda: setattr(listener, "is_speaking", False))
     touch_conversation()
     if instruction_queue:
         state_mgr.transition("idle")
@@ -1216,10 +1272,12 @@ class StdinBridge(QObject):
     do_process_hardware = pyqtSignal(str)
     do_flash_hardware = pyqtSignal(str)
     do_refresh_keys = pyqtSignal()
+    do_set_mode = pyqtSignal(int, bool)
 
 bridge = StdinBridge()
 
 bridge.do_start_listening.connect(start_listening)
+bridge.do_set_mode.connect(lambda mode, speak: set_active_mode(mode, notify_speaker=speak))
 
 def _on_clear_memory():
     ai.clear_memory()
@@ -1231,11 +1289,8 @@ def _on_toggle_conv():
     global conversation_mode
     conversation_mode = not conversation_mode
     
-    # We must pause the mic listening before speaking
-    was_running = listener.isRunning()
-    if was_running:
-        listener.pause()
-        
+    # Do NOT permanently pause the listener; mark as speaking during announcement
+    setattr(listener, "is_speaking", True)
     state_mgr.force("talking")
     
     if conversation_mode:
@@ -1259,7 +1314,7 @@ def stdin_listener():
             elif cmd == "set_mode":
                 target_m = int(req.get("mode", 1))
                 speak_flag = req.get("speak", True)
-                set_active_mode(target_m, notify_speaker=speak_flag)
+                bridge.do_set_mode.emit(target_m, speak_flag)
             elif cmd == "get_mode":
                 curr_m = 2 if mode2_active else 1
                 print(json.dumps({"type": "mode_changed", "value": curr_m}), flush=True)
@@ -1279,8 +1334,6 @@ def stdin_listener():
                 text = req.get("text", "")
                 if check_hold_or_resume(text):
                     continue
-                if listener.isRunning():
-                    listener.pause()
                 ai.ask(text)
             elif cmd == "trigger_briefing":
                 threading.Thread(target=daily_briefing.generate_briefing, daemon=True).start()
@@ -1421,14 +1474,8 @@ def _fetch_real_notifications_async():
         print(json.dumps({"type": "notepad_clear"}), flush=True)
         print(json.dumps({"type": "notepad_insert", "value": real_notes}), flush=True)
 
-        # 3. Fetch LinkedIn (Slower)
-        try:
-            from actions.automation_agent import AutomationAgent
-            agent = AutomationAgent()
-            linkedin_text = agent.fetch_linkedin_notifications()
-        except Exception as le:
-            linkedin_text = f"Error: {le}"
-            
+        # 3. LinkedIn: Defer browser automation so boot startup is instant and lightweight
+        linkedin_text = "LinkedIn sync paused on boot for instant voice responsiveness. Say 'check LinkedIn' to refresh."
         formatted_notes = _format_notifications_dashboard_fallback(gmail_text, github_text, linkedin_text)
         
         print(json.dumps({"type": "notepad_clear"}), flush=True)
@@ -1468,15 +1515,16 @@ def startup_sequence():
     # Run key check asynchronously 5 seconds after boot
     QTimer.singleShot(5000, ai.check_api_keys)
 
-    # Start listener immediately with is_speaking=True so VAD calibration completes during startup greeting
-    setattr(listener, "is_speaking", True)
+    # 1. Arm microphone capture immediately so audio stream opens right away at boot
     start_listening()
+    setattr(listener, "is_speaking", True)
 
-    # 1. Single clean, cheerful startup greeting (matching stable hackathon architecture)
     state_mgr.force("startup")
     welcome_speech = f"Hey {user_name}! All systems are online and ready. Just say 'hey boopi' whenever you need me."
-    speaker.say(welcome_speech)
     
+    global last_ai_response
+    last_ai_response = welcome_speech
+
     startup_finished = False
     def on_startup_speech_done():
         nonlocal startup_finished
@@ -1484,17 +1532,34 @@ def startup_sequence():
             return
         startup_finished = True
         global conversation_mode
-        conversation_mode = False
+        conversation_mode = True
+        touch_conversation()
         state_mgr.force("idle")
-        setattr(listener, "is_speaking", False)
-        print("[Startup] Boopi entered Idle Mode. Listening for wake words only.", flush=True)
+        
+        # Give 650ms acoustic settle delay after the welcome greeting before unmuting mic
+        def _enable_mic():
+            setattr(listener, "is_speaking", False)
+            setattr(listener, "_paused", False)
+            # Drain audio queue to ensure no trailing speaker echo frames remain
+            while not listener.audio_queue.empty():
+                try:
+                    listener.audio_queue.get_nowait()
+                except Exception:
+                    break
+            start_listening()
+            print(json.dumps({"type": "speech_text", "value": "Ready! Listening for 'Hey Boopi' ✨"}), flush=True)
+            print("[Startup] Boopi is online and in Conversation Mode. Ready to answer your questions!", flush=True)
+            
+        QTimer.singleShot(650, _enable_mic)
 
     speaker.speech_finished.connect(
         on_startup_speech_done,
         Qt.ConnectionType.SingleShotConnection if hasattr(Qt, 'ConnectionType') else 1
     )
-    # Safety fallback to ensure listener arms even if speech completion signal drops
-    QTimer.singleShot(6000, on_startup_speech_done)
+    # Safety fallback to ensure listener unblocks even if speech completion signal drops
+    QTimer.singleShot(12000, on_startup_speech_done)
+
+    speaker.say(welcome_speech)
 
 if "--lab-mode" not in sys.argv:
     QTimer.singleShot(300, startup_sequence)
@@ -1524,4 +1589,5 @@ def shutdown():
 
 app.aboutToQuit.connect(shutdown)
 
-sys.exit(app.exec())
+if __name__ == "__main__":
+    sys.exit(app.exec())

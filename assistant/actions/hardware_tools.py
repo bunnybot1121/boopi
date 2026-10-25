@@ -732,21 +732,32 @@ def get_hardware_knowledge(component_name: str) -> str:
     except Exception as e:
         return f"Failed to retrieve hardware knowledge: {str(e)}"
 
+_connected_nodes_cache_time = 0.0
+_connected_nodes_cache_val = None
+
 @tool("Get Connected ESP32 Nodes")
 def get_connected_nodes() -> str:
     """
     Returns the list of active ESP32 nodes connected to the MQTT broker, including their
     IP addresses, capabilities, tasks, and how many seconds ago they sent a heartbeat.
     """
+    global _connected_nodes_cache_time, _connected_nodes_cache_val
     import os
     import sqlite3
     import time
     import json
+
+    now = time.time()
+    if _connected_nodes_cache_val is not None and (now - _connected_nodes_cache_time) < 3.0:
+        return _connected_nodes_cache_val
+
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     db_path = os.path.join(base_dir, "bupi_telemetry.db")
     try:
         if not os.path.exists(db_path):
-            return json.dumps({"connected_nodes": [], "message": "Telemetry database not initialized yet."})
+            _connected_nodes_cache_val = json.dumps({"connected_nodes": [], "message": "Telemetry database not initialized yet."})
+            _connected_nodes_cache_time = now
+            return _connected_nodes_cache_val
             
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
@@ -814,7 +825,10 @@ def get_connected_nodes() -> str:
         except Exception:
             pass
 
-        return json.dumps({"connected_nodes": nodes, "total_nodes": len(nodes)}, indent=2)
+        result_str = json.dumps({"connected_nodes": nodes, "total_nodes": len(nodes)}, indent=2)
+        _connected_nodes_cache_val = result_str
+        _connected_nodes_cache_time = now
+        return result_str
     except Exception as e:
         return json.dumps({"error": f"Failed to query connected nodes: {str(e)}"})
 

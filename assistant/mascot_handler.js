@@ -29,7 +29,8 @@ const MASCOT_STATE_SVGS = {
   'laughing': 'Laughing.svg',
   'wink': 'wink.svg',
   'bigsmile': 'bigsmilewithblackcap.svg',
-  'idle_pose': 'idelMascot.svg'
+  'idle_pose': 'idelMascot.svg',
+  'calibrating': 'idelMascot.svg'
 };
 
 // Conversation-aware acknowledgment face picker config

@@ -297,6 +297,7 @@ class AIThread(QThread):
     def ask(self, text: str):
         if not text or not text.strip():
             return
+        self._interrupted = False
         self._queue.put(text)
 
     def interrupt(self):
@@ -733,7 +734,8 @@ Generated Code:
                     else:
                         nodes_desc = "No ESP32 nodes currently online."
                     
-                    ws = get_world_state()
+                    ws_raw = get_world_state()
+                    ws = json.loads(ws_raw) if isinstance(ws_raw, str) else ws_raw
                     sys_prompt += (
                         f"\n\n--- LIVE ROBOTIC & HARDWARE STATE ---\n"
                         f"Connected ESP32 Nodes: {nodes_desc}\n"
@@ -743,9 +745,9 @@ Generated Code:
                 except Exception as hw_inj_err:
                     pass
 
-                # Check Local Knowledge Base for document queries
-                kb_keywords = ["pdf", "ppt", "doc", "document", "presentation", "architecture", "enrollment", "readings", "notes", "project", "say about", "tell me about"]
-                if any(kw in text.lower() for kw in kb_keywords):
+                # Check Local Knowledge Base for document queries (only if KB is ready)
+                kb_keywords = ["pdf", "ppt", "doc", "document", "presentation", "architecture", "enrollment", "readings", "notes", "project"]
+                if self.knowledge_base.ready and any(kw in text.lower() for kw in kb_keywords):
                     try:
                         kb_context = self.knowledge_base.search_kb(text)
                         if kb_context and not kb_context.startswith("No relevant") and not kb_context.startswith("Knowledge Base"):
@@ -1009,7 +1011,13 @@ Generated Code:
                         
                         if parsing_emotion:
                             emotion_buffer += delta
-                            if "]" in emotion_buffer:
+                            stripped_buf = emotion_buffer.lstrip()
+                            if stripped_buf and not stripped_buf.startswith("["):
+                                if not self._interrupted:
+                                    self.response_started.emit("talking")
+                                current_sentence += emotion_buffer
+                                parsing_emotion = False
+                            elif "]" in emotion_buffer:
                                 match = re.match(r"^\[(.*?)\]", emotion_buffer.strip())
                                 if match:
                                     emotion_tag = match.group(1).lower()
@@ -1022,11 +1030,21 @@ Generated Code:
                                         self.response_started.emit("talking")
                                     current_sentence += emotion_buffer
                                 parsing_emotion = False
-                            elif len(emotion_buffer) > 20:
+                            elif len(emotion_buffer) > 25:
                                 if not self._interrupted:
                                     self.response_started.emit("talking")
                                 current_sentence += emotion_buffer
                                 parsing_emotion = False
+                            else:
+                                continue
+
+                            # emotion_buffer has been consumed into current_sentence; check for sentence completion and continue
+                            if re.search(r'[.!?\n]\s*$', current_sentence):
+                                text_to_emit = current_sentence.strip()
+                                if text_to_emit and not self._interrupted:
+                                    self.response_chunk.emit(text_to_emit)
+                                    spoken_buffer += text_to_emit + " "
+                                current_sentence = ""
                             continue
                         
                         if in_title:
@@ -1250,6 +1268,8 @@ Generated Code:
 
                 if not self._interrupted:
                     self.response_ready.emit(full_response.strip())
+                else:
+                    self.response_ready.emit("")
 
                 # Parse summaries and trigger periodic checkers
                 self._parse_memory_updates(text, full_response)
@@ -1262,5 +1282,18 @@ Generated Code:
                     self.response_started.emit("confused")
                     self.response_chunk.emit("I am having trouble connecting to my brain right now.")
                     self.response_ready.emit("I am having trouble connecting to my brain right now.")
+                else:
+                    self.response_ready.emit("")
 
-ai = AIThread()
+_shared_ai = None
+
+def get_ai_thread():
+    global _shared_ai
+    if _shared_ai is None:
+        _shared_ai = AIThread()
+    return _shared_ai
+
+def __getattr__(name):
+    if name == "ai":
+        return get_ai_thread()
+    raise AttributeError(f"module {__name__} has no attribute '{name}'")

@@ -36,7 +36,7 @@ LOCAL_VISION_LLM_MODEL = os.getenv("LOCAL_VISION_LLM_MODEL", "qwen2.5vl:3b")
 
 # Mic and speech processing settings
 VAD_AGGRESSIVENESS = int(os.getenv("VAD_AGGRESSIVENESS", "3"))
-MICROPHONE_CALIBRATION_SEC = float(os.getenv("MICROPHONE_CALIBRATION_SEC", "1.0"))
+MICROPHONE_CALIBRATION_SEC = float(os.getenv("MICROPHONE_CALIBRATION_SEC", "0.4"))
 AUDIO_GAIN_BOOST = float(os.getenv("AUDIO_GAIN_BOOST", "1.5"))
 
 # TTS Voice Setting
@@ -57,8 +57,8 @@ ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "EXAVITQu4vr4xnSDxMaL")
 # STT Settings (Cloud Whisper-large-v3 via Groq with Gemini & Local Faster-Whisper Fallback)
 USE_CLOUD_STT = os.getenv("USE_CLOUD_STT", "true").lower() == "true"
 LOCAL_WHISPER_MODEL = os.getenv("LOCAL_WHISPER_MODEL", "base.en")
-GROQ_STT_MODEL = os.getenv("GROQ_STT_MODEL", "whisper-large-v3")
-SILENCE_FRAMES = int(os.getenv("SILENCE_FRAMES", "18")) # 540ms natural conversational pause
+GROQ_STT_MODEL = os.getenv("GROQ_STT_MODEL", "whisper-large-v3-turbo")
+SILENCE_FRAMES = int(os.getenv("SILENCE_FRAMES", "18")) # 540ms natural conversational pause (prevents rapid shuffling)
 
 
 def validate_config():
