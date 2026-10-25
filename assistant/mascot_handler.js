@@ -519,8 +519,13 @@ function generateVisemesFromText(text) {
 }
 
 export function setSpeechText(text) {
-  visemeQueue = generateVisemesFromText(text);
-  speechTimer = 0; 
+  const newVisemes = generateVisemesFromText(text);
+  if (visemeQueue.length > 0 || speechTimer > 0) {
+    visemeQueue = visemeQueue.concat(newVisemes);
+  } else {
+    visemeQueue = newVisemes;
+    speechTimer = 0;
+  }
   console.log('[SVG lipsync] Viseme queue length:', visemeQueue.length);
   
   if (text && !text.startsWith("Heard: ")) {
@@ -529,6 +534,8 @@ export function setSpeechText(text) {
 }
 
 export function onSpeechDone() {
+  visemeQueue = [];
+  speechTimer = 0;
   const ackFace = pickConversationAckFace(accumulatedSpeechForAck);
   console.log(`[SVG Ack] Speech done. Accumulated text: "${accumulatedSpeechForAck.trim().substring(0, 80)}..." -> ackFace: ${ackFace || 'happy (default)'}`);
   

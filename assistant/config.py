@@ -13,7 +13,7 @@ else:
 # Provider settings
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq").lower()
 GROQ_LLM_MODEL = os.getenv("GROQ_LLM_MODEL", "qwen/qwen3.8-27b")
-OPENROUTER_LLM_MODEL = os.getenv("OPENROUTER_LLM_MODEL", "google/gemini-3.6-flash")
+OPENROUTER_LLM_MODEL = os.getenv("OPENROUTER_LLM_MODEL", "google/gemini-2.5-flash")
 
 # Cloud Keys
 GOOGLE_AI_STUDIO_KEY = os.getenv("GOOGLE_AI_STUDIO_KEY", "")

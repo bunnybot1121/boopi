@@ -755,6 +755,7 @@ def get_connected_nodes() -> str:
             conn.close()
             return json.dumps({"connected_nodes": [], "message": "No nodes registered yet. Waiting for ESP32 heartbeat."})
             
+        now = time.time()
         # Check if telemetry table has fresh sensor readings (< 15s)
         recent_telemetry = False
         try:
@@ -769,7 +770,6 @@ def get_connected_nodes() -> str:
         rows = cursor.fetchall()
         conn.close()
         
-        now = time.time()
         nodes = []
         for r in rows:
             client_id, device_name, ip_addr, caps, last_hb, status = r

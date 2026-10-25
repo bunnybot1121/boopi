@@ -840,22 +840,28 @@ Generated Code:
                 route_to_local = self.use_local_llm
 
                 if not route_to_local:
-                    try:
-                        # 1. Groq (Fastest cloud text)
-                        if not take_screenshot and config.GROQ_API_KEY:
-                            log.info("Requesting from Groq (llama-3.3-70b-versatile)...")
+                    # Tier 1: Fast Cloud Groq (if not screenshot)
+                    if not take_screenshot and config.GROQ_API_KEY:
+                        try:
+                            log.info(f"Requesting from Groq ({config.GROQ_LLM_MODEL})...")
                             client = self._get_groq_client()
-                            response = client.chat.completions.create(
+                            resp = client.chat.completions.create(
                                 model=config.GROQ_LLM_MODEL,
                                 messages=messages,
                                 stream=True,
                                 max_tokens=800
                             )
-                            response_iterator = openai_stream_generator(response)
-                        
-                        # 2. Gemini (Vision / Fallback)
-                        elif config.GOOGLE_AI_STUDIO_KEY:
-                            log.info("Requesting from Gemini (gemini-2.5-flash)...")
+                            gen = openai_stream_generator(resp)
+                            first_chunk = next(gen, None)
+                            if first_chunk is not None:
+                                response_iterator = unified_stream(first_chunk, gen)
+                        except Exception as ge:
+                            log.warning(f"Groq cloud generation failed ({ge}). Cascading to Google Gemini...")
+
+                    # Tier 2: Cloud Google Gemini 2.5 Flash (vision & conversational text)
+                    if response_iterator is None and config.GOOGLE_AI_STUDIO_KEY:
+                        try:
+                            log.info("Requesting from Google Gemini (gemini-2.5-flash)...")
                             client = self._get_gemini_client()
                             native_contents = []
                             for item in messages:
@@ -876,7 +882,7 @@ Generated Code:
                                         content_text = content_text[0]["text"]
                                     native_contents.append(types.Content(role=role, parts=[types.Part.from_text(text=content_text)]))
                             
-                            response = client.models.generate_content_stream(
+                            resp = client.models.generate_content_stream(
                                 model="gemini-2.5-flash",
                                 contents=native_contents,
                                 config=types.GenerateContentConfig(
@@ -884,22 +890,33 @@ Generated Code:
                                     max_output_tokens=800
                                 )
                             )
-                            response_iterator = native_stream_generator(response)
+                            gen = native_stream_generator(resp)
+                            first_chunk = next(gen, None)
+                            if first_chunk is not None:
+                                response_iterator = unified_stream(first_chunk, gen)
+                        except Exception as gme:
+                            log.warning(f"Google Gemini generation failed ({gme}). Cascading to OpenRouter...")
                             
-                        # 3. OpenRouter Fallback
-                        elif config.OPENROUTER_API_KEY:
+                    # Tier 3: Cloud OpenRouter (unlimited fallback keys)
+                    if response_iterator is None and config.OPENROUTER_API_KEY:
+                        try:
                             log.info("Requesting fallback from OpenRouter...")
                             client = self._get_openrouter_client()
-                            response = client.chat.completions.create(
+                            resp = client.chat.completions.create(
                                 model=config.OPENROUTER_LLM_MODEL,
                                 messages=messages,
                                 stream=True,
                                 max_tokens=800
                             )
-                            response_iterator = openai_stream_generator(response)
-                            
-                    except Exception as cloud_err:
-                        log.error(f"Cloud API generation failed: {cloud_err}. Cascading directly to Local Ollama...")
+                            gen = openai_stream_generator(resp)
+                            first_chunk = next(gen, None)
+                            if first_chunk is not None:
+                                response_iterator = unified_stream(first_chunk, gen)
+                        except Exception as oe:
+                            log.warning(f"OpenRouter generation failed ({oe}). Cascading to Local Ollama fallback...")
+
+                    if response_iterator is None:
+                        log.warning("All configured Cloud LLMs failed or unavailable. Falling back to Local Ollama...")
                         route_to_local = True
 
                 if route_to_local or response_iterator is None:
@@ -937,7 +954,10 @@ Generated Code:
                         response_iterator = openai_stream_generator(response)
                     except Exception as local_err:
                         log.error(f"Local LLM fallback failed: {local_err}")
-                        self.response_ready.emit("[confused] Ah, my connection is down! Please check your internet or local server.")
+                        if not self._interrupted:
+                            self.response_started.emit("confused")
+                            self.response_chunk.emit("Ah, my connection is down! Please check your internet or local server.")
+                            self.response_ready.emit("Ah, my connection is down! Please check your internet or local server.")
                         continue
 
                 # Stream response parsing
@@ -1239,6 +1259,8 @@ Generated Code:
             except Exception as e:
                 log.error(f"AI thread execution error: {e}")
                 if not self._interrupted:
+                    self.response_started.emit("confused")
+                    self.response_chunk.emit("I am having trouble connecting to my brain right now.")
                     self.response_ready.emit("I am having trouble connecting to my brain right now.")
 
 ai = AIThread()

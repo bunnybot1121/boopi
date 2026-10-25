@@ -478,19 +478,23 @@ def start_listening():
 
 # Thinking Watchdog: Guarantees Bupi NEVER gets stuck in thinking state
 thinking_watchdog = QTimer()
-thinking_watchdog.setInterval(45000) # 45 seconds max thinking timeout (allows local LLM VRAM loading & deep planning)
+thinking_watchdog.setInterval(15000) # 15 seconds max thinking timeout
 thinking_watchdog.setSingleShot(True)
 
 def on_thinking_timeout():
     if state_mgr.current == "thinking":
-        print("[Watchdog] ⚠️ Thinking state timed out after 45s. Gracefully informing user and resetting...", flush=True)
+        print("[Watchdog] ⚠️ Thinking state timed out after 15s. Gracefully informing user and resetting...", flush=True)
         try:
             ai.interrupt()
         except Exception:
             pass
-        state_mgr.transition("talking")
+        try:
+            speaker.interrupt()
+        except Exception:
+            pass
+        state_mgr.force("talking")
         speaker.say("Sorry, my brain took too long to think! Please ask me again.")
-        QTimer.singleShot(3500, lambda: (state_mgr.transition("idle"), start_listening()))
+        QTimer.singleShot(3500, lambda: (state_mgr.force("idle"), setattr(listener, "is_speaking", False), start_listening()))
 
 thinking_watchdog.timeout.connect(on_thinking_timeout)
 
@@ -583,6 +587,16 @@ def _handle_transcription(text: str):
     if not text:
         state_mgr.transition("idle")
         return
+
+    # Acoustic Echo Filter: Discard if transcribed text matches Boopi's last spoken output
+    global last_ai_response
+    if last_ai_response and len(text.strip()) > 3:
+        clean_resp = re.sub(r"[^\w\s]", "", last_ai_response).strip().lower()
+        clean_inp = re.sub(r"[^\w\s]", "", text).strip().lower()
+        if clean_inp and (clean_inp in clean_resp or clean_resp in clean_inp):
+            print(f"[Acoustic Echo Filter] 🛡️ Ignored microphone pickup of assistant's own voice: '{text}'", flush=True)
+            state_mgr.transition("idle")
+            return
 
     # Immediately interrupt any active speech and cancel background AI generation
     # so new instructions never collide, play simultaneously, or queue duplicate responses.
@@ -753,6 +767,8 @@ def _handle_transcription(text: str):
                 return
 
             # In Mode 1: All conversational queries, chat, desktop actions, notes go to conversational AI companion!
+            state_mgr.transition("thinking")
+            thinking_watchdog.start()
             ai.ask(text)
             return
 
@@ -951,6 +967,8 @@ def _handle_transcription(text: str):
         return
 
     # In Mode 2: Forward non-deterministic queries to Mode 2 background runner via MQTT
+    state_mgr.transition("thinking")
+    thinking_watchdog.start()
     publish_to_mode2(text)
     epoch_snap = mode2_utterance_epoch
 
@@ -958,8 +976,10 @@ def _handle_transcription(text: str):
     def mode2_fallback_watchdog(snap):
         time.sleep(15.0)
         if mode2_waiting_response and mode2_utterance_epoch == snap:
-            print(f"[Mode 2 Watchdog] Mode 2 background process took >15s to process: '{text}'.", flush=True)
-            # Do NOT invoke conversational AI companion (prevents double-talking, overlapping speech, and garbage output)
+            print(f"[Mode 2 Watchdog] Mode 2 background process took >15s to process: '{text}'. Resetting state.", flush=True)
+            thinking_watchdog.stop()
+            state_mgr.force("idle")
+            setattr(listener, "is_speaking", False)
 
     threading.Thread(target=mode2_fallback_watchdog, args=(epoch_snap,), daemon=True).start()
 
@@ -1089,11 +1109,26 @@ def on_hardware_result(result: str):
 
 ai.hardware_result.connect(on_hardware_result)
 
-ai.error_occurred.connect(lambda e: (
-    print(json.dumps({"type": "log", "message": f"[AI Error] {e}"}), flush=True),
-    state_mgr.force("error"),
-    QTimer.singleShot(2000, lambda: state_mgr.force("idle"))
-))
+def on_ai_response_ready(full_text: str):
+    thinking_watchdog.stop()
+    global last_ai_response
+    if not last_ai_response.strip() and full_text.strip():
+        last_ai_response = full_text
+        spoken_text = re.sub(r"^\[.*?\]\s*", "", full_text).strip()
+        if spoken_text:
+            state_mgr.force("talking")
+            speaker.say(spoken_text)
+
+ai.response_ready.connect(on_ai_response_ready)
+
+def on_ai_error(e: str):
+    thinking_watchdog.stop()
+    print(json.dumps({"type": "log", "message": f"[AI Error] {e}"}), flush=True)
+    state_mgr.force("error")
+    speaker.say("Sorry, I ran into an issue connecting to my brain.")
+    QTimer.singleShot(2500, lambda: (state_mgr.force("idle"), setattr(listener, "is_speaking", False), start_listening()))
+
+ai.error_occurred.connect(on_ai_error)
 
 # -------------------------------------------------------------
 # Wiring Speaker
@@ -1134,8 +1169,8 @@ def analyze_sentiment(text: str) -> str:
     return "idle"
 
 def on_speech_finished():
-    # Allow 350ms acoustic cooldown for speaker room echo to settle before unmuting VAD
-    QTimer.singleShot(350, lambda: setattr(listener, "is_speaking", False))
+    # Allow 600ms acoustic cooldown for speaker room echo to settle before unmuting VAD
+    QTimer.singleShot(600, lambda: setattr(listener, "is_speaking", False))
     touch_conversation()
     if instruction_queue:
         state_mgr.transition("idle")
@@ -1406,7 +1441,6 @@ def startup_sequence():
     user_name = db_manager.get_preference("username", "Chintu")
     hour = datetime.now().hour
     greeting = "Good morning" if hour < 12 else "Good afternoon" if hour < 17 else "Good evening"
-    state_mgr.force("startup")
     
     # Open notepad and provide summary
     initial_mode = 2 if mode2_active else 1
@@ -1434,41 +1468,33 @@ def startup_sequence():
     # Run key check asynchronously 5 seconds after boot
     QTimer.singleShot(5000, ai.check_api_keys)
 
-    # 1. Immediate verbal announcement right at boot (0-ms voice cache hit!)
-    warmup_speech = f"Hey {user_name}! I'm getting warmed up and loading my systems. I'll be ready in just a few seconds!"
-    speaker.say(warmup_speech)
-    
-    # 2. Arm listener so background model initialization starts
+    # Start listener immediately with is_speaking=True so VAD calibration completes during startup greeting
+    setattr(listener, "is_speaking", True)
     start_listening()
+
+    # 1. Single clean, cheerful startup greeting (matching stable hackathon architecture)
+    state_mgr.force("startup")
+    welcome_speech = f"Hey {user_name}! All systems are online and ready. Just say 'hey boopi' whenever you need me."
+    speaker.say(welcome_speech)
     
-    # 3. Ready notification handler when systems finish warming up
     startup_finished = False
-    def on_systems_ready(model_name="ready"):
+    def on_startup_speech_done():
         nonlocal startup_finished
         if startup_finished:
             return
         startup_finished = True
-        print(f"[Startup] Neural STT model ({model_name}) fully loaded and ready!", flush=True)
-        ready_speech = "All systems are online and ready! Just say 'Hey Boopi' whenever you need me."
-        speaker.say(ready_speech)
-        def on_ready_speech_done():
-            global conversation_mode
-            conversation_mode = False
-            state_mgr.force("idle")
-            print("[Startup] Boopi entered Idle Mode. Listening for wake words only.", flush=True)
+        global conversation_mode
+        conversation_mode = False
+        state_mgr.force("idle")
+        setattr(listener, "is_speaking", False)
+        print("[Startup] Boopi entered Idle Mode. Listening for wake words only.", flush=True)
 
-        speaker.speech_finished.connect(
-            on_ready_speech_done,
-            Qt.ConnectionType.SingleShotConnection if hasattr(Qt, 'ConnectionType') else 1
-        )
-
-    # Connect to model_ready signal with fallback timer
-    listener.model_ready.connect(
-        on_systems_ready,
+    speaker.speech_finished.connect(
+        on_startup_speech_done,
         Qt.ConnectionType.SingleShotConnection if hasattr(Qt, 'ConnectionType') else 1
     )
-    # Safety fallback timer in case signal fired prior to slot connection
-    QTimer.singleShot(15000, lambda: on_systems_ready("ready") if not startup_finished else None)
+    # Safety fallback to ensure listener arms even if speech completion signal drops
+    QTimer.singleShot(6000, on_startup_speech_done)
 
 if "--lab-mode" not in sys.argv:
     QTimer.singleShot(300, startup_sequence)

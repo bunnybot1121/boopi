@@ -26,8 +26,8 @@ from state_manager import state_mgr
 SAMPLE_RATE = 16000
 FRAME_MS = 30
 FRAME_SAMPLES = int(SAMPLE_RATE * FRAME_MS / 1000) # 480 samples
-VAD_AGGRESSIVENESS = 3 # High-rejection mode (suppresses room noise, fan hum, typing)
-MIN_SPEECH_FRAMES = 12 # Discards sub-360ms transient acoustic clicks
+VAD_AGGRESSIVENESS = 1 # Adaptive mode (dynamically calibrated against ambient noise)
+MIN_SPEECH_FRAMES = 8 # 240ms minimum speech window to capture fast wake words and commands
 PRE_ROLL_FRAMES = 20
 
 # Settings from config / environment variables with safe fallbacks
@@ -37,7 +37,7 @@ GROQ_STT_MODEL = getattr(config, "GROQ_STT_MODEL", "whisper-large-v3")
 AUDIO_GAIN_BOOST = getattr(config, "AUDIO_GAIN_BOOST", 1.5)
 SILENCE_FRAMES = int(os.environ.get("SILENCE_FRAMES", getattr(config, "SILENCE_FRAMES", 18)))
 
-PROMPT_CONTEXT = "Boopi, Bupi."
+PROMPT_CONTEXT = "Hey Boopi, how are you? Hello Bupi, what's up? Boopi, Bupi, move forward, stop."
 
 class SimpleLogger:
     def info(self, msg):
@@ -314,13 +314,10 @@ class ListenerThread(QThread):
                 raise Exception("Could not open any audio input device.")
 
             with stream:
-                import webrtcvad
-                vad = webrtcvad.Vad(VAD_AGGRESSIVENESS)
-                log.info("WebRTC VAD Initialized. Active noise cancellation active.")
-
-                # Microphone Calibration (1 second)
-                ambient_frames = []
-                log.info("Calibrating microphone ambient energy levels for 1 second...")
+                # Microphone Ambient Calibration (1.2 seconds)
+                ambient_rms = []
+                ambient_peaks = []
+                log.info("Calibrating microphone ambient noise floor for 1.2 seconds...")
                 
                 # Clear any stale frames from queue first
                 while not self.audio_queue.empty():
@@ -330,22 +327,38 @@ class ListenerThread(QThread):
                         break
 
                 start_cal = time.time()
-                while time.time() - start_cal < 1.0:
+                while time.time() - start_cal < 1.2:
                     try:
                         data = self.audio_queue.get(timeout=0.05)
-                        rms = np.sqrt(np.mean(np.square(data, dtype=np.float32)))
-                        ambient_frames.append(rms)
+                        if len(data) > 0:
+                            rms = float(np.sqrt(np.mean(np.square(data, dtype=np.float32))))
+                            peak = float(np.percentile(np.abs(data), 98))
+                            ambient_rms.append(rms)
+                            ambient_peaks.append(peak)
                     except queue.Empty:
                         continue
                   
-                if ambient_frames:
-                    avg_ambient = sum(ambient_frames) / len(ambient_frames)
-                    lower_clamp = 1.0 if avg_ambient < 5.0 else 6.0
-                    self._energy_threshold = np.clip(avg_ambient * AUDIO_GAIN_BOOST, lower_clamp, 25.0)
+                if ambient_rms:
+                    avg_ambient = float(np.mean(ambient_rms))
+                    std_ambient = float(np.std(ambient_rms))
+                    peak_ambient = float(np.percentile(ambient_peaks, 95))
+                    # Dynamic calibration: Speech threshold is set cleanly above measured room noise
+                    self._energy_threshold = max(14.0, avg_ambient * 1.35 + 2.5 * std_ambient)
+                    self._snr_gate = max(24.0, peak_ambient * 1.2)
+                    self._min_speech_peak = max(50.0, peak_ambient * 1.4)
+                    vad_mode = 2 if avg_ambient > 60.0 else 1
                 else:
-                    avg_ambient = 0.0
-                    self._energy_threshold = 6.0
-                log.info(f"Calibration complete. Ambient baseline: {avg_ambient:.2f}, Threshold: {self._energy_threshold:.2f}")
+                    avg_ambient = 20.0
+                    std_ambient = 5.0
+                    self._energy_threshold = 28.0
+                    self._snr_gate = 40.0
+                    self._min_speech_peak = 70.0
+                    vad_mode = 1
+
+                import webrtcvad
+                vad = webrtcvad.Vad(vad_mode)
+                log.info(f"Calibration complete: Ambient Noise={avg_ambient:.1f} RMS, Threshold={self._energy_threshold:.1f}, Gate={self._snr_gate:.1f}, Peak Cutoff={self._min_speech_peak:.1f}, VAD Level={vad_mode}")
+                print(json.dumps({"type": "log", "message": f"[VAD Calibration] Noise Floor: {avg_ambient:.1f} RMS, Speech Threshold: {self._energy_threshold:.1f}"}), flush=True)
 
                 ring_buffer = collections.deque(maxlen=PRE_ROLL_FRAMES)
                 last_talking_time = 0
@@ -384,8 +397,8 @@ class ListenerThread(QThread):
                         else:
                             speaking_blocked_since = None
                           
-                        # Short 0.25s cooldown after Bupi stops talking to avoid picking up speaker echo
-                        if not getattr(self, "is_speaking", False) and time.time() - last_talking_time < 0.25:
+                        # 0.60s acoustic cooldown after Bupi stops talking to avoid picking up speaker echo
+                        if not getattr(self, "is_speaking", False) and time.time() - last_talking_time < 0.60:
                             ring_buffer.clear()
                             triggered = False
                             voiced_frames.clear()
@@ -413,21 +426,18 @@ class ListenerThread(QThread):
                         # Energy pre-filtering (threshold is boosted while speaking to reduce self-trigger)
                         current_threshold = self._energy_threshold
                         if getattr(self, "is_speaking", False):
-                            current_threshold *= 2.8
+                            current_threshold *= 3.0
 
-                        # SNR-aware candidate gating (dynamically adapts to ambient room noise)
-                        snr_gate = max(avg_ambient * 2.2, 12.0)
+                        # SNR-aware candidate gating: Frame energy above adaptive room threshold
+                        snr_gate = getattr(self, "_snr_gate", 35.0)
                         if rms > current_threshold:
                             max_val = float(np.percentile(np.abs(data), 98)) if len(data) > 0 else 0.0
-                            # Only treat as speech candidate if above adaptive background noise floor
                             if max_val >= snr_gate:
-                                gain = min(22000.0 / max(max_val, 1.0), 15.0)
-                                amplified = np.clip(data.astype(np.float32) * gain, -32768, 32767).astype(np.int16)
-                                frame = amplified.flatten().tobytes()
+                                frame = data.flatten().tobytes()
                                 try:
                                     is_speech = vad.is_speech(frame, SAMPLE_RATE)
                                 except Exception:
-                                    is_speech = False
+                                    is_speech = True
                             else:
                                 is_speech = False
                         else:
@@ -435,14 +445,16 @@ class ListenerThread(QThread):
 
                         # Continuous ambient noise tracking when idle (dynamically adapts to AC, fan, or room noise)
                         if not is_speech and not triggered and not getattr(self, "is_speaking", False):
-                            avg_ambient = 0.96 * avg_ambient + 0.04 * rms
-                            self._energy_threshold = np.clip(avg_ambient * AUDIO_GAIN_BOOST + 1.0, 1.5, 35.0)
+                            avg_ambient = 0.97 * avg_ambient + 0.03 * rms
+                            self._energy_threshold = max(14.0, avg_ambient * 1.35 + 2.0 * std_ambient)
+                            self._snr_gate = max(24.0, avg_ambient * 2.2)
 
                         if not triggered:
                             # Standard VAD trigger when VAD thresholds met
                             ring_buffer.append((data.flatten().tobytes(), is_speech))
                             num_voiced = sum(1 for _, s in ring_buffer if s)
-                            if num_voiced >= 0.25 * ring_buffer.maxlen: # 5 out of 20 frames = ~150ms of natural speech
+                            # 4 out of 20 frames = ~120ms of verified speech initiates listening mode immediately
+                            if num_voiced >= 4:
                                 triggered = True
                                 voiced_frames.extend([f for f, _ in ring_buffer])
                                 ring_buffer.clear()
@@ -479,8 +491,7 @@ class ListenerThread(QThread):
                             audio = np.frombuffer(b''.join(voiced_frames), dtype=np.int16)
                             orig_max = float(np.percentile(np.abs(audio), 98)) if len(audio) > 0 else 0.0
                             
-                            # Adaptive vocal energy cutoff based on calibrated ambient baseline (accommodates quiet/distant microphones)
-                            min_speech_peak = max(avg_ambient * 2.2, 6.0)
+                            min_speech_peak = getattr(self, "_min_speech_peak", 50.0)
                             self._min_speech_peak = min_speech_peak
                             if orig_max >= min_speech_peak:
                                 self.listening_stopped.emit()
@@ -493,14 +504,14 @@ class ListenerThread(QThread):
                                 transcribe_thread.start()
                                 
                                 def watchdog():
-                                    transcribe_thread.join(timeout=8.0)
+                                    transcribe_thread.join(timeout=12.0)
                                     if transcribe_thread.is_alive():
-                                        log.warning("Transcription timed out after 8 seconds. Resetting listener state.")
+                                        log.warning("Transcription timed out after 12 seconds. Resetting listener state.")
                                         self.transcription_ready.emit("")
                                 
                                 threading.Thread(target=watchdog, daemon=True).start()
                             else:
-                                log.info(f"Discarded low-energy audio without thinking (peak: {orig_max:.1f} < {min_speech_peak:.1f})")
+                                log.info(f"Discarded low-energy ambient noise without thinking (peak: {orig_max:.1f} < {min_speech_peak:.1f})")
                                 self.transcription_ready.emit("")
                         else:
                             self.transcription_ready.emit("")
@@ -510,103 +521,114 @@ class ListenerThread(QThread):
             self.error_occurred.emit(str(e))
 
     def _transcribe_and_emit(self, audio: np.ndarray):
-        # Verify peak value before boosting to discard absolute silence
-        orig_max = float(np.percentile(np.abs(audio), 98)) if len(audio) > 0 else 0.0
-        cutoff = getattr(self, "_min_speech_peak", 6.0)
-        if orig_max < cutoff:
-            log.info(f"Discarded silent audio (peak: {orig_max:.1f} < {cutoff:.1f})")
-            self.transcription_ready.emit("")
-            return
-
-        # Soft peak normalization for quiet microphones
-        if 0 < orig_max < 22000:
-            gain = min(22000.0 / orig_max, 25.0)
-            log.info(f"Soft peak normalization: peak={orig_max:.1f}, gain boost={gain:.2f}x")
-            audio_boosted = audio.astype(np.float32) * gain
-            np.clip(audio_boosted, -32768.0, 32767.0, out=audio_boosted)
-            audio_gain = audio_boosted.astype(np.int16)
-        else:
-            audio_gain = audio
-
-        # Normalize float32 1D array for Faster-Whisper
-        audio_norm = audio_gain.flatten().astype(np.float32) / 32768.0
         text = ""
-        
-        # Generate WAV bytes in memory for cloud STT if enabled
-        wav_bytes = None
-        use_cloud = getattr(config, "USE_CLOUD_STT", True) or (os.getenv("USE_CLOUD_STT", "true").lower() == "true")
-        if use_cloud:
-            try:
-                wav_io = io.BytesIO()
-                with wave.open(wav_io, 'wb') as wav_file:
-                    wav_file.setnchannels(1)
-                    wav_file.setsampwidth(2) # 16-bit
-                    wav_file.setframerate(SAMPLE_RATE)
-                    wav_file.writeframes(audio_gain.tobytes())
-                wav_bytes = wav_io.getvalue()
-            except Exception as e:
-                log.error(f"Failed to generate WAV bytes in memory: {e}")
+        try:
+            # Verify peak value before boosting to discard absolute silence
+            orig_max = float(np.percentile(np.abs(audio), 98)) if len(audio) > 0 else 0.0
+            cutoff = getattr(self, "_min_speech_peak", 350.0)
+            if orig_max < cutoff:
+                log.info(f"Discarded silent audio (peak: {orig_max:.1f} < {cutoff:.1f})")
+                return
 
-        # 1. Primary: Cloud STT (Groq whisper-large-v3-turbo) - fastest and most accurate for all accents
-        if use_cloud and wav_bytes:
-            groq_keys = get_groq_keys()
-            if groq_keys:
-                text = self._groq_stt(wav_bytes, groq_keys)
-            if not text:
-                google_keys = get_google_keys()
-                if google_keys:
-                    text = self._gemini_stt(wav_bytes, google_keys)
-
-        # 2. Offline Fallback: Local Faster-Whisper (base model, 100% offline, GPU/CPU)
-        if not text:
-            if not self.whisper_model:
-                try:
-                    self._init_whisper()
-                except Exception as ex:
-                    log.error(f"Could not initialize local Whisper: {ex}")
-                    
-            if self.whisper_model:
-                try:
-                    # Enforce language="en" so model transcribes directly in English
-                    # vad_filter=False because WebRTC VAD already isolated spoken audio; secondary VAD cuts off words
-                    segments, info = self.whisper_model.transcribe(
-                        audio_norm, 
-                        language="en", 
-                        initial_prompt=PROMPT_CONTEXT, 
-                        condition_on_previous_text=False,
-                        beam_size=2,
-                        best_of=2,
-                        temperature=0.0,
-                        no_speech_threshold=0.6,
-                        compression_ratio_threshold=2.4,
-                        log_prob_threshold=-1.0,
-                        vad_filter=False
-                    )
-                    text = " ".join([segment.text for segment in segments]).strip()
-                    log.info(f"Local Faster-Whisper Transcription: '{text}'")
-                except Exception as e:
-                    log.warning(f"Local Faster-Whisper transcription error: {e}")
-                    text = ""
-
-        if text:
-            # Hallucination Filtering: Check pattern-based and common hallucinations
-            if is_hallucinated_output(text):
-                log.info(f"Filtered hallucination via repetitive pattern check: '{text}'")
-                text = ""
+            # Soft peak normalization for quiet microphones
+            if 0 < orig_max < 22000:
+                gain = min(22000.0 / orig_max, 25.0)
+                log.info(f"Soft peak normalization: peak={orig_max:.1f}, gain boost={gain:.2f}x")
+                audio_boosted = audio.astype(np.float32) * gain
+                np.clip(audio_boosted, -32768.0, 32767.0, out=audio_boosted)
+                audio_gain = audio_boosted.astype(np.int16)
             else:
-                clean_text = text.replace(",", "").replace(".", "").strip().lower()
-                hallucinations = [
-                    "thank you for watching", "thanks for watching", "please subscribe", 
-                    "like and subscribe", "screencast", "see you next time", "see you in the next video",
-                    "bupi is an autonomous robot assistant"
-                ]
-                if any(h in clean_text for h in hallucinations) or (clean_text in ["...", "thank you", "thanks", "bye bye", "goodbye", "you"]):
-                    log.info(f"Filtered stock Whisper hallucination: '{text}'")
-                    text = ""
-                elif len(clean_text) <= 1:
-                    text = ""
+                audio_gain = audio
 
-        self.transcription_ready.emit(text)
+            # Normalize float32 1D array for Faster-Whisper
+            audio_norm = audio_gain.flatten().astype(np.float32) / 32768.0
+            
+            # Generate WAV bytes in memory for cloud STT if enabled
+            wav_bytes = None
+            use_cloud = getattr(config, "USE_CLOUD_STT", True) or (os.getenv("USE_CLOUD_STT", "true").lower() == "true")
+            if use_cloud:
+                try:
+                    wav_io = io.BytesIO()
+                    with wave.open(wav_io, 'wb') as wav_file:
+                        wav_file.setnchannels(1)
+                        wav_file.setsampwidth(2) # 16-bit
+                        wav_file.setframerate(SAMPLE_RATE)
+                        wav_file.writeframes(audio_gain.tobytes())
+                    wav_bytes = wav_io.getvalue()
+                except Exception as e:
+                    log.error(f"Failed to generate WAV bytes in memory: {e}")
+
+            # 1. Primary Cloud STT: Gemini 2.5 Flash (accurate Indian/English/Hinglish) or Groq Whisper
+            if use_cloud and wav_bytes:
+                preferred_stt = os.getenv("CLOUD_STT_PROVIDER", "groq").lower()
+                if preferred_stt == "groq":
+                    groq_keys = get_groq_keys()
+                    if groq_keys:
+                        text = self._groq_stt(wav_bytes, groq_keys)
+                    if not text:
+                        google_keys = get_google_keys()
+                        if google_keys:
+                            text = self._gemini_stt(wav_bytes, google_keys)
+                else:
+                    google_keys = get_google_keys()
+                    if google_keys:
+                        text = self._gemini_stt(wav_bytes, google_keys)
+                    if not text:
+                        groq_keys = get_groq_keys()
+                        if groq_keys:
+                            text = self._groq_stt(wav_bytes, groq_keys)
+
+            # 2. Offline Fallback: Local Faster-Whisper (base model, 100% offline, GPU/CPU)
+            if not text:
+                if not self.whisper_model:
+                    try:
+                        self._init_whisper()
+                    except Exception as ex:
+                        log.error(f"Could not initialize local Whisper: {ex}")
+                        
+                if self.whisper_model:
+                    try:
+                        # Enforce language="en" so model transcribes directly in English
+                        segments, info = self.whisper_model.transcribe(
+                            audio_norm, 
+                            language="en", 
+                            initial_prompt=PROMPT_CONTEXT, 
+                            condition_on_previous_text=False,
+                            beam_size=2,
+                            best_of=2,
+                            temperature=0.0,
+                            no_speech_threshold=0.6,
+                            compression_ratio_threshold=2.4,
+                            log_prob_threshold=-1.0,
+                            vad_filter=False
+                        )
+                        text = " ".join([segment.text for segment in segments]).strip()
+                        log.info(f"Local Faster-Whisper Transcription: '{text}'")
+                    except Exception as e:
+                        log.warning(f"Local Faster-Whisper transcription error: {e}")
+                        text = ""
+
+            if text:
+                # Hallucination Filtering: Check pattern-based and common hallucinations
+                if is_hallucinated_output(text):
+                    log.info(f"Filtered hallucination via repetitive pattern check: '{text}'")
+                    text = ""
+                else:
+                    clean_text = text.replace(",", "").replace(".", "").strip().lower()
+                    hallucinations = [
+                        "thank you for watching", "thanks for watching", "please subscribe", 
+                        "like and subscribe", "screencast", "see you next time", "see you in the next video",
+                        "bupi is an autonomous robot assistant"
+                    ]
+                    if any(h in clean_text for h in hallucinations) or (clean_text in ["...", "thank you", "thanks", "bye bye", "goodbye", "you"]):
+                        log.info(f"Filtered stock Whisper hallucination: '{text}'")
+                        text = ""
+                    elif len(clean_text) <= 1:
+                        text = ""
+        except Exception as ex:
+            log.error(f"Unhandled error in _transcribe_and_emit: {ex}")
+        finally:
+            self.transcription_ready.emit(text)
 
     def _groq_stt(self, wav_bytes, keys=None):
         if keys is None:
@@ -626,10 +648,10 @@ class ListenerThread(QThread):
                 files = {
                     "file": ("speech.wav", wav_bytes, "audio/wav")
                 }
-                model_name = os.environ.get("GROQ_STT_MODEL", getattr(config, "GROQ_STT_MODEL", "whisper-large-v3"))
+                model_name = os.environ.get("GROQ_STT_MODEL", getattr(config, "GROQ_STT_MODEL", "whisper-large-v3-turbo"))
                 data = {
                     "model": model_name,
-                    "prompt": PROMPT_CONTEXT,
+                    "prompt": "Hey Boopi, how are you? Hello Bupi, what's up? Move forward, stop.",
                     "response_format": "json"
                 }
                 
@@ -654,27 +676,52 @@ class ListenerThread(QThread):
             keys = get_google_keys()
         if not keys:
             return ""
-        log.info("Running cloud transcription via Gemini 2.5 Flash API...")
-        from google import genai
-        from google.genai import types
+        log.info("Running cloud transcription via Gemini 2.5 Flash REST API...")
+        import requests
+        import base64
+        
+        b64_audio = base64.b64encode(wav_bytes).decode('utf-8')
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {
+                            "inline_data": {
+                                "mime_type": "audio/wav",
+                                "data": b64_audio
+                            }
+                        },
+                        {
+                            "text": f"Transcribe this speech audio file accurately. Output ONLY the verbatim spoken transcription, with no extra commentary or markdown. Vocabulary context: {PROMPT_CONTEXT}"
+                        }
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.0,
+                "maxOutputTokens": 120
+            }
+        }
         
         for idx, key in enumerate(keys):
             try:
                 log.info(f"Trying Gemini STT key {idx+1}/{len(keys)}...")
-                client = genai.Client(api_key=key)
-                response = client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=[
-                        types.Part.from_bytes(
-                            data=wav_bytes,
-                            mime_type="audio/wav"
-                        ),
-                        f"Transcribe this audio file accurately. Output ONLY the transcription, with no extra text or commentary. Bias towards names/commands/vocabulary: {PROMPT_CONTEXT}"
-                    ]
-                )
-                transcription = response.text.strip()
-                log.info(f"Gemini API Transcription Success: '{transcription}'")
-                return transcription
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}"
+                response = requests.post(url, json=payload, timeout=5.0)
+                if response.status_code == 200:
+                    data = response.json()
+                    candidates = data.get("candidates", [])
+                    if candidates:
+                        parts = candidates[0].get("content", {}).get("parts", [])
+                        if parts:
+                            transcription = parts[0].get("text", "").strip()
+                            log.info(f"Gemini API Transcription Success: '{transcription}'")
+                            return transcription
+                else:
+                    log.warning(f"Gemini STT key {idx+1} failed with status {response.status_code}: {response.text[:120]}")
+            except requests.exceptions.Timeout:
+                log.warning(f"Gemini STT key {idx+1} timed out (5s). Cascading to next key / Groq.")
+                continue
             except Exception as e:
                 log.warning(f"Gemini STT failed with key {idx+1}: {e}")
               

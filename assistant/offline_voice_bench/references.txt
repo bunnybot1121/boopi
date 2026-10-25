@@ -1,0 +1,21 @@
+# id|category|reference_text|duration_sec|description
+clip_01|english|hey boopi how are you doing today|3.0|hey boopi how are you doing today
+clip_02|english|what is the battery level of the laptop|3.2|what is the battery level of the laptop
+clip_03|english|turn on the living room lights|2.5|turn on the living room lights
+clip_04|english|can you open google chrome for me|2.8|can you open google chrome for me
+clip_05|english|what is the capital of france|2.5|what is the capital of france
+clip_06|english|set a reminder to drink water in thirty minutes|3.5|set a reminder to drink water in thirty minutes
+clip_07|english|what was my last email about|2.6|what was my last email about
+clip_08|english|stop talking and go to sleep|2.4|stop talking and go to sleep
+clip_09|hinglish|hey boopi aaj ka weather kaisa hai|3.0|hey boopi aaj ka weather kaisa hai
+clip_10|hinglish|mera calendar check karo aur batao aaj kya meeting hai|4.2|mera calendar check karo aur batao aaj kya meeting hai
+clip_11|hinglish|robot ko bolo room clean kare|2.8|robot ko bolo room clean kare
+clip_12|hinglish|boopi gaadi thoda aage badhao|2.7|boopi gaadi thoda aage badhao
+clip_13|hinglish|mera laptop slow chal raha hai memory clean kar do|4.0|mera laptop slow chal raha hai memory clean kar do
+clip_14|hinglish|tum meri help kar sakte ho kya|2.5|tum meri help kar sakte ho kya
+clip_15|hardware|move forward two seconds and check the gas sensor|3.8|move forward two seconds and check the gas sensor
+clip_16|hardware|emergency stop all motors right now|2.9|emergency stop all motors right now
+clip_17|hardware|turn on relay one and scan ultrasonic distance|3.6|turn on relay one and scan ultrasonic distance
+clip_18|silence||3.0|Ambient room silence with subtle background hum
+clip_19|silence||3.0|Keyboard typing and mouse click acoustic noise
+clip_20|silence||4.0|Clean quiet ambient room baseline

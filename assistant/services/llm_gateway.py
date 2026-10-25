@@ -1,11 +1,11 @@
 import os
 import json
 try:
-    import google.generativeai as genai
-    from google.api_core.exceptions import ResourceExhausted
+    from google import genai
+    from google.genai import types
 except ImportError:
     genai = None
-    ResourceExhausted = Exception
+    types = None
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 
@@ -23,21 +23,24 @@ class LLMGateway:
                 self.groq_keys.append(key)
 
         # Gather all GOOGLE_AI_STUDIO_KEYs from the environment
-        # e.g., GOOGLE_AI_STUDIO_KEY, GOOGLE_AI_STUDIO_KEY_2, GOOGLE_AI_STUDIO_KEY_3, etc.
         self.gemini_keys = []
-        
-        # Check standard GOOGLE_AI_STUDIO_KEY
         if os.environ.get("GOOGLE_AI_STUDIO_KEY"):
             self.gemini_keys.append(os.environ.get("GOOGLE_AI_STUDIO_KEY"))
-            
-        # Check extensions (_2, _3, _4, etc.) up to 10 just in case
         for i in range(2, 11):
             key = os.environ.get(f"GOOGLE_AI_STUDIO_KEY_{i}")
             if key:
                 self.gemini_keys.append(key)
+
+        # Gather OpenRouter keys
+        self.openrouter_keys = []
+        if os.environ.get("OPENROUTER_API_KEY"):
+            self.openrouter_keys.append(os.environ.get("OPENROUTER_API_KEY"))
+        for i in range(2, 11):
+            key = os.environ.get(f"OPENROUTER_API_KEY_{i}")
+            if key:
+                self.openrouter_keys.append(key)
                 
-        # We know that 'gemini-flash-latest' routes correctly on the preview keys
-        self.model_name = "gemini-flash-latest"
+        self.model_name = "gemini-2.5-flash"
 
     async def classify_intent(self, user_utterance: str) -> dict:
         """
@@ -90,54 +93,24 @@ class LLMGateway:
         
         use_local = os.environ.get("USE_LOCAL_LLM", "false").lower() == "true"
 
-        # 1. If local LLM is enabled, prioritize running locally on the RTX 4050 GPU
+        # 1. If explicitly configured for local LLM, run on RTX 4050 GPU via Ollama
         if use_local:
             local_result = await self._classify_via_ollama(user_utterance, system_prompt)
             if local_result:
                 return local_result
-            print("[LLM Gateway] Local Ollama classification failed or unavailable. Cascading to cloud...", flush=True)
+            print("[LLM Gateway] Local Ollama classification failed. Cascading to cloud...", flush=True)
 
-        # 2. Cloud Gemini classification
-        if self.gemini_keys:
-            for idx, key in enumerate(self.gemini_keys):
-                try:
-                    genai.configure(api_key=key)
-                    model = genai.GenerativeModel(
-                        model_name=self.model_name,
-                        system_instruction=system_prompt,
-                        generation_config=genai.GenerationConfig(
-                            temperature=0.0,
-                            max_output_tokens=150
-                        )
-                    )
-                    
-                    response = await model.generate_content_async(user_utterance)
-                    raw_text = response.text.strip()
-                    
-                    if raw_text.startswith("```json"):
-                        raw_text = raw_text.split("```json")[1].split("```")[0].strip()
-                    elif raw_text.startswith("```"):
-                        raw_text = raw_text.split("```")[1].strip()
-                        
-                    return json.loads(raw_text)
-                    
-                except ResourceExhausted:
-                    print(f"[LLM Gateway] Gemini Key {idx + 1} exhausted! Falling back to next key...")
-                    continue
-                except Exception as e:
-                    print(f"[LLM Gateway] Gemini error with Key {idx + 1}: {e}")
-                    continue
-
-        # 3. Cloud Groq fallback
+        # 2. Fast Cloud Groq (Llama-3.3-70b-versatile, ~300ms latency)
         if self.groq_keys:
             for idx, key in enumerate(self.groq_keys):
                 try:
                     groq_client = AsyncOpenAI(
                         base_url="https://api.groq.com/openai/v1",
-                        api_key=key
+                        api_key=key,
+                        timeout=3.5
                     )
                     response = await groq_client.chat.completions.create(
-                        model="llama-3.3-70b-versatile",
+                        model=os.getenv("GROQ_LLM_MODEL", "qwen/qwen3.8-27b"),
                         messages=[
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": user_utterance}
@@ -156,11 +129,61 @@ class LLMGateway:
                     print(f"[LLM Gateway] Groq error with Key {idx + 1}: {ge}")
                     continue
 
-        # 4. If not tried yet, fallback to Local Ollama on RTX 4050
+        # 3. Cloud Gemini 2.5 Flash
+        if self.gemini_keys and genai is not None:
+            for idx, key in enumerate(self.gemini_keys):
+                try:
+                    client = genai.Client(api_key=key)
+                    response = client.models.generate_content(
+                        model="gemini-2.5-flash",
+                        contents=f"{system_prompt}\n\nUser utterance: \"{user_utterance}\"\nReturn ONLY the JSON object.",
+                        config=types.GenerateContentConfig(temperature=0.0, max_output_tokens=150)
+                    )
+                    raw_text = response.text.strip()
+                    if raw_text.startswith("```json"):
+                        raw_text = raw_text.split("```json")[1].split("```")[0].strip()
+                    elif raw_text.startswith("```"):
+                        raw_text = raw_text.split("```")[1].strip()
+                    return json.loads(raw_text)
+                except Exception as e:
+                    print(f"[LLM Gateway] Gemini error with Key {idx + 1}: {e}")
+                    continue
+
+        # 4. Cloud OpenRouter Fallback
+        if self.openrouter_keys:
+            for idx, key in enumerate(self.openrouter_keys):
+                try:
+                    or_client = AsyncOpenAI(
+                        base_url="https://openrouter.ai/api/v1",
+                        api_key=key,
+                        timeout=4.0
+                    )
+                    response = await or_client.chat.completions.create(
+                        model=os.getenv("OPENROUTER_LLM_MODEL", "google/gemini-2.5-flash"),
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_utterance}
+                        ],
+                        temperature=0.0,
+                        max_tokens=200,
+                        response_format={"type": "json_object"}
+                    )
+                    raw_text = response.choices[0].message.content.strip()
+                    if raw_text.startswith("```json"):
+                        raw_text = raw_text.split("```json")[1].split("```")[0].strip()
+                    elif raw_text.startswith("```"):
+                        raw_text = raw_text.split("```")[1].strip()
+                    return json.loads(raw_text)
+                except Exception as oe:
+                    print(f"[LLM Gateway] OpenRouter error with Key {idx + 1}: {oe}")
+                    continue
+
+        # 5. Fallback to Local Ollama on RTX 4050 (Zero-latency offline backup)
         if not use_local:
             local_result = await self._classify_via_ollama(user_utterance, system_prompt)
             if local_result:
                 return local_result
+
 
         # If everything fails
         print("[LLM Gateway] All cloud and local Ollama intent routing attempts failed!")

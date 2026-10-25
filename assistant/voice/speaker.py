@@ -6,8 +6,14 @@ import asyncio
 import edge_tts
 import json
 import threading
-from PyQt6.QtCore import QThread, pyqtSignal, pyqtSlot, QUrl
-from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PyQt6.QtCore import QThread, pyqtSignal
+import sounddevice as sd
+try:
+    import soundfile as sf
+except ImportError:
+    sf = None
+import wave
+import numpy as np
 
 # -------------------------------------------------------------
 # Configuration & Logger
@@ -110,6 +116,17 @@ def get_cached_voice_file(text: str):
     wav_path = os.path.join(VOICE_CACHE_DIR, f"{h}.wav")
     if os.path.exists(wav_path) and os.path.getsize(wav_path) > 100:
         return wav_path
+
+    # Resilient semantic fallback for common boot/startup phrases
+    if "getting warmed up and loading my systems" in clean_key:
+        fallback = os.path.join(VOICE_CACHE_DIR, "23376d38edda2e18ba89514cefaf3a3d.mp3")
+        if os.path.exists(fallback):
+            return fallback
+    if "all systems are online and ready" in clean_key:
+        fallback = os.path.join(VOICE_CACHE_DIR, "520d63565fef50922a44e5a3d3bb2c80.mp3")
+        if os.path.exists(fallback):
+            return fallback
+
     return None
 
 # -------------------------------------------------------------
@@ -120,10 +137,6 @@ class SpeakerThread(QThread):
     speech_finished = pyqtSignal()
     error_occurred  = pyqtSignal(str)
     
-    # Internal signals for safe cross-thread GUI playback control
-    _play_file_signal = pyqtSignal(str, str, int)  # file_path, text, epoch
-    _stop_player_signal = pyqtSignal()
-
     def __init__(self):
         super().__init__()
         self._text_queue = queue.Queue()
@@ -132,24 +145,6 @@ class SpeakerThread(QThread):
         self._exit_flag = False
         self._lock = threading.Lock()
         self._chunk_counter = 0
-        self._playback_event = threading.Event()
-        
-        # Initialize QtMediaPlayer (will belong to main GUI thread)
-        self.player = QMediaPlayer()
-        self.audio_output = QAudioOutput()
-        self.player.setAudioOutput(self.audio_output)
-        
-        # Safety timer for WMF EndOfMedia bug on Windows
-        from PyQt6.QtCore import QTimer
-        self._safety_timer = QTimer()
-        self._safety_timer.setSingleShot(True)
-        self._safety_timer.timeout.connect(self._safe_unblock_playback)
-        
-        # Connect signals for safe cross-thread GUI playback control
-        self._play_file_signal.connect(self._play_file)
-        self._stop_player_signal.connect(self._stop_player)
-        self.player.mediaStatusChanged.connect(self._on_media_status_changed)
-        self.player.errorOccurred.connect(self._on_error)
         
         # Clean up any leftover temp audio files from previous sessions
         try:
@@ -212,6 +207,14 @@ class SpeakerThread(QThread):
         if interrupt:
             self.interrupt()
             
+        # 0-ms whole-phrase pre-cached voice lookup (instant hardware playback)
+        cached_file = get_cached_voice_file(text)
+        if cached_file:
+            log.info(f"0-ms Voice Cache HIT (phrase): '{text}' -> {os.path.basename(cached_file)}")
+            with self._lock:
+                self._play_queue.put((cached_file, text, self._epoch))
+            return
+
         sentences = split_into_sentences(text)
         is_streaming = not interrupt
         with self._lock:
@@ -248,10 +251,11 @@ class SpeakerThread(QThread):
                 except Exception as e:
                     log.warning(f"Error cleaning play queue during interrupt: {e}")
             
-            # Safely stop player on the main thread
-            self._stop_player_signal.emit()
-            # Unblock background synthesis/playback threads
-            self._playback_event.set()
+            # Instantly stop active hardware playback (<10ms)
+            try:
+                sd.stop()
+            except Exception:
+                pass
         
         if emit_finished:
             try:
@@ -264,74 +268,11 @@ class SpeakerThread(QThread):
         self._exit_flag = True
         self._text_queue.put(None)
         self._play_queue.put(None)
-        self.wait()
-
-    @pyqtSlot(str, str, int)
-    def _play_file(self, file_path, text, epoch):
-        if epoch != self._epoch or self._exit_flag:
-            self._playback_event.set()
-            return
-            
-        # Print IPC subtitles message for Electron
-        print(json.dumps({"type": "speech_text", "value": text}), flush=True)
-        print(f"From Python: [TTS] Playing audio from {file_path}...", flush=True)
-        
-        self.speech_started.emit()
-        
-        # Start fail-safe timer immediately (prevents Windows Media Foundation hangs on short/SAPI audio)
-        estimated_timeout = 5000
         try:
-            if os.path.exists(file_path):
-                # Rough duration estimate: 16kB/s for 128kbps MP3, 32kB/s for 16kHz WAV + 2000ms buffer
-                sz = os.path.getsize(file_path)
-                estimated_timeout = max(3500, int((sz / 20000.0) * 1000) + 2000)
+            sd.stop()
         except Exception:
             pass
-        self._safety_timer.stop()
-        self._safety_timer.setInterval(estimated_timeout)
-        self._safety_timer.start()
-
-        self.player.setSource(QUrl.fromLocalFile(file_path))
-        self.player.play()
-
-    @pyqtSlot()
-    def _stop_player(self):
-        self._safety_timer.stop()
-        self.player.stop()
-        self.player.setSource(QUrl())
-
-    @pyqtSlot()
-    def _safe_unblock_playback(self):
-        log.warning("Playback timeout/stuck safety trigger. Unblocking playback thread.")
-        self._safety_timer.stop()
-        try:
-            self.player.stop()
-            self.player.setSource(QUrl())
-        except Exception:
-            pass
-        self._playback_event.set()
-
-    @pyqtSlot(QMediaPlayer.MediaStatus)
-    def _on_media_status_changed(self, status):
-        if status == QMediaPlayer.MediaStatus.LoadedMedia or status == QMediaPlayer.MediaStatus.BufferedMedia:
-            dur = self.player.duration()
-            if dur > 0:
-                self._safety_timer.stop()
-                timeout = dur + 1000  # 1 second buffer
-                self._safety_timer.setInterval(timeout)
-                self._safety_timer.start()
-        elif status == QMediaPlayer.MediaStatus.EndOfMedia or status == QMediaPlayer.MediaStatus.InvalidMedia:
-            self._safety_timer.stop()
-            # Unload media to release file lock
-            self.player.setSource(QUrl())
-            self._playback_event.set()
-
-    @pyqtSlot(QMediaPlayer.Error, str)
-    def _on_error(self, error, error_string):
-        self._safety_timer.stop()
-        log.error(f"QMediaPlayer error: {error_string} (code: {error})")
-        self.player.setSource(QUrl())
-        self._playback_event.set()
+        self.wait(1000)
 
     def run(self):
         while not self._exit_flag:
@@ -342,38 +283,64 @@ class SpeakerThread(QThread):
             temp_path, text, epoch = item
             with self._lock:
                 if epoch != self._epoch or self._exit_flag:
-                    if os.path.exists(temp_path):
+                    if not temp_path.startswith(VOICE_CACHE_DIR) and os.path.exists(temp_path):
                         try: os.remove(temp_path)
                         except: pass
                     continue
                 
-            # Play file natively on main thread
-            self._playback_event.clear()
-            self._play_file_signal.emit(temp_path, text, epoch)
-            
-            # Wait for playback of this chunk to complete (or be interrupted) with 8.0s timeout
-            completed = self._playback_event.wait(timeout=8.0)
-            if not completed:
-                log.warning(f"Playback wait timed out for chunk: '{text}'. Forcing unblock.")
-                self._stop_player_signal.emit()
-            
-            # Clean up temp file (never delete static voice cache files!)
+            # Read audio data into memory via soundfile or wave
+            try:
+                if sf is not None:
+                    data, fs = sf.read(temp_path, dtype='float32')
+                else:
+                    with wave.open(temp_path, 'rb') as wf:
+                        fs = wf.getframerate()
+                        frames = wf.readframes(wf.getnframes())
+                        data = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+            except Exception as e:
+                log.error(f"Error reading audio file {temp_path}: {e}")
+                if not temp_path.startswith(VOICE_CACHE_DIR) and os.path.exists(temp_path):
+                    try: os.remove(temp_path)
+                    except: pass
+                continue
+
+            # Data is loaded in RAM — remove temporary file immediately from disk!
             if not temp_path.startswith(VOICE_CACHE_DIR) and os.path.exists(temp_path):
                 try:
                     os.remove(temp_path)
                 except Exception as e:
                     log.warning(f"Could not remove temp audio file {temp_path}: {e}")
                 
-                # If a .wav fallback was played, also ensure any companion 0-byte .mp3 is cleaned up
-                if temp_path.endswith(".wav"):
-                    companion_mp3 = temp_path[:-4] + ".mp3"
-                    if os.path.exists(companion_mp3):
-                        try: os.remove(companion_mp3)
-                        except: pass
-                    
+            if temp_path.endswith(".wav"):
+                companion_mp3 = temp_path[:-4] + ".mp3"
+                if os.path.exists(companion_mp3):
+                    try: os.remove(companion_mp3)
+                    except: pass
+
+            with self._lock:
+                if epoch != self._epoch or self._exit_flag:
+                    continue
+
+            # Print IPC subtitles message for Electron
+            print(json.dumps({"type": "speech_text", "value": text}), flush=True)
+            print(f"From Python: [TTS] Playing audio ({len(data)/fs:.2f}s)...", flush=True)
+            
+            self.speech_started.emit()
+
+            try:
+                sd.play(data, fs)
+                while sd.get_stream() and sd.get_stream().active:
+                    if epoch != self._epoch or self._exit_flag:
+                        sd.stop()
+                        break
+                    time.sleep(0.015)
+            except Exception as play_err:
+                log.error(f"Playback error via sounddevice: {play_err}")
+                self.error_occurred.emit(str(play_err))
+            
             # Check if this was the last item for this epoch
             with self._lock:
-                if self._text_queue.empty() and self._play_queue.empty():
+                if self._text_queue.empty() and self._play_queue.empty() and epoch == self._epoch:
                     self.speech_finished.emit()
 
     def _synthesis_loop(self):
