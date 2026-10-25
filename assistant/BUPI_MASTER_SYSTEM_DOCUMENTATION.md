@@ -264,6 +264,51 @@ Located in [`main.py`](file:///c:/Users/Sachin/boopi/assistant/main.py#L726), th
 - Matches queries like *"What are you doing?"*, *"What's going on, Boopi?"*, *"Can you hear me?"*, *"Are you listening?"*.
 - Bypasses cloud LLM inference entirely, responding in **< 1ms** with pre-cached audio.
 
+### 6.4 The 100% Offline Model Subsystem (Zero-Cloud Mode)
+
+BUPI includes an entirely standalone, local-first offline AI stack that operates with zero internet connectivity:
+
+#### 1. Local Offline LLM Engine (Ollama)
+- **Local Host**: `http://127.0.0.1:11434`
+- **Models Verified & Pulled Locally**:
+  - `qwen3:8b`: High reasoning and conversational fluency for edge devices.
+  - `qwen3:4b-instruct`: Low latency, lightweight instruction-following model (~300ms TTFT on RTX 4050).
+  - `llama3.2:3b` / `llama3.2:latest`: Ultra-lightweight 3B parameter baseline for low VRAM footprints.
+  - `phi4-mini:latest`: High-efficiency Microsoft reasoning model.
+  - `qwen2.5vl:3b`: Multimodal vision LLM for local desktop screenshot and rover camera feed analysis.
+- **Activation in `.env`**:
+  ```env
+  USE_LOCAL_LLM=true
+  LOCAL_LLM_URL=http://127.0.0.1:11434
+  LOCAL_LLM_MODEL=llama3.2:3b
+  LOCAL_VISION_LLM_MODEL=qwen2.5vl:3b
+  ```
+
+#### 2. Local Offline STT Engine (Faster-Whisper)
+- **Engine**: CTranslate2 INT8 quantized Whisper running on CPU / CUDA.
+- **Models Available**: `base.en`, `small`, `distil-large-v3`, `whisper-large-v3-turbo`.
+- **Benchmark Suite (`offline_voice_bench/`)**: Includes evaluation scripts against `NVIDIA Parakeet TDT 0.6B v3` and `Udgam Labs Shruti` (55M Hindi/Hinglish model).
+- **Activation in `.env`**:
+  ```env
+  USE_CLOUD_STT=false
+  LOCAL_WHISPER_MODEL=base.en
+  ```
+
+#### 3. Local Offline Neural TTS Engine (Piper & Kokoro)
+- **Active Offline Engine**: Piper Neural TTS (`piper-tts` ONNX Runtime with mascot pitch shifting).
+- **Installed Models in `assets/models/piper/`**:
+  - `en_US-amy-medium.onnx`: Primary mascot voice with real-time +3.5 semitone pitch shift.
+  - `en_US-lessac-medium.onnx`: Clear alternative English voice.
+- **Benchmarked Models in `offline_voice_bench/models/`**:
+  - `Kokoro-82M` (`kokoro-v1.0.onnx` + `voices-v1.0.bin`): Studio-quality 82M parameter speech.
+  - `en_US-ryan-high.onnx`: High-fidelity masculine voice.
+  - `hi_IN-priyamvada-medium.onnx`: Native Hindi / Hinglish synthesized voice.
+- **Activation in `.env`**:
+  ```env
+  USE_CLOUD_TTS=false
+  PIPER_VOICE=en_US-amy-medium
+  ```
+
 ---
 
 ## 7. Disaster Recovery, Gotchas & Troubleshooting Runbook
