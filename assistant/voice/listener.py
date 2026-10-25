@@ -651,7 +651,7 @@ class ListenerThread(QThread):
             
             # Generate WAV bytes in memory for cloud STT if enabled
             wav_bytes = None
-            use_cloud = getattr(config, "USE_CLOUD_STT", True) or (os.getenv("USE_CLOUD_STT", "true").lower() == "true")
+            use_cloud = bool(getattr(config, "USE_CLOUD_STT", True)) and (os.getenv("USE_CLOUD_STT", "true").lower() == "true")
             if use_cloud:
                 try:
                     wav_io = io.BytesIO()
