@@ -26,3 +26,4 @@ foreach ($dp in $desktopPaths) {
         Write-Host "Created: $(Join-Path $dp 'BUPI Sonar Vision Server.lnk')"
     }
 }
+
