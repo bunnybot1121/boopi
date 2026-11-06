@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BUPI Phase 1: Ultrasonic Vision & 2.5D/3D Testbed</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="top-header" role="banner">
+      <div class="brand-section">
+        <svg class="brand-logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"/>
+          <path d="M12 3v9l6 3"/>
+          <path d="M7 12a5 5 0 0 1 10 0" stroke-dasharray="2 2"/>
+        </svg>
+        <h1 class="brand-title">BUPI Phase 1 <span class="brand-subtitle">Ultrasonic Vision System</span></h1>
+      </div>
+
+      <div class="header-status">
+        <div id="connectionBadge" class="status-badge" role="status" aria-live="polite">
+          <span class="status-dot"></span>
+          <span id="connectionText">DISCONNECTED</span>
+        </div>
+        <div id="imuBadge" class="status-badge" title="MPU6050 Auto-Detect Status">
+          <span class="status-dot"></span>
+          <span id="imuStatusText">IMU: OFF (VIRTUAL PACER)</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Top Controls: Physical USB Serial Port & Pass Layer -->
+    <nav class="control-bar" aria-label="Device and Layer Controls">
+      <div class="control-group">
+        <label for="portSelect" class="field-label">ESP32 Port</label>
+        <select id="portSelect" class="select-input" aria-label="Select Serial COM Port">
+          <option value="" disabled selected>Scanning COM ports...</option>
+        </select>
+
+        <label for="baudSelect" class="field-label">Baud</label>
+        <select id="baudSelect" class="select-input" style="min-width: 95px;" aria-label="Serial Baud Rate">
+          <option value="115200" selected>115200</option>
+          <option value="9600">9600</option>
+        </select>
+
+        <button id="connectBtn" class="tactical-btn primary" type="button">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          Connect ESP32
+        </button>
+
+        <button id="refreshPortsBtn" class="tactical-btn" type="button" title="Rescan Serial Ports">
+          🔄 Rescan
+        </button>
+      </div>
+
+      <div class="control-group">
+        <span class="field-label">Scan Layer</span>
+        <div class="segmented-control" role="radiogroup" aria-label="Scan Layer Selection">
+          <button id="btnPass1" class="seg-btn active" role="radio" aria-checked="true" type="button">
+            Pass 1: Low / Flat
+          </button>
+          <button id="btnPass2" class="seg-btn" role="radio" aria-checked="false" type="button">
+            Pass 2: High / Tilted
+          </button>
+        </div>
+
+        <button id="resetBtn" class="tactical-btn danger" type="button" title="Clear Grid & Buffers">
+          Reset Map
+        </button>
+
+        <button id="dilationToggleBtn" class="tactical-btn" type="button" title="Toggle Robot Collision Buffer">
+          Dilation: ON
+        </button>
+
+        <button id="exportPngBtn" class="tactical-btn" type="button" title="Download High-Res Map PNG">
+          PNG
+        </button>
+
+        <button id="exportJsonBtn" class="tactical-btn" type="button" title="Export Full Spatial Matrix">
+          JSON
+        </button>
+
+        <a href="/devlog" target="_blank" class="tactical-btn amber" title="Open Engineering DevLog & Troubleshooting Playbook" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+          📖 DevLog
+        </a>
+      </div>
+    </nav>
+
+    <!-- Hand-Sweep Angle Controller Bar (4 Modes) -->
+    <section class="sweep-mode-bar" aria-label="Hand Sweep Angle Calibration">
+      <div class="control-group">
+        <span class="field-label">Aiming Mode</span>
+        <div class="sweep-mode-tabs" role="tablist">
+          <button id="tabMode3" class="sweep-tab active" role="tab" aria-selected="true" type="button">
+            Mode 3: Manual Dial (Hand Aim)
+          </button>
+          <button id="tabMode2" class="sweep-tab" role="tab" aria-selected="false" type="button">
+            Mode 2: Step Plotter
+          </button>
+          <button id="tabMode1" class="sweep-tab" role="tab" aria-selected="false" type="button">
+            Mode 1: Auto-Pacer
+          </button>
+          <button id="tabMode4" class="sweep-tab" role="tab" aria-selected="false" type="button">
+            Mode 4: MPU6050 Wrist
+          </button>
+        </div>
+      </div>
+
+      <!-- Mode 1 Options: Pacer Speed -->
+      <div id="pacerControls" class="sweep-slider-container" style="display: none;">
+        <label for="pacerSpeedRange" class="field-label">Pacer Period</label>
+        <input id="pacerSpeedRange" class="tactical-range" type="range" min="3" max="10" step="1" value="6" aria-label="Sweep pacer period in seconds">
+        <span id="pacerSpeedValue" class="stat-value" style="font-size: 13px;">6s</span>
+      </div>
+
+      <!-- Mode 2 Helper: Step & Spacebar -->
+      <div id="stepControls" class="step-helper-box" style="display: none;">
+        <span class="field-label">Current Step Angle: <strong id="stepAngleLabel" style="color: var(--color-primary);">90°</strong></span>
+        <button id="stepPrevBtn" class="tactical-btn" type="button">-15°</button>
+        <button id="stepPingBtn" class="tactical-btn primary" type="button">
+          <span class="key-badge">SPACEBAR</span> Ping & Lock
+        </button>
+        <button id="stepNextBtn" class="tactical-btn" type="button">+15°</button>
+      </div>
+
+      <!-- Mode 3 Slider: Manual Angle Aim -->
+      <div id="dialControls" class="sweep-slider-container" style="display: flex;">
+        <label for="manualAngleSlider" class="field-label">Aim Angle</label>
+        <input id="manualAngleSlider" class="tactical-range" type="range" min="0" max="180" step="1" value="90" style="width: 180px;" aria-label="Manual aiming angle degrees">
+        <span id="manualAngleValue" class="stat-value" style="font-size: 14px;">90°</span>
+        <span class="field-label" style="margin-left: 8px; color: var(--color-text-dim);">(Or click/drag on Radar Scope)</span>
+      </div>
+
+      <!-- Mode 4 MPU Controls -->
+      <div id="mpuControls" class="sweep-slider-container" style="display: none;">
+        <button id="zeroYawBtn" class="tactical-btn amber" type="button">Zero Yaw (Center)</button>
+      </div>
+    </section>
+
+    <!-- Three Synchronized Tactical Viewports -->
+    <main class="viewports-grid" role="region" aria-label="Tactical Sonar Viewports">
+      <!-- Viewport 1: Live Polar Radar Scope -->
+      <article class="viewport-card">
+        <div class="viewport-header">
+          <h2 class="viewport-title">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 10 10"/><path d="m12 12 7-7"/></svg>
+            Viewport 1: Polar Radar Scope
+          </h2>
+          <span class="viewport-tag">RAW PINGS & BEAM</span>
+        </div>
+        <div class="viewport-body">
+          <canvas id="polarScopeCanvas" class="viewport-canvas"></canvas>
+          <div id="polarCoords" class="canvas-overlay-coords">Sweep: 90.0° | Range: 400cm</div>
+        </div>
+      </article>
+
+      <!-- Viewport 2: 2D DIP Occupancy Grid Matrix -->
+      <article class="viewport-card">
+        <div class="viewport-header">
+          <h2 class="viewport-title">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+            Viewport 2: 2D DIP Occupancy Matrix
+          </h2>
+          <span class="viewport-tag">BAYESIAN LOG-ODDS + A*</span>
+        </div>
+        <div class="viewport-body">
+          <canvas id="dipCanvas" class="viewport-canvas"></canvas>
+          <div id="dipCoords" class="canvas-overlay-coords">X: 0.0 cm | Y: 0.0 cm | P: 0.50</div>
+        </div>
+      </article>
+
+      <!-- Viewport 3: 3D Voxel Extrusion World -->
+      <article class="viewport-card">
+        <div class="viewport-header">
+          <h2 class="viewport-title">
+            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+            Viewport 3: 3D Voxel Extrusion
+          </h2>
+          <span class="viewport-tag">120x120 3D MATRIX</span>
+        </div>
+        <div id="voxelContainer" class="viewport-body">
+          <canvas id="voxelCanvas" class="viewport-canvas"></canvas>
+          <div id="voxelCoords" class="canvas-overlay-coords">Drag to Orbit | Scroll to Zoom</div>
+        </div>
+      </article>
+    </main>
+
+    <!-- AI Map Reader & Navigation Decision Panel -->
+    <section class="ai-decision-panel" aria-label="AI Map Reader & Navigation Directives">
+      <div class="ai-panel-header">
+        <div class="ai-title-wrap">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a4 4 0 0 1 4 4v1a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4z"/><rect x="4" y="10" width="16" height="12" rx="2"/></svg>
+          <h2 class="ai-section-title">AI Map Reader &amp; Navigation Decision Engine</h2>
+        </div>
+        <div class="ai-steering-badge" id="aiSteeringBadge">
+          DIRECTIVE: <span id="aiCommandText" style="color: var(--color-accent-green);">AWAITING PINGS...</span>
+        </div>
+      </div>
+
+      <div class="ai-panel-content">
+        <!-- 5-Sector Clearance Grid -->
+        <div class="sectors-grid">
+          <div class="sector-card" id="sectorLeft">
+            <span class="sector-name">Left (145°-180°)</span>
+            <span class="sector-dist" id="secDistLeft">-- cm</span>
+            <span class="sector-status" id="secStatLeft">AWAITING</span>
+          </div>
+          <div class="sector-card" id="sectorFrontLeft">
+            <span class="sector-name">Front-Left (115°-145°)</span>
+            <span class="sector-dist" id="secDistFrontLeft">-- cm</span>
+            <span class="sector-status" id="secStatFrontLeft">AWAITING</span>
+          </div>
+          <div class="sector-card highlighted" id="sectorCenter">
+            <span class="sector-name">Center (65°-115°)</span>
+            <span class="sector-dist" id="secDistCenter">-- cm</span>
+            <span class="sector-status" id="secStatCenter">AWAITING</span>
+          </div>
+          <div class="sector-card" id="sectorFrontRight">
+            <span class="sector-name">Front-Right (35°-65°)</span>
+            <span class="sector-dist" id="secDistFrontRight">-- cm</span>
+            <span class="sector-status" id="secStatFrontRight">AWAITING</span>
+          </div>
+          <div class="sector-card" id="sectorRight">
+            <span class="sector-name">Right (0°-35°)</span>
+            <span class="sector-dist" id="secDistRight">-- cm</span>
+            <span class="sector-status" id="secStatRight">AWAITING</span>
+          </div>
+        </div>
+
+        <!-- 20x20 ASCII Semantic Matrix View -->
+        <div class="ascii-container">
+          <div class="ascii-header">
+            <span class="field-label">20x20 Downsampled Semantic Matrix (AI Planner Input)</span>
+            <button id="copyAsciiBtn" class="tactical-btn" type="button" style="height: 28px; font-size: 11px; padding: 0 8px;">
+              Copy ASCII
+            </button>
+          </div>
+          <pre id="asciiMatrixView" class="ascii-box">+--------------------+
+|                    |
+|                    |
+|                    |
+|                    |
+|                    |
+|                    |
+|                    |
+|                    |
+|                    |
+|         B          |
+|                    |
+|                    |
+|                    |
+|                    |
+|                    |
+|                    |
+|                    |
+|                    |
+|                    |
+|                    |
++--------------------+</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- Telemetry & Metrics Footer Bar -->
+    <footer class="telemetry-footer" role="contentinfo">
+      <div class="telemetry-stats-group">
+        <div class="stat-metric">
+          <span class="stat-label">Echo Distance</span>
+          <span id="statDistance" class="stat-value">-- cm</span>
+        </div>
+        <div class="stat-metric">
+          <span class="stat-label">Aim Angle (&theta;)</span>
+          <span id="statAngle" class="stat-value">90.0&deg;</span>
+        </div>
+        <div class="stat-metric">
+          <span class="stat-label">Depth Jump (&Delta;d)</span>
+          <span id="statDeltaD" class="stat-value">--</span>
+        </div>
+        <div class="stat-metric">
+          <span class="stat-label">3D Portal</span>
+          <span id="statPortal" class="stat-value" style="font-size: 13px;">NONE</span>
+        </div>
+        <div class="stat-metric">
+          <span class="stat-label">Safety Stop</span>
+          <span id="statSafetyStop" class="stat-value green" style="font-size: 13px;">CLEAR</span>
+        </div>
+        <div class="stat-metric">
+          <span class="stat-label">Hit Count</span>
+          <span id="statHitCount" class="stat-value">0</span>
+        </div>
+      </div>
+
+      <!-- Tactical Visual Legend -->
+      <div class="legend-group">
+        <div class="legend-item"><span class="legend-dot" style="background-color: var(--color-accent-red);"></span> Tall Wall (100%)</div>
+        <div class="legend-item"><span class="legend-dot" style="background-color: var(--color-accent-amber);"></span> Low Step (25%)</div>
+        <div class="legend-item"><span class="legend-dot" style="background-color: var(--color-primary);"></span> Open Floor</div>
+        <div class="legend-item"><span class="legend-dot" style="background-color: var(--color-accent-magenta);"></span> Doorway Portal</div>
+        <div class="legend-item"><span class="legend-dot" style="background-color: var(--color-accent-green);"></span> Robot &amp; Path</div>
+      </div>
+    </footer>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

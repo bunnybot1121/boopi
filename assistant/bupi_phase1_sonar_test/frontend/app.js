@@ -1,0 +1,352 @@
+/**
+ * BUPI Phase 1 Sonar Vision System: Main Orchestrator.
+ * 100% Real Hardware Data. Viewports start empty.
+ * Coordinates Polar Scope, 2D DIP Canvas, 3D Voxel Extrusion, and AI Map Decision Reader.
+ */
+
+import { SonarAPI } from './modules/api.js';
+import { SweepController } from './modules/sweep_controller.js';
+import { PolarScope } from './modules/polar_scope.js';
+import { DIPCanvas } from './modules/dip_canvas.js';
+import { VoxelWorld } from './modules/voxel_view.js';
+
+document.addEventListener('DOMContentLoaded', () => {
+  // 1. Initialize API & Viewports
+  const api = new SonarAPI();
+
+  const polarScope = new PolarScope(document.getElementById('polarScopeCanvas'));
+  const dipCanvas = new DIPCanvas(
+    document.getElementById('dipCanvas'),
+    document.getElementById('dipCoords')
+  );
+  const voxelWorld = new VoxelWorld(
+    document.getElementById('voxelCanvas'),
+    document.getElementById('voxelContainer')
+  );
+
+  // 2. Initialize Sweep Controller (Mode 3: Hand-Aim Manual by default)
+  let latestDistance = 400.0;
+  const sweepController = new SweepController(api, (angle, mode) => {
+    document.getElementById('statAngle').textContent = `${angle.toFixed(1)}°`;
+    if (mode === 2) {
+      document.getElementById('stepAngleLabel').textContent = `${angle.toFixed(0)}°`;
+    }
+    if (mode === 3) {
+      document.getElementById('manualAngleValue').textContent = `${angle.toFixed(0)}°`;
+      const slider = document.getElementById('manualAngleSlider');
+      if (slider && parseFloat(slider.value) !== angle) {
+        slider.value = angle;
+      }
+    }
+  });
+
+  // Wire Polar Radar Scope direct click & drag aiming
+  polarScope.onAngleAim = (aimDeg) => {
+    sweepController.setManualAngle(aimDeg);
+  };
+
+  // UI State
+  let showDilation = true;
+  let activePass = 'pass1';
+
+  // 3. UI Element References
+  const portSelect = document.getElementById('portSelect');
+  const baudSelect = document.getElementById('baudSelect');
+  const connectBtn = document.getElementById('connectBtn');
+  const refreshPortsBtn = document.getElementById('refreshPortsBtn');
+  const btnPass1 = document.getElementById('btnPass1');
+  const btnPass2 = document.getElementById('btnPass2');
+  const resetBtn = document.getElementById('resetBtn');
+  const dilationToggleBtn = document.getElementById('dilationToggleBtn');
+  const exportPngBtn = document.getElementById('exportPngBtn');
+  const exportJsonBtn = document.getElementById('exportJsonBtn');
+  const copyAsciiBtn = document.getElementById('copyAsciiBtn');
+
+  // Mode Tabs & Containers
+  const modeTabs = [
+    { btn: document.getElementById('tabMode1'), container: document.getElementById('pacerControls'), mode: 1 },
+    { btn: document.getElementById('tabMode2'), container: document.getElementById('stepControls'), mode: 2 },
+    { btn: document.getElementById('tabMode3'), container: document.getElementById('dialControls'), mode: 3 },
+    { btn: document.getElementById('tabMode4'), container: document.getElementById('mpuControls'), mode: 4 }
+  ];
+
+  // Badges & Telemetry
+  const connBadge = document.getElementById('connectionBadge');
+  const connText = document.getElementById('connectionText');
+  const imuBadge = document.getElementById('imuBadge');
+  const imuStatusText = document.getElementById('imuStatusText');
+
+  const statDistance = document.getElementById('statDistance');
+  const statDeltaD = document.getElementById('statDeltaD');
+  const statPortal = document.getElementById('statPortal');
+  const statSafetyStop = document.getElementById('statSafetyStop');
+  const statHitCount = document.getElementById('statHitCount');
+
+  // AI Decision Elements
+  const aiCommandText = document.getElementById('aiCommandText');
+  const asciiMatrixView = document.getElementById('asciiMatrixView');
+
+  const sectorEls = {
+    "Left": { dist: document.getElementById('secDistLeft'), stat: document.getElementById('secStatLeft') },
+    "Front-Left": { dist: document.getElementById('secDistFrontLeft'), stat: document.getElementById('secStatFrontLeft') },
+    "Center": { dist: document.getElementById('secDistCenter'), stat: document.getElementById('secStatCenter') },
+    "Front-Right": { dist: document.getElementById('secDistFrontRight'), stat: document.getElementById('secStatFrontRight') },
+    "Right": { dist: document.getElementById('secDistRight'), stat: document.getElementById('secStatRight') }
+  };
+
+  // 4. Fetch Available Physical COM Ports
+  async function refreshPorts() {
+    const data = await api.getPorts();
+    const currentVal = portSelect.value;
+    portSelect.innerHTML = '';
+
+    if (data.ports && data.ports.length > 0) {
+      data.ports.forEach((p) => {
+        const opt = document.createElement('option');
+        opt.value = p.device;
+        opt.textContent = `${p.device} (${p.description || 'ESP32 Device'})`;
+        portSelect.appendChild(opt);
+      });
+      if (currentVal && [...portSelect.options].some((o) => o.value === currentVal)) {
+        portSelect.value = currentVal;
+      }
+    } else {
+      const opt = document.createElement('option');
+      opt.value = "";
+      opt.disabled = true;
+      opt.selected = true;
+      opt.textContent = "No COM Ports Detected (Plug ESP32 USB)";
+      portSelect.appendChild(opt);
+    }
+  }
+  refreshPorts();
+  if (refreshPortsBtn) {
+    refreshPortsBtn.addEventListener('click', () => refreshPorts());
+  }
+
+  // 5. Connect Port Action
+  connectBtn.addEventListener('click', async () => {
+    const port = portSelect.value;
+    const baud = baudSelect.value;
+    if (!port) return;
+    await api.connectPort(port, baud);
+  });
+
+  // 6. Scan Layer Pass Toggle
+  btnPass1.addEventListener('click', async () => {
+    activePass = 'pass1';
+    btnPass1.classList.add('active');
+    btnPass1.setAttribute('aria-checked', 'true');
+    btnPass2.classList.remove('active');
+    btnPass2.setAttribute('aria-checked', 'false');
+    await api.setActivePass('pass1');
+  });
+
+  btnPass2.addEventListener('click', async () => {
+    activePass = 'pass2';
+    btnPass2.classList.add('active');
+    btnPass2.setAttribute('aria-checked', 'true');
+    btnPass1.classList.remove('active');
+    btnPass1.setAttribute('aria-checked', 'false');
+    await api.setActivePass('pass2');
+  });
+
+  // 7. Reset, Dilation, and Export Actions
+  resetBtn.addEventListener('click', async () => {
+    await api.resetMap();
+  });
+
+  dilationToggleBtn.addEventListener('click', () => {
+    showDilation = !showDilation;
+    dilationToggleBtn.textContent = `Dilation: ${showDilation ? 'ON' : 'OFF'}`;
+  });
+
+  exportPngBtn.addEventListener('click', () => {
+    window.open(`/api/map_image?dilation=${showDilation ? '1' : '0'}`, '_blank');
+  });
+
+  exportJsonBtn.addEventListener('click', async () => {
+    const data = await api.exportJson();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `bupi_sonar_matrix_${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  if (copyAsciiBtn) {
+    copyAsciiBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(asciiMatrixView.textContent);
+      copyAsciiBtn.textContent = 'Copied!';
+      setTimeout(() => { copyAsciiBtn.textContent = 'Copy ASCII'; }, 1500);
+    });
+  }
+
+  // 8. Hand-Sweep Mode Tab Switching
+  modeTabs.forEach(({ btn, container, mode }) => {
+    btn.addEventListener('click', () => {
+      modeTabs.forEach((t) => {
+        t.btn.classList.remove('active');
+        t.btn.setAttribute('aria-selected', 'false');
+        if (t.container) t.container.style.display = 'none';
+      });
+      btn.classList.add('active');
+      btn.setAttribute('aria-selected', 'true');
+      if (container) container.style.display = 'flex';
+      sweepController.setMode(mode);
+    });
+  });
+
+  // Mode 1: Pacer Speed
+  const pacerSpeedRange = document.getElementById('pacerSpeedRange');
+  const pacerSpeedValue = document.getElementById('pacerSpeedValue');
+  pacerSpeedRange.addEventListener('input', (e) => {
+    const s = parseInt(e.target.value, 10);
+    pacerSpeedValue.textContent = `${s}s`;
+    sweepController.setPacerPeriod(s);
+  });
+
+  // Mode 2: Step Plotter Controls & Spacebar
+  const stepNextBtn = document.getElementById('stepNextBtn');
+  const stepPrevBtn = document.getElementById('stepPrevBtn');
+  const stepPingBtn = document.getElementById('stepPingBtn');
+
+  stepNextBtn.addEventListener('click', () => sweepController.stepNext());
+  stepPrevBtn.addEventListener('click', () => sweepController.stepPrev());
+  stepPingBtn.addEventListener('click', () => sweepController.triggerStepPing(latestDistance));
+
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' && sweepController.activeMode === 2) {
+      e.preventDefault();
+      sweepController.triggerStepPing(latestDistance);
+    }
+  });
+
+  // Mode 3: Manual Slider
+  const manualAngleSlider = document.getElementById('manualAngleSlider');
+  manualAngleSlider.addEventListener('input', (e) => {
+    const val = parseFloat(e.target.value);
+    sweepController.setManualAngle(val);
+  });
+
+  // Mode 4: Zero Yaw
+  const zeroYawBtn = document.getElementById('zeroYawBtn');
+  zeroYawBtn.addEventListener('click', () => {
+    api.sendWs({ action: 'zero_yaw' });
+  });
+
+  // 9. Real-Time WebSocket Processor
+  api.initWebSocket(
+    (snapshot) => {
+      const tel = snapshot.telemetry || {};
+      latestDistance = tel.d_cm || 400.0;
+
+      // Update Sweep Controller with latest telemetry (IMU handling)
+      sweepController.handleTelemetry(tel);
+
+      // Connection Status Badge
+      const conn = snapshot.connection || {};
+      if (conn.connected) {
+        connBadge.className = 'status-badge online';
+        connText.textContent = `ESP32 (${conn.port})`;
+      } else if (conn.is_busy) {
+        connBadge.className = 'status-badge amber';
+        connText.textContent = `${conn.busy_port || 'COM3'} BUSY (CLOSE ARDUINO SERIAL MONITOR)`;
+      } else {
+        connBadge.className = 'status-badge error';
+        connText.textContent = 'NO ESP32 CONNECTED';
+      }
+
+      // IMU Status Badge
+      if (tel.imu) {
+        imuBadge.className = 'status-badge online';
+        imuStatusText.textContent = `IMU: YAW ${tel.yaw !== null ? tel.yaw.toFixed(1) : '--'}° | PITCH ${tel.pitch !== null ? tel.pitch.toFixed(1) : '--'}°`;
+      } else {
+        imuBadge.className = 'status-badge';
+        imuStatusText.textContent = 'IMU: OFF (VIRTUAL PACER)';
+      }
+
+      // Active Pass Sync
+      if (tel.active_pass && tel.active_pass !== activePass) {
+        activePass = tel.active_pass;
+        if (activePass === 'pass1') {
+          btnPass1.classList.add('active');
+          btnPass2.classList.remove('active');
+        } else {
+          btnPass2.classList.add('active');
+          btnPass1.classList.remove('active');
+        }
+      }
+
+      // Telemetry Bar
+      if (tel.valid) {
+        statDistance.textContent = `${tel.d_cm.toFixed(1)} cm`;
+        statDistance.className = tel.d_cm < 40 ? 'stat-value red' : 'stat-value green';
+      } else {
+        statDistance.textContent = 'NO ECHO (TIMEOUT)';
+        statDistance.className = 'stat-value amber';
+      }
+
+      if (tel.delta_d !== null && tel.delta_d !== undefined) {
+        const sign = tel.delta_d >= 0 ? '+' : '';
+        statDeltaD.textContent = `${sign}${tel.delta_d.toFixed(1)} cm`;
+        statDeltaD.className = Math.abs(tel.delta_d) >= 35 ? 'stat-value amber' : 'stat-value';
+      } else {
+        statDeltaD.textContent = '--';
+        statDeltaD.className = 'stat-value';
+      }
+
+      statPortal.textContent = tel.portal_detected ? 'PORTAL EDGE' : 'NONE';
+      statPortal.className = tel.portal_detected ? 'stat-value red' : 'stat-value';
+      statHitCount.textContent = tel.hit_count || 0;
+
+      if (statSafetyStop) {
+        const isStop = tel.safety_stop === 1;
+        statSafetyStop.textContent = isStop ? 'STOP (<15cm)' : 'CLEAR';
+        statSafetyStop.className = isStop ? 'stat-value red' : 'stat-value green';
+      }
+
+      // AI Decision Panel Updates
+      const ai = snapshot.ai_decision;
+      if (ai) {
+        if (ai.steering_command) {
+          aiCommandText.textContent = ai.steering_command;
+          aiCommandText.style.color = ai.steering_command.includes('STOP') ? '#ff3344' : '#00e676';
+        }
+
+        if (ai.sectors) {
+          for (const [sname, sdata] of Object.entries(ai.sectors)) {
+            const el = sectorEls[sname];
+            if (el) {
+              el.dist.textContent = `${sdata.min_distance_cm} cm`;
+              el.stat.textContent = sdata.status;
+              el.stat.className = 'sector-status ' + (
+                sdata.status === 'CLEAR_CORRIDOR' ? 'clear' :
+                sdata.status === 'DOORWAY_PORTAL' ? 'portal' :
+                sdata.status === 'LOW_STEP' ? 'step' :
+                sdata.status === 'BLOCKED_WALL' ? 'blocked' : ''
+              );
+            }
+          }
+        }
+
+        if (ai.ascii_matrix && asciiMatrixView) {
+          asciiMatrixView.textContent = ai.ascii_matrix;
+        }
+      }
+
+      // Update 3 Viewports
+      polarScope.updateState(tel, snapshot.polar_history, snapshot.portals);
+      dipCanvas.updateSnapshot(snapshot.semantic_image_b64, ai ? ai.astar_path : []);
+      voxelWorld.updateSnapshot(snapshot.active_voxels, snapshot.portals, tel.angle_deg, ai ? ai.astar_path : []);
+    },
+    (isConnected) => {
+      if (!isConnected) {
+        connBadge.className = 'status-badge error';
+        connText.textContent = 'SERVER DISCONNECTED';
+      }
+    }
+  );
+});

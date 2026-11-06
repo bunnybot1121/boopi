@@ -1,0 +1,88 @@
+/*
+ * BUPI Phase 1: Tactical Design Tokens
+ * Master token definition file - no raw values hardcoded in UI components.
+ */
+
+:root {
+  /* Surface & Background Colors */
+  --color-bg-base: #07090c;
+  --color-bg-surface: #0e1217;
+  --color-bg-elevated: #151b22;
+  --color-bg-overlay: #1c2430;
+  --color-bg-active: #232d3b;
+
+  /* Tactical Accents */
+  --color-primary: #00e5ff;          /* Tactical Cyan / Beam */
+  --color-primary-dim: #007c8a;
+  --color-primary-glow: rgba(0, 229, 255, 0.18);
+
+  --color-accent-amber: #ffb300;     /* Phosphor Amber / Step Obstacle */
+  --color-accent-amber-glow: rgba(255, 179, 0, 0.2);
+
+  --color-accent-red: #ff3344;       /* Tall Solid Wall / Critical Alert */
+  --color-accent-red-glow: rgba(255, 51, 68, 0.25);
+
+  --color-accent-green: #00e676;     /* Matrix Green / Online / Robot Origin */
+  --color-accent-green-glow: rgba(0, 230, 118, 0.2);
+
+  --color-accent-magenta: #e040fb;   /* 3D Depth Portal Edge */
+  --color-accent-orange: #ff6d00;    /* Hanging Overhang */
+
+  /* Text & Content Colors (WCAG AAA / AA 4.5:1+) */
+  --color-text-bright: #f0f6fc;
+  --color-text-main: #c9d1d9;
+  --color-text-muted: #8b949e;
+  --color-text-dim: #545d68;
+
+  /* Borders & Dividers */
+  --color-border-subtle: #21262d;
+  --color-border-medium: #30363d;
+  --color-border-focus: #00e5ff;
+
+  /* Interactive States */
+  --color-btn-default: #161b22;
+  --color-btn-hover: #1f242c;
+  --color-btn-active: #29303a;
+  --color-btn-disabled: #0d1117;
+  --color-btn-text-disabled: #484f58;
+
+  /* Typography */
+  --font-display: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+
+  /* Font Sizes */
+  --text-xs: 0.6875rem;   /* 11px */
+  --text-sm: 0.8125rem;   /* 13px */
+  --text-base: 0.9375rem; /* 15px */
+  --text-md: 1.0625rem;   /* 17px */
+  --text-lg: 1.25rem;     /* 20px */
+  --text-xl: 1.5rem;      /* 24px */
+
+  /* Spacing Scale */
+  --space-2xs: 2px;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+  --space-2xl: 32px;
+
+  /* Shape & Radius */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-pill: 9999px;
+
+  /* Elevation Shadows */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-cyan-glow: 0 0 12px var(--color-primary-glow);
+  --shadow-amber-glow: 0 0 12px var(--color-accent-amber-glow);
+
+  /* Layout */
+  --header-height: 54px;
+  --telemetry-bar-height: 64px;
+  --min-tap-target: 44px;
+}
+

@@ -33,6 +33,7 @@
 - [Repository Structure](#repository-structure)
 - [Quick Start Guide](#quick-start-guide)
 - [Technical Documentation Index](#technical-documentation-index)
+- [Engineering DevLog & Living Changelog](#engineering-devlog--living-changelog)
 
 ---
 
@@ -467,6 +468,23 @@ For complete line-by-line evidence, canonical JSON schemas, slide decks, and ful
 * **[BUPI_CAPABILITY_SCHEMAS_AND_SPECS.md](file:///c:/Users/Sachin/boopi/assistant/BUPI_CAPABILITY_SCHEMAS_AND_SPECS.md)**: Canonical JSON schemas, telemetry packets, and device manifests.
 * **[BUPI_26201_Architecture_Presentation.pptx](file:///c:/Users/Sachin/boopi/assistant/BUPI_26201_Architecture_Presentation.pptx)**: The generated 16:9 widescreen PowerPoint deck.
 * **[BUPI_DATASET_FOR_PROMPTING.md](file:///c:/Users/Sachin/boopi/assistant/BUPI_DATASET_FOR_PROMPTING.md)**: Clean copy-pasteable data blocks for ChatGPT and AI tools.
+
+---
+
+## Engineering DevLog & Living Changelog
+
+BUPI maintains a continuous, dated engineering log recording all architecture milestones, firmware improvements, hardware discoveries, and post-mortem bug solutions.
+
+| Date | Milestone & Focus | Key Subsystems & Hardware | DevLog Link |
+|---|---|---|---|
+| **2026-11-06** | **Phase 1 Ultrasonic 2.5D/3D Vision Testbed** | ESP32 HC-SR04 Node, Log-Odds DIP Grid, 3D Voxels, Serial Lock Watchdog | [Read DevLog](devlog/2026-11-06_phase1_sonar_vision_breakthrough.md) |
+| **2026-10-25** | **100% Offline AI Subsystem & TTFT Latency** | Ollama Edge LLM, INT8 Faster-Whisper, Piper TTS, Electron Mutex Guard | [Read DevLog](devlog/2026-10-25_offline_intelligence_subsystem.md) |
+| **2026-09-26** | **20Hz Closed-Loop Swarm & Multi-Rover Fleet** | Bot 1 Scout, Bot 2 Specialist, TB6612FNG H-Bridge, 5-Stage Detour | [Read DevLog](devlog/2026-09-26_fleet_autonomy_and_hardware_audit.md) |
+| **2026-08-31** | **CUDA GPU Acceleration & Desktop Launcher** | TensorRT FP16 Acceleration, Start Bupi.bat, Windows Shell Resolution | [Read DevLog](devlog/2026-08-31_cuda_acceleration_and_launcher.md) |
+| **2026-06-03** | **Rive Mascot UI & Procedural Lip-Sync** | OpenHumans Rive Engine, Syllable Lip-Sync, Viseme FFT, Thought Bubbles | [Read DevLog](devlog/2026-06-03_rive_mascot_and_viseme_sync.md) |
+| **2026-05-20** | **Hybrid LLM Router & Whisper Speech Core** | Local LLM Intent Router, Whisper small.en, Dynamic VAD, Terminal Logs | [Read DevLog](devlog/2026-05-20_hybrid_llm_router_and_voice.md) |
+
+> 📁 *For the complete index and daily contribution guidelines, view [`devlog/README.md`](devlog/README.md).*
 
 ---
 *Created for Smart India Hackathon (SIH) Problem Statement 26201 — BUPI Robotics Platform.*

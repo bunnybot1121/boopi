@@ -238,7 +238,7 @@ def handle_incoming_telemetry(data: dict, source: str = "serial", ws=None):
         hardware_clients_by_bot[bot_id] = ws
 
     # Extract raw readings
-    dist = float(data.get("distance_cm", data.get("distance", 150.0)))
+    dist = float(data.get("d_cm", data.get("distance_cm", data.get("distance", 150.0))))
     pir = int(data.get("pir", data.get("motion", 0)))
     pitch = float(data.get("pitch", 0.0))
     roll = float(data.get("roll", 0.0))
@@ -757,7 +757,7 @@ def serial_supervisor_thread():
                     if line.startswith('{') and line.endswith('}'):
                         try:
                             data = json.loads(line)
-                            if "distance_cm" in data or "heading" in data or "pir" in data or "pitch" in data:
+                            if "distance_cm" in data or "d_cm" in data or "heading" in data or "pir" in data or "pitch" in data or "yaw" in data:
                                 handle_incoming_telemetry(data, source="serial")
                                 continue
                         except Exception:

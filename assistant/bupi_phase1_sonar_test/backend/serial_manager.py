@@ -1,0 +1,240 @@
+"""
+Serial Port Manager for BUPI Sonar Vision Testbed.
+Thread-safe with no-reset DTR/RTS mode for ESP32, active watchdog, and robust JSON extraction.
+"""
+
+import json
+import threading
+import time
+from typing import Callable, List, Optional
+import serial
+import serial.tools.list_ports
+
+from .sonar_imaging_engine import SonarImagingEngine
+
+
+class SerialManager:
+    def __init__(self, engine: SonarImagingEngine, on_ping_callback: Optional[Callable] = None):
+        self.engine = engine
+        self.on_ping_callback = on_ping_callback
+
+        self._lock = threading.Lock()
+        self.ser: Optional[serial.Serial] = None
+        self.current_port: Optional[str] = None
+        self.baud_rate: int = 115200
+        self.is_connected: bool = False
+        self.is_port_busy: bool = False
+        self.busy_port_name: Optional[str] = None
+
+        self._serial_thread: Optional[threading.Thread] = None
+        self._watchdog_thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
+        self._reader_stop_event = threading.Event()
+
+        self.manual_pacer_angle: float = 90.0
+
+        # Start background watchdog to auto-connect to ESP32
+        self._start_watchdog()
+
+    @staticmethod
+    def list_ports() -> List[dict]:
+        """List all available physical COM/serial ports."""
+        try:
+            ports = serial.tools.list_ports.comports()
+            return [{"device": p.device, "description": p.description, "hwid": p.hwid} for p in ports]
+        except Exception:
+            return []
+
+    def _start_watchdog(self):
+        self._watchdog_thread = threading.Thread(target=self._watchdog_loop, daemon=True)
+        self._watchdog_thread.start()
+
+    def _watchdog_loop(self):
+        """Continuously probes for ESP32 and auto-connects the moment the port is freed."""
+        while not self._stop_event.is_set():
+            time.sleep(1.5)
+            if self._stop_event.is_set():
+                break
+
+            with self._lock:
+                if self.is_connected:
+                    continue
+
+                ports = self.list_ports()
+                target_port = None
+
+                for p in ports:
+                    dev = p["device"]
+                    desc = p.get("description", "").lower()
+                    if dev == "COM3" or "cp210" in desc or "ch340" in desc or "uart" in desc or "usb" in desc:
+                        target_port = dev
+                        break
+
+                if not target_port:
+                    self.is_port_busy = False
+                    self.busy_port_name = None
+                    continue
+
+            # Attempt connection outside lock to avoid lock inversion during I/O
+            self.connect(target_port, self.baud_rate)
+
+    def connect(self, port: str, baud: int = 115200) -> bool:
+        """Connect to physical serial port with no-reset DTR/RTS flags for ESP32."""
+        with self._lock:
+            if self.is_connected and self.current_port == port and self.baud_rate == baud:
+                return True
+
+            self._stop_reader_internal()
+            self._reader_stop_event.clear()
+
+            try:
+                ser_obj = serial.Serial(
+                    port, baud,
+                    timeout=0.2,
+                    dsrdtr=False,
+                    rtscts=False
+                )
+                try:
+                    ser_obj.dtr = False
+                    ser_obj.rts = False
+                except Exception:
+                    pass
+
+                time.sleep(0.08)
+                try:
+                    ser_obj.reset_input_buffer()
+                except Exception:
+                    pass
+
+                self.ser = ser_obj
+                self.current_port = port
+                self.baud_rate = baud
+                self.is_connected = True
+                self.is_port_busy = False
+                self.busy_port_name = None
+
+                self._serial_thread = threading.Thread(
+                    target=self._serial_reader_loop,
+                    args=(ser_obj,),
+                    daemon=True
+                )
+                self._serial_thread.start()
+                return True
+            except Exception as e:
+                err_str = str(e).lower()
+                if "access is denied" in err_str or "permission" in err_str:
+                    self.is_port_busy = True
+                    self.busy_port_name = port
+                else:
+                    self.is_port_busy = False
+                    self.busy_port_name = None
+                self.is_connected = False
+                self.current_port = None
+                return False
+
+    def disconnect(self):
+        with self._lock:
+            self._stop_reader_internal()
+            self.is_connected = False
+            self.current_port = None
+
+    def _stop_reader_internal(self):
+        """Internal helper to safely stop reader thread and close port handle."""
+        self._reader_stop_event.set()
+        if self._serial_thread and self._serial_thread.is_alive():
+            if threading.current_thread() != self._serial_thread:
+                self._serial_thread.join(timeout=0.3)
+        self._serial_thread = None
+
+        if self.ser:
+            try:
+                if self.ser.is_open:
+                    self.ser.close()
+            except Exception:
+                pass
+            self.ser = None
+
+    def stop_all(self):
+        self._stop_event.set()
+        with self._lock:
+            self._stop_reader_internal()
+            self.is_connected = False
+            self.current_port = None
+
+    def update_pacer_angle(self, angle_deg: float):
+        self.manual_pacer_angle = max(0.0, min(180.0, angle_deg))
+
+    def _serial_reader_loop(self, ser_obj: serial.Serial):
+        """Continuously reads real newline-delimited JSON packets from ESP32."""
+        buffer = ""
+        while not self._stop_event.is_set() and not self._reader_stop_event.is_set():
+            try:
+                if not ser_obj or not ser_obj.is_open:
+                    break
+
+                waiting = 0
+                try:
+                    waiting = ser_obj.in_waiting
+                except Exception:
+                    break
+
+                chunk = ser_obj.read(waiting or 1).decode("utf-8", errors="ignore")
+                if not chunk:
+                    time.sleep(0.01)
+                    continue
+
+                buffer += chunk
+                while "\n" in buffer:
+                    line, buffer = buffer.split("\n", 1)
+                    line_str = line.strip()
+                    if not line_str:
+                        continue
+
+                    s_idx = line_str.find("{")
+                    e_idx = line_str.rfind("}")
+                    if s_idx == -1 or e_idx == -1 or e_idx <= s_idx:
+                        continue
+
+                    json_part = line_str[s_idx:e_idx + 1]
+                    try:
+                        packet = json.loads(json_part)
+                    except Exception:
+                        continue
+
+                    d_cm = float(packet.get("d_cm", 400.0))
+                    is_valid = bool(packet.get("valid", 0) == 1)
+                    safety_stop = int(packet.get("safety_stop", 0))
+                    imu_present = bool(packet.get("imu", False))
+                    yaw = packet.get("yaw")
+                    pitch = packet.get("pitch")
+                    ts = packet.get("ts", int(time.time() * 1000))
+
+                    if imu_present and yaw is not None:
+                        eff_angle = float(yaw) % 360.0
+                        if eff_angle > 180.0:
+                            eff_angle = 360.0 - eff_angle
+                    else:
+                        eff_angle = self.manual_pacer_angle
+
+                    telemetry = self.engine.ingest_ping(
+                        angle_deg=eff_angle,
+                        distance_cm=d_cm,
+                        is_valid=is_valid,
+                        timestamp_ms=ts,
+                        safety_stop=safety_stop,
+                        imu_detected=imu_present,
+                        yaw=yaw,
+                        pitch=pitch
+                    )
+
+                    if self.on_ping_callback:
+                        self.on_ping_callback(telemetry)
+
+            except Exception:
+                time.sleep(0.02)
+                break
+
+        with self._lock:
+            if self.ser is ser_obj:
+                self.is_connected = False
+                self.current_port = None
