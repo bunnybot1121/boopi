@@ -8,3 +8,4 @@ echo.
 python scripts\auto_devlog_sync.py --push
 echo.
 pause
+

@@ -26,3 +26,4 @@ Established the primary software core for BUPI's desktop companion layer. Built 
 git add .
 git commit -m "feat: Add Hybrid LLM Router, Whisper small.en, and built-in Terminal logs"
 ```
+

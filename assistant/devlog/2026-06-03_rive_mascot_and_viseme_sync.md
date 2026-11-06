@@ -28,3 +28,4 @@ Integrated interactive visual identity and expressive mascot animations into BUP
 git add .
 git commit -m "feat: integrate Rive mascot and behavior layers from OpenHumans, procedural lip-sync"
 ```
+
