@@ -8,6 +8,7 @@ Welcome to the **BUPI Autonomous Robotics Engineering DevLog**. This directory m
 
 | Date | Title | Key Systems Covered | Status |
 |---|---|---|---|
+| **2026-11-07** | [Hardware Servo-Driven Sweeping Turret Upgrade](./2026-11-07_hardware_servo_turret_upgrade.md) | ESP32 Core 2.x/3.x LEDC PWM, Bidirectional Sweep Engine, 2-Way Serial `SERVO_CFG`, 3D Voxel Turret Mapping | 🟢 Complete |
 | **2026-11-06** | [Phase 1 Ultrasonic 2.5D/3D Vision Testbed & Hardware Integration](./2026-11-06_phase1_sonar_vision_breakthrough.md) | ESP32 Firmware, Log-Odds DIP Grid, 3D Voxels, Serial Lock Watchdog, Hand-Sweep Calibration | 🟢 Complete |
 | **2026-10-25** | [100% Offline AI Subsystem (Ollama, Faster-Whisper, Piper) & Latency Optimization](./2026-10-25_offline_intelligence_subsystem.md) | Edge LLM, INT8 Faster-Whisper, Piper TTS, Electron Mutex Bug Fix, TTFT <770ms | 🟢 Complete |
 | **2026-09-26** | [20Hz Closed-Loop Autonomy, Heterogeneous Multi-Rover Fleet, and SIH Audit](./2026-09-26_fleet_autonomy_and_hardware_audit.md) | Dual-Rover Swarm (Bot 1 vs Bot 2), TB6612FNG H-Bridge, 5-Stage Detour, SIH Dossier | 🟢 Complete |

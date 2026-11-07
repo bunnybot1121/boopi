@@ -89,13 +89,16 @@
       </div>
     </nav>
 
-    <!-- Hand-Sweep Angle Controller Bar (4 Modes) -->
-    <section class="sweep-mode-bar" aria-label="Hand Sweep Angle Calibration">
+    <!-- Sweep Angle Controller Bar (Hardware Servo & Fallback Modes) -->
+    <section class="sweep-mode-bar" aria-label="Sweep Angle Calibration">
       <div class="control-group">
-        <span class="field-label">Aiming Mode</span>
+        <span class="field-label">Turret Mode</span>
         <div class="sweep-mode-tabs" role="tablist">
-          <button id="tabMode3" class="sweep-tab active" role="tab" aria-selected="true" type="button">
-            Mode 3: Manual Dial (Hand Aim)
+          <button id="tabMode0" class="sweep-tab active" role="tab" aria-selected="true" type="button">
+            Mode 0: Hardware Servo Turret (Live s_ang)
+          </button>
+          <button id="tabMode3" class="sweep-tab" role="tab" aria-selected="false" type="button">
+            Mode 3: Manual Aim
           </button>
           <button id="tabMode2" class="sweep-tab" role="tab" aria-selected="false" type="button">
             Mode 2: Step Plotter
@@ -104,9 +107,34 @@
             Mode 1: Auto-Pacer
           </button>
           <button id="tabMode4" class="sweep-tab" role="tab" aria-selected="false" type="button">
-            Mode 4: MPU6050 Wrist
+            Mode 4: MPU6050
           </button>
         </div>
+      </div>
+
+      <!-- Mode 0 Controls: Hardware Servo Turret Presets & Sector Boundaries -->
+      <div id="servoControls" class="sweep-slider-container" style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+        <span class="field-label" style="color: var(--color-primary); font-weight: 600;">Sector Presets:</span>
+        <button id="btnSectorFocused" class="tactical-btn" type="button" title="60 deg to 120 deg focused forward sector">60°–120° (Wall Line)</button>
+        <button id="btnSectorCone" class="tactical-btn primary" type="button" title="45 deg to 135 deg standard 90-degree vision cone">45°–135° (Standard Cone)</button>
+        <button id="btnSectorFull" class="tactical-btn" type="button" title="0 deg to 180 deg full room scan">0°–180° (Full Sweep)</button>
+
+        <span class="field-label" style="margin-left: 6px;">Min: <strong id="servoMinValue" style="color: var(--color-primary);">45°</strong></span>
+        <input id="servoMinSlider" class="tactical-range" type="range" min="0" max="90" step="5" value="45" style="width: 75px;" aria-label="Servo min sweep angle">
+
+        <span class="field-label">Max: <strong id="servoMaxValue" style="color: var(--color-primary);">135°</strong></span>
+        <input id="servoMaxSlider" class="tactical-range" type="range" min="90" max="180" step="5" value="135" style="width: 75px;" aria-label="Servo max sweep angle">
+
+        <label for="servoStepSelect" class="field-label">Step</label>
+        <select id="servoStepSelect" class="select-input" style="min-width: 60px; height: 32px;" aria-label="Servo step degrees">
+          <option value="2">2°</option>
+          <option value="3" selected>3°</option>
+          <option value="5">5°</option>
+          <option value="10">10°</option>
+        </select>
+
+        <button id="btnCenterServo" class="tactical-btn amber" type="button" title="Hold servo at 90 deg straight ahead to physically align sensor on servo horn">🎯 Center at 90°</button>
+        <button id="btnResumeSweep" class="tactical-btn primary" type="button" style="display: none;" title="Resume bidirectional servo sweep">▶ Resume Sweep</button>
       </div>
 
       <!-- Mode 1 Options: Pacer Speed -->
@@ -127,7 +155,7 @@
       </div>
 
       <!-- Mode 3 Slider: Manual Angle Aim -->
-      <div id="dialControls" class="sweep-slider-container" style="display: flex;">
+      <div id="dialControls" class="sweep-slider-container" style="display: none;">
         <label for="manualAngleSlider" class="field-label">Aim Angle</label>
         <input id="manualAngleSlider" class="tactical-range" type="range" min="0" max="180" step="1" value="90" style="width: 180px;" aria-label="Manual aiming angle degrees">
         <span id="manualAngleValue" class="stat-value" style="font-size: 14px;">90°</span>
@@ -274,6 +302,11 @@
         <div class="stat-metric">
           <span class="stat-label">Aim Angle (&theta;)</span>
           <span id="statAngle" class="stat-value">90.0&deg;</span>
+        </div>
+        <div class="stat-metric">
+          <span class="stat-label">Servo Turret (s_ang)</span>
+          <span id="statServoAngle" class="stat-value" style="color: var(--color-primary);">90&deg;</span>
+          <span id="statSweepDir" class="status-badge" style="font-size: 10px; margin-top: 2px;">STEADY</span>
         </div>
         <div class="stat-metric">
           <span class="stat-label">Depth Jump (&Delta;d)</span>

@@ -62,6 +62,28 @@ export class SonarAPI {
     return await res.json();
   }
 
+  async sendServoCfg(cfg) {
+    this.sendWs({ action: 'servo_cfg', ...cfg });
+    try {
+      await fetch('/api/servo_cfg', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cfg)
+      });
+    } catch (_) {}
+  }
+
+  async centerServo() {
+    this.sendWs({ action: 'center_servo' });
+    try {
+      await fetch('/api/servo_cfg', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ min_ang: 45, max_ang: 135, step: 3, sweep_en: 0, hold_ang: 90 })
+      });
+    } catch (_) {}
+  }
+
   initWebSocket(onSnapshot, onConnection) {
     this.onSnapshotCallback = onSnapshot;
     this.onConnectionChange = onConnection;

@@ -24,10 +24,18 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('voxelContainer')
   );
 
-  // 2. Initialize Sweep Controller (Mode 3: Hand-Aim Manual by default)
+  // 2. Initialize Sweep Controller (Mode 0: Hardware Servo Turret by default)
   let latestDistance = 400.0;
-  const sweepController = new SweepController(api, (angle, mode) => {
+  const sweepController = new SweepController(api, (angle, mode, sweepDir) => {
     document.getElementById('statAngle').textContent = `${angle.toFixed(1)}°`;
+    const statServoAngle = document.getElementById('statServoAngle');
+    const statSweepDir = document.getElementById('statSweepDir');
+    if (statServoAngle) {
+      statServoAngle.textContent = `${angle.toFixed(0)}°`;
+    }
+    if (statSweepDir && sweepDir) {
+      statSweepDir.textContent = sweepDir;
+    }
     if (mode === 2) {
       document.getElementById('stepAngleLabel').textContent = `${angle.toFixed(0)}°`;
     }
@@ -42,7 +50,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Wire Polar Radar Scope direct click & drag aiming
   polarScope.onAngleAim = (aimDeg) => {
-    sweepController.setManualAngle(aimDeg);
+    if (sweepController.activeMode === 3) {
+      sweepController.setManualAngle(aimDeg);
+    }
   };
 
   // UI State
@@ -64,11 +74,79 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Mode Tabs & Containers
   const modeTabs = [
-    { btn: document.getElementById('tabMode1'), container: document.getElementById('pacerControls'), mode: 1 },
-    { btn: document.getElementById('tabMode2'), container: document.getElementById('stepControls'), mode: 2 },
+    { btn: document.getElementById('tabMode0'), container: document.getElementById('servoControls'), mode: 0 },
     { btn: document.getElementById('tabMode3'), container: document.getElementById('dialControls'), mode: 3 },
+    { btn: document.getElementById('tabMode2'), container: document.getElementById('stepControls'), mode: 2 },
+    { btn: document.getElementById('tabMode1'), container: document.getElementById('pacerControls'), mode: 1 },
     { btn: document.getElementById('tabMode4'), container: document.getElementById('mpuControls'), mode: 4 }
   ];
+
+  // Servo Sector Control Elements
+  const btnSectorFocused = document.getElementById('btnSectorFocused');
+  const btnSectorCone = document.getElementById('btnSectorCone');
+  const btnSectorFull = document.getElementById('btnSectorFull');
+  const btnCenterServo = document.getElementById('btnCenterServo');
+  const btnResumeSweep = document.getElementById('btnResumeSweep');
+  const servoMinSlider = document.getElementById('servoMinSlider');
+  const servoMaxSlider = document.getElementById('servoMaxSlider');
+  const servoStepSelect = document.getElementById('servoStepSelect');
+  const servoMinValue = document.getElementById('servoMinValue');
+  const servoMaxValue = document.getElementById('servoMaxValue');
+
+  function updateServoConfig() {
+    const minA = parseInt(servoMinSlider.value, 10);
+    const maxA = parseInt(servoMaxSlider.value, 10);
+    const st = parseInt(servoStepSelect.value, 10);
+    servoMinValue.textContent = `${minA}°`;
+    servoMaxValue.textContent = `${maxA}°`;
+    sweepController.sendServoConfig(minA, maxA, st, 1, 90);
+    if (btnResumeSweep) btnResumeSweep.style.display = 'none';
+    if (btnCenterServo) btnCenterServo.style.display = 'inline-block';
+  }
+
+  if (btnSectorFocused) {
+    btnSectorFocused.addEventListener('click', () => {
+      servoMinSlider.value = 60;
+      servoMaxSlider.value = 120;
+      updateServoConfig();
+    });
+  }
+
+  if (btnSectorCone) {
+    btnSectorCone.addEventListener('click', () => {
+      servoMinSlider.value = 45;
+      servoMaxSlider.value = 135;
+      updateServoConfig();
+    });
+  }
+
+  if (btnSectorFull) {
+    btnSectorFull.addEventListener('click', () => {
+      servoMinSlider.value = 0;
+      servoMaxSlider.value = 180;
+      updateServoConfig();
+    });
+  }
+
+  if (servoMinSlider) servoMinSlider.addEventListener('input', () => updateServoConfig());
+  if (servoMaxSlider) servoMaxSlider.addEventListener('input', () => updateServoConfig());
+  if (servoStepSelect) servoStepSelect.addEventListener('change', () => updateServoConfig());
+
+  if (btnCenterServo) {
+    btnCenterServo.addEventListener('click', () => {
+      sweepController.centerServoAt90();
+      btnCenterServo.style.display = 'none';
+      if (btnResumeSweep) btnResumeSweep.style.display = 'inline-block';
+    });
+  }
+
+  if (btnResumeSweep) {
+    btnResumeSweep.addEventListener('click', () => {
+      sweepController.resumeSweep();
+      btnResumeSweep.style.display = 'none';
+      if (btnCenterServo) btnCenterServo.style.display = 'inline-block';
+    });
+  }
 
   // Badges & Telemetry
   const connBadge = document.getElementById('connectionBadge');
@@ -281,6 +359,20 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       // Telemetry Bar
+      const curServoAng = tel.s_ang !== undefined ? tel.s_ang : tel.angle_deg;
+      const statServoAngle = document.getElementById('statServoAngle');
+      const statSweepDir = document.getElementById('statSweepDir');
+      if (statServoAngle) {
+        statServoAngle.textContent = `${curServoAng.toFixed(0)}°`;
+      }
+      if (statSweepDir && tel.sweep_dir) {
+        statSweepDir.textContent = tel.sweep_dir;
+        statSweepDir.className = 'status-badge ' + (
+          tel.sweep_dir.includes('LEFT') ? 'online' :
+          tel.sweep_dir.includes('RIGHT') ? 'amber' : ''
+        );
+      }
+
       if (tel.valid) {
         statDistance.textContent = `${tel.d_cm.toFixed(1)} cm`;
         statDistance.className = tel.d_cm < 40 ? 'stat-value red' : 'stat-value green';
@@ -340,7 +432,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Update 3 Viewports
       polarScope.updateState(tel, snapshot.polar_history, snapshot.portals);
       dipCanvas.updateSnapshot(snapshot.semantic_image_b64, ai ? ai.astar_path : []);
-      voxelWorld.updateSnapshot(snapshot.active_voxels, snapshot.portals, tel.angle_deg, ai ? ai.astar_path : []);
+      voxelWorld.updateSnapshot(snapshot.active_voxels, snapshot.portals, curServoAng, ai ? ai.astar_path : []);
     },
     (isConnected) => {
       if (!isConnected) {

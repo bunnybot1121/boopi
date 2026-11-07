@@ -56,7 +56,12 @@ class SonarImagingEngine:
         imu_detected: bool = False,
         yaw: Optional[float] = None,
         pitch: Optional[float] = None,
-        weight_scale: float = 1.0
+        weight_scale: float = 1.0,
+        s_ang: Optional[float] = None,
+        min_ang: Optional[float] = 45.0,
+        max_ang: Optional[float] = 135.0,
+        sweep_dir: Optional[str] = "STEADY",
+        bot_id: str = "BUPI-01"
     ) -> Dict[str, Any]:
         """
         Ingest a single ultrasonic reading:
@@ -75,11 +80,17 @@ class SonarImagingEngine:
         # 2. Process Depth Profiler (Horizontal Portals & Pass Buffers)
         portal, delta_d = self.profiler.process_ping(angle_deg, distance_cm, is_valid)
 
-        # 3. Update telemetry state
+        # 3. Update telemetry state with Hardware Servo Turret details
+        cur_s_ang = round(s_ang, 1) if s_ang is not None else round(angle_deg, 1)
         self.latest_telemetry = {
+            "bot_id": bot_id,
             "ts": ts,
             "d_cm": round(distance_cm, 1),
             "angle_deg": round(angle_deg, 1),
+            "s_ang": cur_s_ang,
+            "min_ang": round(min_ang, 1) if min_ang is not None else 45.0,
+            "max_ang": round(max_ang, 1) if max_ang is not None else 135.0,
+            "sweep_dir": sweep_dir or "STEADY",
             "valid": 1 if is_valid else 0,
             "safety_stop": safety_stop or (1 if is_valid and distance_cm <= 15.0 else 0),
             "imu": imu_detected,
@@ -95,6 +106,7 @@ class SonarImagingEngine:
         # 4. Add to rolling polar history
         history_item = {
             "angle_deg": round(angle_deg, 1),
+            "s_ang": cur_s_ang,
             "d_cm": round(distance_cm, 1),
             "valid": 1 if is_valid else 0,
             "delta_d": round(delta_d, 1) if delta_d is not None else None,

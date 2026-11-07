@@ -64,8 +64,8 @@ class LogOddsOccupancyGrid:
         Integrate a single ultrasonic ping into the log-odds grid using a 15-degree Gaussian cone.
         Clears free space along the beam and accumulates hit probability along the arc.
         """
-        if not is_valid or distance_cm <= 0.0 or distance_cm >= (self.cfg.MAX_RANGE_CM - 2.0):
-            # Do not plot phantom readings or corrupt map on hardware timeouts / missed echoes
+        if not is_valid or distance_cm <= 0.0:
+            # Skip invalid readings or hardware glitches
             return
         # Clamp distance within sensor bounds
         eff_dist = min(max(distance_cm, self.cfg.MIN_RANGE_CM), self.cfg.MAX_RANGE_CM)

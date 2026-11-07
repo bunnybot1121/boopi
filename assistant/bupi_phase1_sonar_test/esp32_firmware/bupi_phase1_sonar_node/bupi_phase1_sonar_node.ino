@@ -1,57 +1,138 @@
 /*
- * BUPI Autonomous Robotics Fleet — Ultrasonic 2.5D/3D Vision Firmware
+ * BUPI Autonomous Robotics Fleet — Ultrasonic Hardware Servo Turret Firmware
  * Sketch: bupi_phase1_sonar_node.ino
- * Path: esp32_firmware/bupi_phase1_sonar_node/bupi_phase1_sonar_node.ino
+ * Path: bupi_phase1_sonar_test/esp32_firmware/bupi_phase1_sonar_node/bupi_phase1_sonar_node.ino
  *
- * Hardware:
- *   - ESP32 Dev Module
- *   - HC-SR04 Ultrasonic Sensor:
- *       TRIG -> GPIO 5
- *       ECHO -> GPIO 18 (via 1k / 2k ohm voltage divider to 3.3V)
+ * Hardware Peripherals:
+ *   - 1x ESP32 Dev Module
+ *   - 1x Servo Motor (SG90 / MG90S / MG996R):
+ *       SIGNAL -> GPIO 13 (50 Hz PWM via portable ledc abstraction)
+ *       VCC    -> 5V / VIN
+ *       GND    -> Common GND
+ *   - 1x HC-SR04 Ultrasonic Sensor (Mounted on Servo Horn):
+ *       TRIG   -> GPIO 5
+ *       ECHO   -> GPIO 18 (via 1k / 2k voltage divider or direct to 3.3V GPIO)
+ *       VCC    -> 5V / VIN (MUST be 5V for transducer oscillation)
+ *       GND    -> Common GND
  *   - Optional MPU-6050 6-Axis IMU (Raw Wire.h, auto-detected):
- *       SDA  -> GPIO 21
- *       SCL  -> GPIO 22
- *       VCC  -> 3.3V
- *       GND  -> GND
+ *       SDA    -> GPIO 21
+ *       SCL    -> GPIO 22
  *
- * Telemetry Output: 16 Hz JSON Lines over Serial @ 115200 baud
- * Format: {"ts":1234,"d_cm":187.9,"valid":1,"safety_stop":0,"imu":false,"yaw":null,"pitch":null}
+ * Telemetry Output: Newline-delimited JSON over USB Serial @ 115200 baud
+ * Format:
+ *   {"bot_id":"BUPI-01","ts":12450,"s_ang":75,"min_ang":45,"max_ang":135,"d_cm":114.2,"valid":1,"safety_stop":0,"imu":false,"yaw":null,"pitch":null}
+ *
+ * Two-Way Serial Configuration Input:
+ *   {"cmd":"SERVO_CFG","min_ang":60,"max_ang":120,"step":3,"sweep_en":1,"hold_ang":90}
  */
 
 #include <Wire.h>
 
-#define TRIG_PIN 5
-#define ECHO_PIN 18
-#define I2C_SDA_PIN 21
-#define I2C_SCL_PIN 22
+// --- Pinout Configuration ---
+#define SERVO_PIN      13
+#define TRIG_PIN       5
+#define ECHO_PIN       18
+#define I2C_SDA_PIN    21
+#define I2C_SCL_PIN    22
 
-#define ECHO_TIMEOUT_US 25000       // 25ms timeout (~428 cm max distance)
-#define TELEMETRY_INTERVAL_MS 62    // ~16.1 Hz stream
-#define MEDIAN_SAMPLES 3
-#define CRITICAL_SAFETY_CM 15.0f
+// --- Timing & Sensor Limits ---
+#define ECHO_TIMEOUT_US     25000
+#define CRITICAL_SAFETY_CM  15.0f
 
-#define MPU_ADDR_PRIMARY   0x68
-#define MPU_ADDR_SECONDARY 0x69
-#define MPU_REG_PWR_MGMT_1 0x6B
-#define MPU_REG_ACCEL_XOUT 0x3B
-#define MPU_REG_GYRO_ZOUT  0x47
+// --- MPU-6050 Registers (Raw Wire.h) ---
+#define MPU_ADDR_PRIMARY    0x68
+#define MPU_ADDR_SECONDARY  0x69
+#define MPU_REG_PWR_MGMT_1  0x6B
+#define MPU_REG_ACCEL_XOUT  0x3B
+#define MPU_REG_GYRO_ZOUT   0x47
 
-float median_buf[MEDIAN_SAMPLES] = {0.0f, 0.0f, 0.0f};
-uint8_t median_idx = 0;
-uint8_t median_count = 0;
+// --- Universal Core 2.x / 3.x LEDC Servo PWM Abstraction ---
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
+  #define BUPI_LEDC_V3 1
+#else
+  #define BUPI_LEDC_V3 0
+  #define SERVO_PWM_CHANNEL 0
+#endif
 
+// --- Servo Turret State ---
+int min_angle = 45;
+int max_angle = 135;
+int step_deg = 3;
+int settle_ms = 30;
+int current_angle = 90;
+int sweep_direction = 1;
+bool sweep_enabled = true;
+int hold_angle = 90;
+
+// --- IMU Tracking State ---
 bool imu_detected = false;
 uint8_t mpu_addr = MPU_ADDR_PRIMARY;
 float gyro_z_bias = 0.0f;
 float current_yaw = 90.0f;
 float current_pitch = 0.0f;
 unsigned long last_imu_us = 0;
-unsigned long last_telemetry_ms = 0;
 
 float calculate_median3(float a, float b, float c) {
   if ((a <= b && b <= c) || (c <= b && b <= a)) return b;
   if ((b <= a && a <= c) || (c <= a && a <= b)) return a;
   return c;
+}
+
+void init_servo_pwm() {
+#if BUPI_LEDC_V3
+  ledcAttach(SERVO_PIN, 50, 16);
+#else
+  ledcSetup(SERVO_PWM_CHANNEL, 50, 16);
+  ledcAttachPin(SERVO_PIN, SERVO_PWM_CHANNEL);
+#endif
+}
+
+void write_servo_angle(int angle_deg) {
+  angle_deg = constrain(angle_deg, 0, 180);
+  uint32_t pulse_us = 500 + ((uint32_t)angle_deg * 1900UL) / 180UL;
+  uint32_t duty = (pulse_us * 65535UL) / 20000UL;
+#if BUPI_LEDC_V3
+  ledcWrite(SERVO_PIN, duty);
+#else
+  ledcWrite(SERVO_PWM_CHANNEL, duty);
+#endif
+}
+
+float ping_single(bool &is_valid) {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  unsigned long duration = pulseIn(ECHO_PIN, HIGH, ECHO_TIMEOUT_US);
+  if (duration == 0 || duration >= ECHO_TIMEOUT_US) {
+    is_valid = false;
+    return 400.0f;
+  }
+
+  float d = (float)duration * 0.01715f;
+  if (d < 2.0f || d > 400.0f) {
+    is_valid = false;
+    return 400.0f;
+  }
+
+  is_valid = true;
+  return d;
+}
+
+float read_median_distance(bool &is_valid) {
+  bool v1, v2, v3;
+  float d1 = ping_single(v1);
+  delayMicroseconds(400);
+  float d2 = ping_single(v2);
+  delayMicroseconds(400);
+  float d3 = ping_single(v3);
+
+  int valid_count = (v1 ? 1 : 0) + (v2 ? 1 : 0) + (v3 ? 1 : 0);
+  is_valid = (valid_count >= 2);
+
+  return calculate_median3(d1, d2, d3);
 }
 
 bool detect_mpu(uint8_t &found_addr) {
@@ -105,6 +186,7 @@ void update_imu() {
     int16_t az = (Wire.read() << 8) | Wire.read();
     Wire.read(); Wire.read();
     Wire.read(); Wire.read();
+    Wire.read(); Wire.read();
     int16_t gz = (Wire.read() << 8) | Wire.read();
 
     unsigned long now_us = micros();
@@ -121,33 +203,50 @@ void update_imu() {
     if (fabsf(gz_dps) > 0.4f) {
       current_yaw += gz_dps * dt;
     }
-
-    if (current_yaw < 0.0f) current_yaw = 0.0f;
-    if (current_yaw > 180.0f) current_yaw = 180.0f;
+    while (current_yaw < 0.0f) current_yaw += 360.0f;
+    while (current_yaw >= 360.0f) current_yaw -= 360.0f;
   }
 }
 
-float read_sonar_cm(bool &is_valid) {
-  digitalWrite(TRIG_PIN, LOW);
-  delayMicroseconds(2);
-  digitalWrite(TRIG_PIN, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(TRIG_PIN, LOW);
+int extract_json_int(const String &json, const String &key, int default_val) {
+  int k_idx = json.indexOf("\"" + key + "\"");
+  if (k_idx < 0) return default_val;
+  int colon_idx = json.indexOf(':', k_idx);
+  if (colon_idx < 0) return default_val;
+  int end_idx = json.indexOf(',', colon_idx);
+  if (end_idx < 0) end_idx = json.indexOf('}', colon_idx);
+  if (end_idx < 0) return default_val;
+  String val_str = json.substring(colon_idx + 1, end_idx);
+  val_str.trim();
+  return val_str.toInt();
+}
 
-  unsigned long duration = pulseIn(ECHO_PIN, HIGH, ECHO_TIMEOUT_US);
-  if (duration == 0 || duration >= ECHO_TIMEOUT_US) {
-    is_valid = false;
-    return 400.0f;
+void process_serial_command() {
+  if (!Serial.available()) return;
+  String line = Serial.readStringUntil('\n');
+  line.trim();
+  if (line.length() < 5) return;
+
+  if (line.indexOf("SERVO_CFG") >= 0) {
+    int new_min = extract_json_int(line, "min_ang", min_angle);
+    int new_max = extract_json_int(line, "max_ang", max_angle);
+    int new_step = extract_json_int(line, "step", step_deg);
+    int new_en = extract_json_int(line, "sweep_en", sweep_enabled ? 1 : 0);
+    int new_hold = extract_json_int(line, "hold_ang", hold_angle);
+
+    min_angle = constrain(new_min, 0, 180);
+    max_angle = constrain(new_max, min_angle, 180);
+    step_deg = constrain(new_step, 1, 20);
+    sweep_enabled = (new_en == 1);
+    hold_angle = constrain(new_hold, 0, 180);
+
+    if (!sweep_enabled) {
+      current_angle = hold_angle;
+      write_servo_angle(current_angle);
+    }
+  } else if (line.indexOf("zero_yaw") >= 0) {
+    current_yaw = 90.0f;
   }
-
-  float d = (float)duration * 0.01715f;
-  if (d < 2.0f || d > 400.0f) {
-    is_valid = false;
-    return 400.0f;
-  }
-
-  is_valid = true;
-  return d;
 }
 
 void setup() {
@@ -158,69 +257,74 @@ void setup() {
   pinMode(ECHO_PIN, INPUT);
   digitalWrite(TRIG_PIN, LOW);
 
+  init_servo_pwm();
+  write_servo_angle(current_angle);
+  delay(150);
+
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, 400000);
   imu_detected = detect_mpu(mpu_addr);
   if (imu_detected) {
     init_mpu(mpu_addr);
   }
-
-  last_telemetry_ms = millis();
 }
 
 void loop() {
+  process_serial_command();
+
+  if (sweep_enabled) {
+    current_angle += sweep_direction * step_deg;
+    if (current_angle >= max_angle) {
+      current_angle = max_angle;
+      sweep_direction = -1;
+    } else if (current_angle <= min_angle) {
+      current_angle = min_angle;
+      sweep_direction = 1;
+    }
+    write_servo_angle(current_angle);
+  } else {
+    current_angle = hold_angle;
+    write_servo_angle(current_angle);
+  }
+
+  delay(settle_ms);
+
+  bool is_valid = false;
+  float d_cm = read_median_distance(is_valid);
+
+  if (imu_detected) {
+    update_imu();
+  }
+
+  int safety_stop = (is_valid && d_cm <= CRITICAL_SAFETY_CM) ? 1 : 0;
   unsigned long now = millis();
 
-  if (Serial.available()) {
-    String cmd = Serial.readStringUntil('\n');
-    cmd.trim();
-    if (cmd.indexOf("zero_yaw") >= 0) {
-      current_yaw = 90.0f;
-    }
+  Serial.print("{\"bot_id\":\"BUPI-01\",\"ts\":");
+  Serial.print(now);
+  Serial.print(",\"s_ang\":");
+  Serial.print(current_angle);
+  Serial.print(",\"min_ang\":");
+  Serial.print(min_angle);
+  Serial.print(",\"max_ang\":");
+  Serial.print(max_angle);
+  Serial.print(",\"d_cm\":");
+  Serial.print(d_cm, 1);
+  Serial.print(",\"valid\":");
+  Serial.print(is_valid ? 1 : 0);
+  Serial.print(",\"safety_stop\":");
+  Serial.print(safety_stop);
+  Serial.print(",\"imu\":");
+  Serial.print(imu_detected ? "true" : "false");
+  Serial.print(",\"yaw\":");
+  if (imu_detected) {
+    Serial.print(current_yaw, 1);
+  } else {
+    Serial.print("null");
   }
-
-  if (now - last_telemetry_ms >= TELEMETRY_INTERVAL_MS) {
-    last_telemetry_ms = now;
-
-    bool ping_valid = false;
-    float raw_cm = read_sonar_cm(ping_valid);
-
-    median_buf[median_idx] = raw_cm;
-    median_idx = (median_idx + 1) % MEDIAN_SAMPLES;
-    if (median_count < MEDIAN_SAMPLES) median_count++;
-
-    float filtered_cm = raw_cm;
-    if (median_count >= 3) {
-      filtered_cm = calculate_median3(median_buf[0], median_buf[1], median_buf[2]);
-    }
-
-    if (imu_detected) {
-      update_imu();
-    }
-
-    int safety_stop = (ping_valid && filtered_cm <= CRITICAL_SAFETY_CM) ? 1 : 0;
-
-    Serial.print("{\"ts\":");
-    Serial.print(now);
-    Serial.print(",\"d_cm\":");
-    Serial.print(filtered_cm, 1);
-    Serial.print(",\"valid\":");
-    Serial.print(ping_valid ? 1 : 0);
-    Serial.print(",\"safety_stop\":");
-    Serial.print(safety_stop);
-    Serial.print(",\"imu\":");
-    Serial.print(imu_detected ? "true" : "false");
-    Serial.print(",\"yaw\":");
-    if (imu_detected) {
-      Serial.print(current_yaw, 1);
-    } else {
-      Serial.print("null");
-    }
-    Serial.print(",\"pitch\":");
-    if (imu_detected) {
-      Serial.print(current_pitch, 1);
-    } else {
-      Serial.print("null");
-    }
-    Serial.println("}");
+  Serial.print(",\"pitch\":");
+  if (imu_detected) {
+    Serial.print(current_pitch, 1);
+  } else {
+    Serial.print("null");
   }
+  Serial.println("}");
 }

@@ -32,6 +32,8 @@ class SerialManager:
         self._reader_stop_event = threading.Event()
 
         self.manual_pacer_angle: float = 90.0
+        self.prev_s_ang: float = 90.0
+        self.sweep_dir: str = "STEADY"
 
         # Start background watchdog to auto-connect to ESP32
         self._start_watchdog()
@@ -164,6 +166,19 @@ class SerialManager:
     def update_pacer_angle(self, angle_deg: float):
         self.manual_pacer_angle = max(0.0, min(180.0, angle_deg))
 
+    def send_command(self, cmd: dict) -> bool:
+        """Send a JSON command line to the connected ESP32."""
+        with self._lock:
+            if not self.ser or not self.ser.is_open or not self.is_connected:
+                return False
+            try:
+                line = json.dumps(cmd) + "\n"
+                self.ser.write(line.encode("utf-8"))
+                self.ser.flush()
+                return True
+            except Exception:
+                return False
+
     def _serial_reader_loop(self, ser_obj: serial.Serial):
         """Continuously reads real newline-delimited JSON packets from ESP32."""
         buffer = ""
@@ -208,13 +223,32 @@ class SerialManager:
                     yaw = packet.get("yaw")
                     pitch = packet.get("pitch")
                     ts = packet.get("ts", int(time.time() * 1000))
+                    bot_id = packet.get("bot_id", "BUPI-01")
 
+                    # Primary Hardware Servo Angle "s_ang"
+                    raw_s_ang = packet.get("s_ang")
+                    if raw_s_ang is not None:
+                        s_ang = float(raw_s_ang)
+                    else:
+                        s_ang = self.manual_pacer_angle
+
+                    min_ang = float(packet.get("min_ang", 45.0))
+                    max_ang = float(packet.get("max_ang", 135.0))
+
+                    # Track sweep direction (Left-to-Right vs Right-to-Left)
+                    if s_ang > self.prev_s_ang:
+                        self.sweep_dir = "SWEEPING LEFT <-"
+                    elif s_ang < self.prev_s_ang:
+                        self.sweep_dir = "-> SWEEPING RIGHT"
+                    self.prev_s_ang = s_ang
+
+                    # Angle Fusion: If IMU present, combine global heading with relative servo angle
                     if imu_present and yaw is not None:
-                        eff_angle = float(yaw) % 360.0
+                        eff_angle = (float(yaw) + (s_ang - 90.0)) % 360.0
                         if eff_angle > 180.0:
                             eff_angle = 360.0 - eff_angle
                     else:
-                        eff_angle = self.manual_pacer_angle
+                        eff_angle = s_ang
 
                     telemetry = self.engine.ingest_ping(
                         angle_deg=eff_angle,
@@ -224,7 +258,12 @@ class SerialManager:
                         safety_stop=safety_stop,
                         imu_detected=imu_present,
                         yaw=yaw,
-                        pitch=pitch
+                        pitch=pitch,
+                        s_ang=s_ang,
+                        min_ang=min_ang,
+                        max_ang=max_ang,
+                        sweep_dir=self.sweep_dir,
+                        bot_id=bot_id
                     )
 
                     if self.on_ping_callback:

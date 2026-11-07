@@ -8,8 +8,13 @@ export class SweepController {
     this.api = api;
     this.onAngleChanged = onAngleChanged;
 
-    this.activeMode = 3; // Default to Mode 3: Manual Dial / Hand Aim (No phantom moving beam)
+    this.activeMode = 0; // Default to Mode 0: Hardware Servo Turret (Live s_ang from ESP32)
     this.currentAngle = 90.0;
+    this.servoMin = 45;
+    this.servoMax = 135;
+    this.servoStep = 3;
+    this.sweepEnabled = true;
+
     this.pacerPeriodS = 6.0;
     this.pacerStartTime = performance.now();
 
@@ -33,6 +38,30 @@ export class SweepController {
   setMode(modeNumber) {
     this.activeMode = modeNumber;
     if (this.onAngleChanged) this.onAngleChanged(this.currentAngle, this.activeMode);
+  }
+
+  sendServoConfig(minAng, maxAng, step = 3, sweepEn = 1, holdAng = 90) {
+    this.servoMin = minAng;
+    this.servoMax = maxAng;
+    this.servoStep = step;
+    this.sweepEnabled = sweepEn === 1;
+    this.api.sendServoCfg({
+      min_ang: minAng,
+      max_ang: maxAng,
+      step: step,
+      sweep_en: sweepEn,
+      hold_ang: holdAng
+    });
+  }
+
+  centerServoAt90() {
+    this.sweepEnabled = false;
+    this.api.centerServo();
+  }
+
+  resumeSweep() {
+    this.sweepEnabled = true;
+    this.sendServoConfig(this.servoMin, this.servoMax, this.servoStep, 1, 90);
   }
 
   setPacerPeriod(seconds) {
@@ -72,6 +101,15 @@ export class SweepController {
   }
 
   handleTelemetry(telemetry) {
+    if (this.activeMode === 0) {
+      if (telemetry.s_ang !== undefined) {
+        this.currentAngle = telemetry.s_ang;
+        if (this.onAngleChanged) {
+          this.onAngleChanged(this.currentAngle, 0, telemetry.sweep_dir);
+        }
+      }
+    }
+
     if (telemetry.imu && telemetry.yaw !== null) {
       this.imuAvailable = true;
       if (this.activeMode === 4) {

@@ -47,6 +47,14 @@ class AngleRequest(BaseModel):
     angle_deg: float
 
 
+class ServoConfigRequest(BaseModel):
+    min_ang: int = 45
+    max_ang: int = 135
+    step: int = 3
+    sweep_en: int = 1
+    hold_ang: int = 90
+
+
 class IngestPingRequest(BaseModel):
     angle_deg: float
     d_cm: float
@@ -55,6 +63,10 @@ class IngestPingRequest(BaseModel):
     imu: bool = False
     yaw: float = None
     pitch: float = None
+    s_ang: float = None
+    min_ang: float = 45.0
+    max_ang: float = 135.0
+    sweep_dir: str = "STEADY"
 
 
 @app.on_event("startup")
@@ -147,6 +159,20 @@ def set_angle(req: AngleRequest):
     return {"status": "ok", "angle": req.angle_deg}
 
 
+@app.post("/api/servo_cfg")
+def configure_servo(req: ServoConfigRequest):
+    cmd = {
+        "cmd": "SERVO_CFG",
+        "min_ang": req.min_ang,
+        "max_ang": req.max_ang,
+        "step": req.step,
+        "sweep_en": req.sweep_en,
+        "hold_ang": req.hold_ang
+    }
+    success = serial_mgr.send_command(cmd)
+    return {"status": "ok" if success else "error", "config": cmd, "sent_to_serial": success}
+
+
 @app.post("/api/ping")
 def ingest_ping(req: IngestPingRequest):
     """Direct HTTP/MQTT ingest endpoint for live wireless ESP32 or MQTT bridge."""
@@ -157,7 +183,11 @@ def ingest_ping(req: IngestPingRequest):
         safety_stop=req.safety_stop,
         imu_detected=req.imu,
         yaw=req.yaw,
-        pitch=req.pitch
+        pitch=req.pitch,
+        s_ang=req.s_ang,
+        min_ang=req.min_ang,
+        max_ang=req.max_ang,
+        sweep_dir=req.sweep_dir
     )
     return {"status": "ok", "telemetry": telemetry}
 
@@ -195,6 +225,36 @@ async def websocket_endpoint(websocket: WebSocket):
                 ang = float(msg.get("angle", 90.0))
                 d = float(msg.get("d_cm", 400.0))
                 engine.ingest_ping(ang, d, is_valid=True)
+            elif cmd == "servo_cfg":
+                cfg = {
+                    "cmd": "SERVO_CFG",
+                    "min_ang": int(msg.get("min_ang", 45)),
+                    "max_ang": int(msg.get("max_ang", 135)),
+                    "step": int(msg.get("step", 3)),
+                    "sweep_en": int(msg.get("sweep_en", 1)),
+                    "hold_ang": int(msg.get("hold_ang", 90))
+                }
+                serial_mgr.send_command(cfg)
+            elif cmd == "center_servo":
+                cfg = {
+                    "cmd": "SERVO_CFG",
+                    "min_ang": 45,
+                    "max_ang": 135,
+                    "step": 3,
+                    "sweep_en": 0,
+                    "hold_ang": 90
+                }
+                serial_mgr.send_command(cfg)
+            elif cmd == "resume_sweep":
+                cfg = {
+                    "cmd": "SERVO_CFG",
+                    "min_ang": int(msg.get("min_ang", 45)),
+                    "max_ang": int(msg.get("max_ang", 135)),
+                    "step": int(msg.get("step", 3)),
+                    "sweep_en": 1,
+                    "hold_ang": 90
+                }
+                serial_mgr.send_command(cfg)
             elif cmd == "reset":
                 engine.reset()
     except WebSocketDisconnect:

@@ -71,9 +71,11 @@ export class PolarScope {
 
   updateState(telemetry, history, portals) {
     if (telemetry) {
-      this.currentAngle = telemetry.angle_deg || 90.0;
+      this.currentAngle = telemetry.s_ang !== undefined ? telemetry.s_ang : (telemetry.angle_deg || 90.0);
       this.currentDist = telemetry.d_cm || 400.0;
       this.currentValid = telemetry.valid === 1;
+      this.minAng = telemetry.min_ang !== undefined ? telemetry.min_ang : 45.0;
+      this.maxAng = telemetry.max_ang !== undefined ? telemetry.max_ang : 135.0;
     }
     if (history) this.history = history;
     if (portals) this.portals = portals;
@@ -132,6 +134,25 @@ export class PolarScope {
       ctx.fillStyle = '#8b949e';
       ctx.fillText(`${deg}°`, lx, ly);
     });
+
+    // 2b. Draw Active Hardware Servo Sector Wedge (minAng to maxAng)
+    if (this.minAng !== undefined && this.maxAng !== undefined) {
+      const minRad = (this.minAng * Math.PI) / 180.0;
+      const maxRad = (this.maxAng * Math.PI) / 180.0;
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(ox, oy);
+      ctx.arc(ox, oy, maxRadius, -maxRad, -minRad, false);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(0, 229, 255, 0.05)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0, 229, 255, 0.45)';
+      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
 
     // 3. Draw 15-degree Acoustic Beam Cone
     const curRad = (this.currentAngle * Math.PI) / 180.0;
