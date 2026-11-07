@@ -51,6 +51,11 @@ openhuman_extracted/
 # Local Scratch & Separate Projects
 scratch/
 footmo2-v2/
+offline_voice_bench/models/
+offline_voice_bench/clips/
+*.wav
+*.bin
+*.cact
 
 # Electron local logs & text files
 electron_err.txt
