@@ -6,7 +6,7 @@
  *
  * HARDWARE PINOUT:
  *   - Sensor 1 (Low / Primary Beam):  TRIG_1 = GPIO 5,  ECHO_1 = GPIO 18 (Level Shifted)
- *   - Sensor 2 (High / Tilted Beam):   TRIG_2 = GPIO 19, ECHO_2 = GPIO 36 (VP, Input-Only)
+ *   - Sensor 2 (High / Tilted Beam):   TRIG_2 = GPIO 19, ECHO_2 = GPIO 23 (Labeled D23 on silkscreen; or VP)
  *   - Servo 1 (Azimuth / Yaw 1):       GPIO 13 (50 Hz Hardware PWM)
  *   - Servo 2 (Elevation / Yaw 2):     GPIO 16 (50 Hz Hardware PWM)
  *   - MPU6050 IMU (Optional Auto-ID): SDA = GPIO 21,  SCL = GPIO 22 (0x68 / 0x69)
@@ -31,7 +31,7 @@
 #define ECHO_1_PIN     18
 
 #define TRIG_2_PIN     19
-#define ECHO_2_PIN     36    // VP - Dedicated Input-Only pin on ESP32
+#define ECHO_2_PIN     23    // Labeled D23 on board (Universally present on 30-pin & 38-pin boards)
 
 #define SERVO_1_PIN    13
 #define SERVO_2_PIN    16
@@ -465,3 +465,4 @@ void loop() {
   // Regulate loop rate (~16 Hz execution)
   delay(18);
 }
+

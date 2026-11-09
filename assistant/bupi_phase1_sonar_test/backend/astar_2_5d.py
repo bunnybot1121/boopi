@@ -200,3 +200,4 @@ def generate_ascii_20x20_3d(
 
     box_top = "+" + ("-" * 20) + "+"
     return box_top + "\n" + "\n".join("|" + r + "|" for r in matrix) + "\n" + box_top
+

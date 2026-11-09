@@ -4,7 +4,7 @@
 - **Major Milestone**: Implemented the complete, production-ready **Dual-Ultrasonic + Dual-Servo 2.5D/3D Spatial Scanning & Volumetric Mapping Pipeline** across our ESP32 firmware, Python FastAPI backend, and BUPI Test Interface HUD.
 - **Hardware Integration**:
   - Sensor 1 (Low / Primary Beam): `TRIG_1 = GPIO 5`, `ECHO_1 = GPIO 18` (5V Echo shifted via $1\text{k}\Omega + 2\text{k}\Omega$ divider).
-  - Sensor 2 (High / Tilted / Secondary Beam): `TRIG_2 = GPIO 19`, `ECHO_2 = GPIO 36 (VP)` (dedicated input-only ADC1 pin).
+  - Sensor 2 (High / Tilted / Secondary Beam): `TRIG_2 = GPIO 19`, `ECHO_2 = GPIO 23` (Labeled `D23` on board, or `VP/36`).
   - Servo 1 (Azimuth / Yaw 1): `GPIO 13` (50 Hz PWM).
   - Servo 2 (Elevation / Yaw 2): `GPIO 16` (50 Hz PWM).
   - MPU6050 IMU: `SDA = GPIO 21`, `SCL = GPIO 22` (auto-detected on `0x68`/`0x69`).
@@ -60,3 +60,4 @@
 ## 5. Verification & Unit Tests
 - `tests/test_bupi_sonar_pipeline.py`: 8/8 tests passed (100% green, 0.67s execution).
   - Validated coordinate transformations, Bayesian cone integration, single-pass $\Delta d$ depth classification, 3D point cloud generation, 2.5D A* pathfinding, and FastAPI dual-ping REST/WebSocket endpoints.
+
