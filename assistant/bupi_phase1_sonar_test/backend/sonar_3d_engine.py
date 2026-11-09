@@ -171,7 +171,7 @@ class Sonar3DEngine:
         }
 
     def _integrate_ray(self, target_grid: np.ndarray, theta: float, dist_cm: float, is_valid: bool):
-        if not is_valid or dist_cm <= 0.0: return
+        if dist_cm <= 0.0: return
         eff_dist = min(max(dist_cm, self.cfg.MIN_RANGE_CM), self.cfg.MAX_RANGE_CM)
         for off in [-6.0, 0.0, 6.0]:
             rad = math.radians(theta + off)
@@ -181,6 +181,8 @@ class Sonar3DEngine:
             for c, r in pts[:-2]:
                 if self.is_in_bounds(c, r):
                     target_grid[r, c] = max(self.cfg.L_MIN, target_grid[r, c] + (self.cfg.L_FREE * gw))
+                    if self.semantic_matrix[r, c] == 0:
+                        self.semantic_matrix[r, c] = 1 # OPEN_CORRIDOR
             if is_valid and eff_dist < (self.cfg.MAX_RANGE_CM - 8.0):
                 for c, r in pts[-2:]:
                     if self.is_in_bounds(c, r):

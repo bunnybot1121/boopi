@@ -157,26 +157,27 @@ void moveServosSmooth(float target_s1, float target_s2, int duration_ms) {
   delay(cfg.settle_ms);
 }
 
-// --- HC-SR04 Ultrasonic Transducer Driver ---
+// --- HC-SR04 Ultrasonic Transducer Driver (with 2-Burst Anti-Dropout Retry) ---
 float fireSingleUltrasonic(uint8_t trig_pin, uint8_t echo_pin, bool &is_valid) {
-  digitalWrite(trig_pin, LOW);
-  delayMicroseconds(4);
-  digitalWrite(trig_pin, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(trig_pin, LOW);
+  for (int attempt = 0; attempt < 2; attempt++) {
+    digitalWrite(trig_pin, LOW);
+    delayMicroseconds(4);
+    digitalWrite(trig_pin, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(trig_pin, LOW);
 
-  unsigned long duration_us = pulseIn(echo_pin, HIGH, 25000UL);
-  if (duration_us == 0) {
-    is_valid = false;
-    return 400.0f;
+    unsigned long duration_us = pulseIn(echo_pin, HIGH, 25000UL);
+    if (duration_us > 0) {
+      float dist_cm = (float)duration_us * 0.0343f / 2.0f;
+      if (dist_cm >= 2.0f && dist_cm <= 400.0f) {
+        is_valid = true;
+        return dist_cm;
+      }
+    }
+    delayMicroseconds(400);
   }
-  float dist_cm = (float)duration_us * 0.0343f / 2.0f;
-  if (dist_cm < 2.0f || dist_cm > 400.0f) {
-    is_valid = false;
-    return 400.0f;
-  }
-  is_valid = true;
-  return dist_cm;
+  is_valid = false;
+  return 400.0f;
 }
 
 float median3(float a, float b, float c) {
