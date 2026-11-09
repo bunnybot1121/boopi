@@ -40,6 +40,27 @@ export class SweepController {
     if (this.onAngleChanged) this.onAngleChanged(this.currentAngle, this.activeMode);
   }
 
+  sendScanConfig(mode = "STACKED_3D", minAng = 45, maxAng = 135, step = 3, sweepEn = 1, center90 = 0) {
+    this.scanMode = mode;
+    this.servoMin = minAng;
+    this.servoMax = maxAng;
+    this.servoStep = step;
+    this.sweepEnabled = (sweepEn === 1);
+    this.api.sendScanCfg({
+      mode: mode,
+      min_ang: minAng,
+      max_ang: maxAng,
+      step: step,
+      sweep_en: sweepEn,
+      center_90: center90
+    });
+  }
+
+  centerBothAt90() {
+    this.sweepEnabled = false;
+    this.api.centerBoth90();
+  }
+
   sendServoConfig(minAng, maxAng, step = 3, sweepEn = 1, holdAng = 90) {
     this.servoMin = minAng;
     this.servoMax = maxAng;

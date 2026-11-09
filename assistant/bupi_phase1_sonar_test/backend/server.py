@@ -6,7 +6,8 @@ Zero dummy/simulator data. Starts 100% empty.
 
 import asyncio
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Response, Query
 from fastapi.responses import HTMLResponse
@@ -18,7 +19,28 @@ from .config import CONFIG
 from .sonar_imaging_engine import SonarImagingEngine
 from .serial_manager import SerialManager
 
-app = FastAPI(title="BUPI Sonar Vision System", version="2.0.0")
+engine = SonarImagingEngine(CONFIG)
+serial_mgr = SerialManager(engine)
+active_websockets: List[WebSocket] = []
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Attempt auto-connection to an attached ESP32 port (e.g. COM3 or first detected USB port)
+    ports = SerialManager.list_ports()
+    for p in ports:
+        dev = p["device"]
+        desc = p.get("description", "").lower()
+        if "usb" in desc or "ch340" in desc or "cp210" in desc or "uart" in desc or dev == "COM3":
+            if serial_mgr.connect(dev, 115200):
+                break
+    b_task = asyncio.create_task(broadcast_loop())
+    yield
+    b_task.cancel()
+    serial_mgr.stop_all()
+
+
+app = FastAPI(title="BUPI Sonar Vision System", version="2.5.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -27,11 +49,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-engine = SonarImagingEngine(CONFIG)
-serial_mgr = SerialManager(engine)
-
-active_websockets: List[WebSocket] = []
 
 
 class ConnectRequest(BaseModel):
@@ -55,38 +72,34 @@ class ServoConfigRequest(BaseModel):
     hold_ang: int = 90
 
 
+class ScanConfigRequest(BaseModel):
+    mode: str = "STACKED_3D"  # 'STACKED_3D', 'OPPOSED_360', 'PITCH_TILT_3D'
+    min_ang: int = 45
+    max_ang: int = 135
+    step: int = 3
+    sweep_en: int = 1
+    center_90: int = 0
+
+
 class IngestPingRequest(BaseModel):
-    angle_deg: float
-    d_cm: float
+    angle_deg: float = 90.0
+    d_cm: float = 400.0
+    d1_cm: Optional[float] = None
+    d2_cm: Optional[float] = None
+    s1_ang: Optional[float] = None
+    s2_ang: Optional[float] = None
+    mode: str = "STACKED_3D"
     valid: int = 1
+    valid1: Optional[int] = None
+    valid2: Optional[int] = None
     safety_stop: int = 0
     imu: bool = False
-    yaw: float = None
-    pitch: float = None
-    s_ang: float = None
+    yaw: Optional[float] = None
+    pitch: Optional[float] = None
+    s_ang: Optional[float] = None
     min_ang: float = 45.0
     max_ang: float = 135.0
     sweep_dir: str = "STEADY"
-
-
-@app.on_event("startup")
-async def startup_event():
-    # Attempt auto-connection to an attached ESP32 port (e.g. COM3 or first detected USB port)
-    ports = SerialManager.list_ports()
-    for p in ports:
-        dev = p["device"]
-        desc = p.get("description", "").lower()
-        if "usb" in desc or "ch340" in desc or "cp210" in desc or "uart" in desc or dev == "COM3":
-            if serial_mgr.connect(dev, 115200):
-                break
-
-    # Start broadcasting loop
-    asyncio.create_task(broadcast_loop())
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    serial_mgr.stop_all()
 
 
 async def broadcast_loop():
@@ -159,6 +172,28 @@ def set_angle(req: AngleRequest):
     return {"status": "ok", "angle": req.angle_deg}
 
 
+@app.post("/api/scan_cfg")
+def configure_scan(req: ScanConfigRequest):
+    cmd = {
+        "cmd": "SCAN_CFG",
+        "mode": req.mode,
+        "min_ang": req.min_ang,
+        "max_ang": req.max_ang,
+        "step": req.step,
+        "sweep_en": req.sweep_en,
+        "center_90": req.center_90
+    }
+    success = serial_mgr.send_command(cmd)
+    return {"status": "ok" if success else "error", "config": cmd, "sent_to_serial": success}
+
+
+@app.post("/api/center_both_90")
+def center_both_servos():
+    cmd = {"cmd": "SCAN_CFG", "center_90": 1, "sweep_en": 0}
+    success = serial_mgr.send_command(cmd)
+    return {"status": "ok" if success else "error", "action": "center_90", "sent_to_serial": success}
+
+
 @app.post("/api/servo_cfg")
 def configure_servo(req: ServoConfigRequest):
     cmd = {
@@ -176,15 +211,26 @@ def configure_servo(req: ServoConfigRequest):
 @app.post("/api/ping")
 def ingest_ping(req: IngestPingRequest):
     """Direct HTTP/MQTT ingest endpoint for live wireless ESP32 or MQTT bridge."""
-    telemetry = engine.ingest_ping(
-        angle_deg=req.angle_deg,
-        distance_cm=req.d_cm,
-        is_valid=bool(req.valid == 1),
+    d1 = req.d1_cm if req.d1_cm is not None else req.d_cm
+    d2 = req.d2_cm if req.d2_cm is not None else d1
+    v1 = bool(req.valid1 == 1) if req.valid1 is not None else bool(req.valid == 1)
+    v2 = bool(req.valid2 == 1) if req.valid2 is not None else v1
+    s1 = req.s1_ang if req.s1_ang is not None else req.s_ang
+    s2 = req.s2_ang if req.s2_ang is not None else s1
+
+    telemetry = engine.ingest_dual_ping(
+        theta_deg=req.angle_deg,
+        d1_cm=d1,
+        d2_cm=d2,
+        valid1=v1,
+        valid2=v2,
+        s1_ang=s1,
+        s2_ang=s2,
+        mode=req.mode,
         safety_stop=req.safety_stop,
         imu_detected=req.imu,
         yaw=req.yaw,
         pitch=req.pitch,
-        s_ang=req.s_ang,
         min_ang=req.min_ang,
         max_ang=req.max_ang,
         sweep_dir=req.sweep_dir
@@ -225,6 +271,19 @@ async def websocket_endpoint(websocket: WebSocket):
                 ang = float(msg.get("angle", 90.0))
                 d = float(msg.get("d_cm", 400.0))
                 engine.ingest_ping(ang, d, is_valid=True)
+            elif cmd == "scan_cfg":
+                cfg = {
+                    "cmd": "SCAN_CFG",
+                    "mode": msg.get("mode", "STACKED_3D"),
+                    "min_ang": int(msg.get("min_ang", 45)),
+                    "max_ang": int(msg.get("max_ang", 135)),
+                    "step": int(msg.get("step", 3)),
+                    "sweep_en": int(msg.get("sweep_en", 1)),
+                    "center_90": int(msg.get("center_90", 0))
+                }
+                serial_mgr.send_command(cfg)
+            elif cmd == "center_both_90":
+                serial_mgr.send_command({"cmd": "SCAN_CFG", "center_90": 1, "sweep_en": 0})
             elif cmd == "servo_cfg":
                 cfg = {
                     "cmd": "SERVO_CFG",

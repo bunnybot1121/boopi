@@ -142,6 +142,78 @@ class TestSonarPipeline(unittest.TestCase):
         self.assertIn("active_voxels", snapshot)
         self.assertIsInstance(snapshot["active_voxels"], list)
 
+    def test_dual_sonar_3d_engine_classification(self):
+        from backend.sonar_3d_engine import Sonar3DEngine
+        engine_3d = Sonar3DEngine(CONFIG)
+
+        # 1. Tall Wall: d1 = 100cm, d2 = 104cm (abs(delta) <= 25)
+        res_wall = engine_3d.integrate_dual_ping(90.0, 100.0, 104.0, True, True, 90.0, 90.0)
+        self.assertEqual(res_wall["class"], "TALL_SOLID_WALL")
+        self.assertEqual(res_wall["z_cm"], 25.0)
+
+        # 2. Low Step: d1 = 80cm, d2 = 180cm (delta = 100cm > 30)
+        res_step = engine_3d.integrate_dual_ping(45.0, 80.0, 180.0, True, True, 45.0, 45.0)
+        self.assertEqual(res_step["class"], "LOW_STEP_RUBBLE")
+        self.assertEqual(res_step["z_cm"], 6.0)
+
+        # 3. Overhang: d1 = 200cm, d2 = 90cm (delta = -110cm < -30)
+        res_over = engine_3d.integrate_dual_ping(135.0, 200.0, 90.0, True, True, 135.0, 135.0)
+        self.assertEqual(res_over["class"], "OVERHANG_HAZARD")
+
+        # 4. 3D point cloud & voxels
+        self.assertGreater(len(engine_3d.points_3d), 0)
+        voxels = engine_3d.extract_3d_voxels()
+        self.assertIsInstance(voxels, list)
+
+        # 5. Sector clearance
+        sectors = engine_3d.analyze_5_sectors_3d()
+        self.assertIn("Center", sectors)
+        self.assertIn("Front-Right", sectors)
+
+        # 6. ASCII 3D Map
+        ascii_map = engine_3d.generate_ascii_20x20_3d()
+        self.assertIn("B", ascii_map)
+
+    def test_server_endpoints_and_dual_ping_api(self):
+        from fastapi.testclient import TestClient
+        from backend.server import app
+        client = TestClient(app)
+
+        # 1. Status
+        res = client.get("/api/status")
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("connected", res.json())
+
+        # 2. Scan Cfg
+        res_cfg = client.post("/api/scan_cfg", json={
+            "mode": "STACKED_3D",
+            "min_ang": 45,
+            "max_ang": 135,
+            "step": 3,
+            "sweep_en": 1,
+            "center_90": 0
+        })
+        self.assertEqual(res_cfg.status_code, 200)
+
+        # 3. Dual Ping Ingest
+        res_ping = client.post("/api/ping", json={
+            "angle_deg": 90.0,
+            "d1_cm": 120.0,
+            "d2_cm": 125.0,
+            "s1_ang": 90.0,
+            "s2_ang": 90.0,
+            "mode": "STACKED_3D",
+            "valid": 1,
+            "valid1": 1,
+            "valid2": 1,
+            "safety_stop": 0
+        })
+        self.assertEqual(res_ping.status_code, 200)
+        tel = res_ping.json()["telemetry"]
+        self.assertEqual(tel["d1_cm"], 120.0)
+        self.assertEqual(tel["d2_cm"], 125.0)
+        self.assertEqual(tel["class_3d"], "TALL_SOLID_WALL")
+
 
 if __name__ == "__main__":
     unittest.main()

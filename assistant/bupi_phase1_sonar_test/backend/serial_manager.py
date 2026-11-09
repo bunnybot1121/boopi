@@ -216,50 +216,68 @@ class SerialManager:
                     except Exception:
                         continue
 
-                    d_cm = float(packet.get("d_cm", 400.0))
-                    is_valid = bool(packet.get("valid", 0) == 1)
-                    safety_stop = int(packet.get("safety_stop", 0))
+                    # Dual-Sensor or Single-Sensor packet extraction
+                    mode = packet.get("mode", "STACKED_3D")
+                    ts = packet.get("ts", int(time.time() * 1000))
+                    bot_id = packet.get("bot_id", "BUPI-01")
                     imu_present = bool(packet.get("imu", False))
                     yaw = packet.get("yaw")
                     pitch = packet.get("pitch")
-                    ts = packet.get("ts", int(time.time() * 1000))
-                    bot_id = packet.get("bot_id", "BUPI-01")
+                    safety_stop = int(packet.get("safety_stop", 0))
 
-                    # Primary Hardware Servo Angle "s_ang"
-                    raw_s_ang = packet.get("s_ang")
-                    if raw_s_ang is not None:
-                        s_ang = float(raw_s_ang)
+                    # Distances: d1 (low) & d2 (high)
+                    if "d1_cm" in packet:
+                        d1_cm = float(packet.get("d1_cm", 400.0))
+                        d2_cm = float(packet.get("d2_cm", d1_cm))
+                        valid1 = bool(packet.get("valid1", 0) == 1)
+                        valid2 = bool(packet.get("valid2", 0) == 1)
                     else:
-                        s_ang = self.manual_pacer_angle
+                        d1_cm = float(packet.get("d_cm", 400.0))
+                        d2_cm = d1_cm
+                        valid1 = bool(packet.get("valid", 0) == 1)
+                        valid2 = valid1
+
+                    # Angles: s1 & s2
+                    if "s1_ang" in packet:
+                        s1_ang = float(packet.get("s1_ang", 90.0))
+                        s2_ang = float(packet.get("s2_ang", s1_ang))
+                    else:
+                        raw_s = packet.get("s_ang")
+                        s1_ang = float(raw_s) if raw_s is not None else self.manual_pacer_angle
+                        s2_ang = s1_ang
 
                     min_ang = float(packet.get("min_ang", 45.0))
                     max_ang = float(packet.get("max_ang", 135.0))
 
                     # Track sweep direction (Left-to-Right vs Right-to-Left)
-                    if s_ang > self.prev_s_ang:
+                    if s1_ang > self.prev_s_ang:
                         self.sweep_dir = "SWEEPING LEFT <-"
-                    elif s_ang < self.prev_s_ang:
+                    elif s1_ang < self.prev_s_ang:
                         self.sweep_dir = "-> SWEEPING RIGHT"
-                    self.prev_s_ang = s_ang
+                    self.prev_s_ang = s1_ang
 
                     # Angle Fusion: If IMU present, combine global heading with relative servo angle
                     if imu_present and yaw is not None:
-                        eff_angle = (float(yaw) + (s_ang - 90.0)) % 360.0
+                        eff_angle = (float(yaw) + (s1_ang - 90.0)) % 360.0
                         if eff_angle > 180.0:
                             eff_angle = 360.0 - eff_angle
                     else:
-                        eff_angle = s_ang
+                        eff_angle = s1_ang
 
-                    telemetry = self.engine.ingest_ping(
-                        angle_deg=eff_angle,
-                        distance_cm=d_cm,
-                        is_valid=is_valid,
+                    telemetry = self.engine.ingest_dual_ping(
+                        theta_deg=eff_angle,
+                        d1_cm=d1_cm,
+                        d2_cm=d2_cm,
+                        valid1=valid1,
+                        valid2=valid2,
+                        s1_ang=s1_ang,
+                        s2_ang=s2_ang,
+                        mode=mode,
                         timestamp_ms=ts,
                         safety_stop=safety_stop,
                         imu_detected=imu_present,
                         yaw=yaw,
                         pitch=pitch,
-                        s_ang=s_ang,
                         min_ang=min_ang,
                         max_ang=max_ang,
                         sweep_dir=self.sweep_dir,

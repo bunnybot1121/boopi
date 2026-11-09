@@ -1,11 +1,12 @@
 /**
- * Viewport 3: Interactive 3D Voxel Extrusion World.
- * Renders every cell in the 120x120 matrix:
- *   - Tall Wall (Red): Solid full-height 3D wall blocks (100% height) with crisp lighting and edges.
- *   - Low Step (Yellow): Quarter-height 3D blocks (25% height) showing open depth behind.
- *   - Open Corridor (Cyan): Flat floor tiles on the ground plane showing scanned floor.
- *   - Doorway Portal (Magenta): Low glowing doorway ground markers (NOT giant pink sticks).
- *   - Robot Origin (Green): 3D robot chassis + live aiming cone + green A* Planned Path line.
+ * Viewport 3: True 3D Voxel & Elevation World (Three.js / WebGL).
+ * Renders 120x120 multi-layer volumetric room:
+ *   - TALL_SOLID_WALL (Red): Full-height 3D blocks (Z = 0 to 25cm).
+ *   - LOW_STEP_RUBBLE (Yellow): Quarter-height blocks (Z = 0 to 6cm) showing open floor behind.
+ *   - OVERHANG_HAZARD (Orange): Floating blocks (Z = 12 to 25cm) with open gap below.
+ *   - DOORWAY_DEPTH_PORTAL (Magenta): Glowing floor boundary rings.
+ *   - Robot Model + Dual 3D Ultrasonic Beams (Low Cyan + High Amber/Tilted).
+ *   - A* Planned Path 3D Ribbon (Neon Green).
  */
 
 export class VoxelWorld {
@@ -16,7 +17,8 @@ export class VoxelWorld {
     this.voxels = [];
     this.portals = [];
     this.astarPath = [];
-    this.currentAngle = 90.0;
+    this.s1Ang = 90.0;
+    this.s2Ang = 90.0;
 
     this.useThree = typeof window.THREE !== 'undefined';
     if (this.useThree) {
@@ -34,7 +36,6 @@ export class VoxelWorld {
     this.width = rect.width;
     this.height = rect.height;
 
-    // Scene & Camera setup
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x07090c);
 
@@ -46,7 +47,6 @@ export class VoxelWorld {
     this.renderer.setSize(this.width, this.height);
     this.renderer.setPixelRatio(window.devicePixelRatio);
 
-    // Directional & Ambient Lighting for realistic block shading
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
     this.scene.add(ambientLight);
 
@@ -54,26 +54,28 @@ export class VoxelWorld {
     keyLight.position.set(120, 350, 200);
     this.scene.add(keyLight);
 
-    const fillLight = new THREE.DirectionalLight(0xffb300, 0.3);
+    const fillLight = new THREE.DirectionalLight(0xffb300, 0.35);
     fillLight.position.set(-150, 200, -100);
     this.scene.add(fillLight);
 
-    // Metric Ground Grid (480cm x 480cm = 4.8m x 4.8m room)
+    // Metric Room Floor Grid (4.8m x 4.8m)
     const gridHelper = new THREE.GridHelper(480, 24, 0x00e5ff, 0x1b232e);
     gridHelper.position.set(0, 0, 120);
     this.scene.add(gridHelper);
 
-    // Dynamic Groups
+    // Groups
     this.voxelGroup = new THREE.Group();
     this.floorGroup = new THREE.Group();
     this.portalGroup = new THREE.Group();
     this.pathGroup = new THREE.Group();
+    this.beamsGroup = new THREE.Group();
     this.scene.add(this.floorGroup);
     this.scene.add(this.voxelGroup);
     this.scene.add(this.portalGroup);
     this.scene.add(this.pathGroup);
+    this.scene.add(this.beamsGroup);
 
-    // Robot Origin Marker (Chassis + Live Aiming Cone)
+    // Robot Chassis
     this.robotGroup = new THREE.Group();
     const botGeo = new THREE.CylinderGeometry(14, 16, 8, 18);
     const botMat = new THREE.MeshLambertMaterial({ color: 0x00e676 });
@@ -81,17 +83,24 @@ export class VoxelWorld {
     botBody.position.set(0, 4, 0);
     this.robotGroup.add(botBody);
 
-    // Live Aiming Pointer on Robot
-    const coneGeo = new THREE.ConeGeometry(5, 18, 8);
-    const coneMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff });
-    this.aimCone = new THREE.Mesh(coneGeo, coneMat);
-    this.aimCone.rotation.x = Math.PI / 2;
-    this.aimCone.position.set(0, 7, 16);
-    this.robotGroup.add(this.aimCone);
+    // Low Beam Projector (Cyan)
+    const b1Geo = new THREE.ConeGeometry(5, 20, 8);
+    const b1Mat = new THREE.MeshBasicMaterial({ color: 0x00e5ff });
+    this.beam1Mesh = new THREE.Mesh(b1Geo, b1Mat);
+    this.beam1Mesh.rotation.x = Math.PI / 2;
+    this.beam1Mesh.position.set(0, 6, 16);
+    this.robotGroup.add(this.beam1Mesh);
+
+    // High Tilted Beam Projector (Amber)
+    const b2Geo = new THREE.ConeGeometry(4, 18, 8);
+    const b2Mat = new THREE.MeshBasicMaterial({ color: 0xffb300 });
+    this.beam2Mesh = new THREE.Mesh(b2Geo, b2Mat);
+    this.beam2Mesh.rotation.x = (Math.PI / 2) - 0.25; // 14° upward pitch
+    this.beam2Mesh.position.set(0, 14, 14);
+    this.robotGroup.add(this.beam2Mesh);
 
     this.scene.add(this.robotGroup);
 
-    // Mouse Interaction
     this.setupThreeMouseControls();
     this.animateThree();
   }
@@ -143,16 +152,20 @@ export class VoxelWorld {
     this.renderer.render(this.scene, this.camera);
   }
 
-  updateSnapshot(activeVoxels, portals, currentAngle, astarPath) {
+  updateSnapshot(activeVoxels, portals, currentAngle, astarPath, telemetry) {
     this.voxels = activeVoxels || [];
     this.portals = portals || [];
-    this.currentAngle = currentAngle || 90.0;
+    this.s1Ang = telemetry?.s1_ang !== undefined ? telemetry.s1_ang : (currentAngle || 90.0);
+    this.s2Ang = telemetry?.s2_ang !== undefined ? telemetry.s2_ang : this.s1Ang;
     this.astarPath = astarPath || [];
 
-    // Orient Robot Aiming Cone
     if (this.robotGroup) {
-      const rad = ((90.0 - this.currentAngle) * Math.PI) / 180.0;
-      this.robotGroup.rotation.y = rad;
+      const rad1 = ((90.0 - this.s1Ang) * Math.PI) / 180.0;
+      this.robotGroup.rotation.y = rad1;
+      if (this.beam2Mesh) {
+        const radDiff = ((this.s1Ang - this.s2Ang) * Math.PI) / 180.0;
+        this.beam2Mesh.rotation.y = radDiff;
+      }
     }
 
     if (this.useThree) {
@@ -178,12 +191,14 @@ export class VoxelWorld {
     this.clearGroup(this.portalGroup);
     this.clearGroup(this.pathGroup);
 
-    // Shared Materials for Performance
-    const wallGeo = new THREE.BoxGeometry(8, 70, 8); // 100% height solid wall
+    const wallGeo = new THREE.BoxGeometry(8, 70, 8);
     const wallMat = new THREE.MeshLambertMaterial({ color: 0xff3344 });
 
-    const stepGeo = new THREE.BoxGeometry(8, 18, 8); // 25% height low step
+    const stepGeo = new THREE.BoxGeometry(8, 18, 8);
     const stepMat = new THREE.MeshLambertMaterial({ color: 0xffb300 });
+
+    const overhangGeo = new THREE.BoxGeometry(8, 28, 8);
+    const overhangMat = new THREE.MeshLambertMaterial({ color: 0xff6d00 });
 
     const floorGeo = new THREE.PlaneGeometry(16, 16);
     const floorMat = new THREE.MeshBasicMaterial({
@@ -193,7 +208,6 @@ export class VoxelWorld {
       side: THREE.DoubleSide
     });
 
-    // 1. Render All Voxel Matrix Cells
     this.voxels.forEach((v) => {
       if (v.type === "TALL_WALL") {
         const mesh = new THREE.Mesh(wallGeo, wallMat);
@@ -203,6 +217,10 @@ export class VoxelWorld {
         const mesh = new THREE.Mesh(stepGeo, stepMat);
         mesh.position.set(v.x, 9, v.y);
         this.voxelGroup.add(mesh);
+      } else if (v.type === "OVERHANG") {
+        const mesh = new THREE.Mesh(overhangGeo, overhangMat);
+        mesh.position.set(v.x, 50, v.y); // Floating upper block
+        this.voxelGroup.add(mesh);
       } else if (v.type === "FREE_FLOOR") {
         const mesh = new THREE.Mesh(floorGeo, floorMat);
         mesh.rotation.x = -Math.PI / 2;
@@ -211,37 +229,35 @@ export class VoxelWorld {
       }
     });
 
-    // 2. Render Doorway Portals (Low glowing ground markers, NOT giant pink sticks)
+    // Doorway Portals (Glowing floor rings)
     this.portals.forEach((p) => {
       const archGeo = new THREE.RingGeometry(6, 12, 16);
-      const archMat = new THREE.MeshBasicMaterial({
-        color: 0xe040fb,
-        side: THREE.DoubleSide
-      });
+      const archMat = new THREE.MeshBasicMaterial({ color: 0xe040fb, side: THREE.DoubleSide });
       const ringMesh = new THREE.Mesh(archGeo, archMat);
       ringMesh.rotation.x = -Math.PI / 2;
       ringMesh.position.set(p.x_cm, 1.0, p.y_cm);
       this.portalGroup.add(ringMesh);
 
-      // Low Ground Marker Pylon (height = 12cm)
-      const pylonGeo = new THREE.CylinderGeometry(2, 2, 12, 8);
+      const pylonGeo = new THREE.CylinderGeometry(2, 2, 10, 8);
       const pylonMat = new THREE.MeshLambertMaterial({ color: 0xe040fb });
       const pylonMesh = new THREE.Mesh(pylonGeo, pylonMat);
-      pylonMesh.position.set(p.x_cm, 6.0, p.y_cm);
+      pylonMesh.position.set(p.x_cm, 5.0, p.y_cm);
       this.portalGroup.add(pylonMesh);
     });
 
-    // 3. Render A* Planned Path Line (Green glowing line from robot)
+    // A* Path Ribbon
     if (this.astarPath.length >= 2) {
-      const points = this.astarPath.map((wp) => new THREE.Vector3(wp.x, 2.0, wp.y));
+      const points = this.astarPath.map((wp) => {
+        const wx = wp.x_cm !== undefined ? wp.x_cm : (wp.x || 0);
+        const wy = wp.y_cm !== undefined ? wp.y_cm : (wp.y || 0);
+        return new THREE.Vector3(wx, 2.0, wy);
+      });
       const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
       const lineMat = new THREE.LineBasicMaterial({ color: 0x00e676, linewidth: 3 });
-      const lineMesh = new THREE.Line(lineGeo, lineMat);
-      this.pathGroup.add(lineMesh);
+      this.pathGroup.add(new THREE.Line(lineGeo, lineMat));
     }
   }
 
-  // Resilient 2.5D Isometric Fallback
   initIsometricCanvas() {
     this.ctx = this.canvas.getContext('2d');
     this.resize();
@@ -269,7 +285,6 @@ export class VoxelWorld {
     if (!ctx) return;
     const w = this.width;
     const h = this.height;
-
     ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = '#07090c';
     ctx.fillRect(0, 0, w, h);
@@ -278,42 +293,18 @@ export class VoxelWorld {
     const oy = h * 0.72;
     const scale = Math.min(w, h) / 520;
 
-    const toIso = (x, y, z = 0) => {
-      const isoX = ox + (x - y) * Math.cos(Math.PI / 6) * scale;
-      const isoY = oy + (x + y) * Math.sin(Math.PI / 6) * scale - z * scale;
-      return { x: isoX, y: isoY };
-    };
+    const toIso = (x, y, z = 0) => ({
+      x: ox + (x - y) * Math.cos(Math.PI / 6) * scale,
+      y: oy + (x + y) * Math.sin(Math.PI / 6) * scale - z * scale
+    });
 
-    // Draw Grid
-    ctx.strokeStyle = '#1b232e';
-    ctx.lineWidth = 1;
-    for (let i = -200; i <= 200; i += 40) {
-      const p1 = toIso(i, 0);
-      const p2 = toIso(i, 350);
-      ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
-    }
-
-    // Render Voxels
     this.voxels.forEach((v) => {
       const isWall = v.type === 'TALL_WALL';
-      const height = isWall ? 70 : 18;
-      const base = toIso(v.x, v.y, 0);
-      const top = toIso(v.x, v.y, height);
-
-      ctx.fillStyle = isWall ? '#ff3344' : (v.type === 'LOW_STEP' ? '#ffb300' : 'rgba(0,229,255,0.2)');
+      const height = isWall ? 70 : (v.type === 'LOW_STEP' ? 18 : 28);
+      const base = toIso(v.x, v.y, v.type === 'OVERHANG' ? 35 : 0);
+      const top = toIso(v.x, v.y, (v.type === 'OVERHANG' ? 35 : 0) + height);
+      ctx.fillStyle = isWall ? '#ff3344' : (v.type === 'LOW_STEP' ? '#ffb300' : (v.type === 'OVERHANG' ? '#ff6d00' : 'rgba(0,229,255,0.2)'));
       ctx.fillRect(base.x - 3, top.y, 6, Math.max(2, base.y - top.y));
     });
-
-    // Render Portals
-    this.portals.forEach((p) => {
-      const pt = toIso(p.x_cm, p.y_cm, 0);
-      ctx.fillStyle = '#e040fb';
-      ctx.beginPath(); ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2); ctx.fill();
-    });
-
-    // Render Robot
-    const bot = toIso(0, 0, 0);
-    ctx.fillStyle = '#00e676';
-    ctx.beginPath(); ctx.arc(bot.x, bot.y, 6, 0, Math.PI * 2); ctx.fill();
   }
 }

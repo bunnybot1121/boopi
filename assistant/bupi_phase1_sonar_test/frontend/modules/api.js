@@ -62,6 +62,24 @@ export class SonarAPI {
     return await res.json();
   }
 
+  async sendScanCfg(cfg) {
+    this.sendWs({ action: 'scan_cfg', ...cfg });
+    try {
+      await fetch('/api/scan_cfg', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cfg)
+      });
+    } catch (_) {}
+  }
+
+  async centerBoth90() {
+    this.sendWs({ action: 'center_both_90' });
+    try {
+      await fetch('/api/center_both_90', { method: 'POST' });
+    } catch (_) {}
+  }
+
   async sendServoCfg(cfg) {
     this.sendWs({ action: 'servo_cfg', ...cfg });
     try {

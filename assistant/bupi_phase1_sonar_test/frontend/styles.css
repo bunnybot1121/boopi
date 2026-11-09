@@ -685,4 +685,60 @@ html, body {
   margin: 0;
 }
 
+/* Dual-Beam Live Readout Bar */
+.dual-readout-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  background-color: var(--color-bg-surface);
+  border-bottom: 1px solid var(--color-border-subtle);
+  padding: 6px var(--space-lg);
+  flex-wrap: wrap;
+}
+
+.dual-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background-color: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.dual-badge-label {
+  color: var(--color-text-dim);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.dual-badge-value {
+  font-weight: 700;
+  color: var(--color-text-bright);
+}
+
+.dual-badge.primary .dual-badge-value {
+  color: var(--color-primary);
+}
+
+.dual-badge.amber .dual-badge-value {
+  color: var(--color-accent-amber);
+}
+
+.dual-badge.red .dual-badge-value {
+  color: var(--color-accent-red);
+}
+
+.dual-badge.magenta .dual-badge-value {
+  color: var(--color-accent-magenta);
+}
+
+.sector-trav {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--color-text-muted);
+}
+
 

@@ -57,18 +57,19 @@
       </div>
 
       <div class="control-group">
-        <span class="field-label">Scan Layer</span>
-        <div class="segmented-control" role="radiogroup" aria-label="Scan Layer Selection">
-          <button id="btnPass1" class="seg-btn active" role="radio" aria-checked="true" type="button">
-            Pass 1: Low / Flat
-          </button>
-          <button id="btnPass2" class="seg-btn" role="radio" aria-checked="false" type="button">
-            Pass 2: High / Tilted
-          </button>
-        </div>
+        <label for="scanModeSelect" class="field-label" style="color: var(--color-primary); font-weight: 600;">Scan Mode</label>
+        <select id="scanModeSelect" class="select-input" style="min-width: 175px;" aria-label="3D Scanning Mode">
+          <option value="STACKED_3D" selected>Stacked 2.5D/3D (d1 + d2)</option>
+          <option value="OPPOSED_360">360° Opposed Surround</option>
+          <option value="PITCH_TILT_3D">Multi-Pitch 3D Mesh</option>
+        </select>
+
+        <button id="btnLockBoth90" class="tactical-btn amber" type="button" title="Lock both servos at 90° to align hardware horns">
+          🎯 Lock Both Servos 90°
+        </button>
 
         <button id="resetBtn" class="tactical-btn danger" type="button" title="Clear Grid & Buffers">
-          Reset Map
+          Clear / New 3D Scan
         </button>
 
         <button id="dilationToggleBtn" class="tactical-btn" type="button" title="Toggle Robot Collision Buffer">
@@ -88,6 +89,36 @@
         </a>
       </div>
     </nav>
+
+    <!-- Prominent Live Dual-Beam Readout Bar -->
+    <section class="dual-readout-bar" aria-label="Dual Ultrasonic Live Telemetry">
+      <div class="dual-badge primary">
+        <span class="dual-badge-label">S1/D1 (Low):</span>
+        <span id="badgeD1" class="dual-badge-value">-- cm</span>
+        <span id="badgeS1Ang" style="color: var(--color-text-dim); font-size: 11px;">@ 90°</span>
+      </div>
+
+      <div class="dual-badge amber">
+        <span class="dual-badge-label">S2/D2 (High):</span>
+        <span id="badgeD2" class="dual-badge-value">-- cm</span>
+        <span id="badgeS2Ang" style="color: var(--color-text-dim); font-size: 11px;">@ 90°</span>
+      </div>
+
+      <div class="dual-badge" id="badgeDeltaDWrap">
+        <span class="dual-badge-label">Depth Diff (&Delta;d):</span>
+        <span id="badgeDeltaD" class="dual-badge-value">--</span>
+      </div>
+
+      <div class="dual-badge" id="badge3DClassWrap">
+        <span class="dual-badge-label">3D Class:</span>
+        <span id="badge3DClass" class="dual-badge-value" style="color: var(--color-primary);">OPEN_CORRIDOR</span>
+      </div>
+
+      <div class="dual-badge" id="badgeSafetyWrap">
+        <span class="dual-badge-label">Safety Stop:</span>
+        <span id="badgeSafety" class="dual-badge-value" style="color: var(--color-accent-green);">CLEAR (&gt;18cm)</span>
+      </div>
+    </section>
 
     <!-- Sweep Angle Controller Bar (Hardware Servo & Fallback Modes) -->
     <section class="sweep-mode-bar" aria-label="Sweep Angle Calibration">
@@ -235,26 +266,31 @@
             <span class="sector-name">Left (145°-180°)</span>
             <span class="sector-dist" id="secDistLeft">-- cm</span>
             <span class="sector-status" id="secStatLeft">AWAITING</span>
+            <span class="sector-trav" id="secTravLeft">Trav: --%</span>
           </div>
           <div class="sector-card" id="sectorFrontLeft">
             <span class="sector-name">Front-Left (115°-145°)</span>
             <span class="sector-dist" id="secDistFrontLeft">-- cm</span>
             <span class="sector-status" id="secStatFrontLeft">AWAITING</span>
+            <span class="sector-trav" id="secTravFrontLeft">Trav: --%</span>
           </div>
           <div class="sector-card highlighted" id="sectorCenter">
             <span class="sector-name">Center (65°-115°)</span>
             <span class="sector-dist" id="secDistCenter">-- cm</span>
             <span class="sector-status" id="secStatCenter">AWAITING</span>
+            <span class="sector-trav" id="secTravCenter">Trav: --%</span>
           </div>
           <div class="sector-card" id="sectorFrontRight">
             <span class="sector-name">Front-Right (35°-65°)</span>
             <span class="sector-dist" id="secDistFrontRight">-- cm</span>
             <span class="sector-status" id="secStatFrontRight">AWAITING</span>
+            <span class="sector-trav" id="secTravFrontRight">Trav: --%</span>
           </div>
           <div class="sector-card" id="sectorRight">
             <span class="sector-name">Right (0°-35°)</span>
             <span class="sector-dist" id="secDistRight">-- cm</span>
             <span class="sector-status" id="secStatRight">AWAITING</span>
+            <span class="sector-trav" id="secTravRight">Trav: --%</span>
           </div>
         </div>
 

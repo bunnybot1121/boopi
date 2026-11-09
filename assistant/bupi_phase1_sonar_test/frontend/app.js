@@ -64,6 +64,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const baudSelect = document.getElementById('baudSelect');
   const connectBtn = document.getElementById('connectBtn');
   const refreshPortsBtn = document.getElementById('refreshPortsBtn');
+  const scanModeSelect = document.getElementById('scanModeSelect');
+  const btnLockBoth90 = document.getElementById('btnLockBoth90');
   const btnPass1 = document.getElementById('btnPass1');
   const btnPass2 = document.getElementById('btnPass2');
   const resetBtn = document.getElementById('resetBtn');
@@ -71,6 +73,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const exportPngBtn = document.getElementById('exportPngBtn');
   const exportJsonBtn = document.getElementById('exportJsonBtn');
   const copyAsciiBtn = document.getElementById('copyAsciiBtn');
+
+  // Dual-Beam Badges
+  const badgeD1 = document.getElementById('badgeD1');
+  const badgeS1Ang = document.getElementById('badgeS1Ang');
+  const badgeD2 = document.getElementById('badgeD2');
+  const badgeS2Ang = document.getElementById('badgeS2Ang');
+  const badgeDeltaD = document.getElementById('badgeDeltaD');
+  const badge3DClass = document.getElementById('badge3DClass');
+  const badgeSafety = document.getElementById('badgeSafety');
 
   // Mode Tabs & Containers
   const modeTabs = [
@@ -165,11 +176,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const asciiMatrixView = document.getElementById('asciiMatrixView');
 
   const sectorEls = {
-    "Left": { dist: document.getElementById('secDistLeft'), stat: document.getElementById('secStatLeft') },
-    "Front-Left": { dist: document.getElementById('secDistFrontLeft'), stat: document.getElementById('secStatFrontLeft') },
-    "Center": { dist: document.getElementById('secDistCenter'), stat: document.getElementById('secStatCenter') },
-    "Front-Right": { dist: document.getElementById('secDistFrontRight'), stat: document.getElementById('secStatFrontRight') },
-    "Right": { dist: document.getElementById('secDistRight'), stat: document.getElementById('secStatRight') }
+    "Left": { dist: document.getElementById('secDistLeft'), stat: document.getElementById('secStatLeft'), trav: document.getElementById('secTravLeft') },
+    "Front-Left": { dist: document.getElementById('secDistFrontLeft'), stat: document.getElementById('secStatFrontLeft'), trav: document.getElementById('secTravFrontLeft') },
+    "Center": { dist: document.getElementById('secDistCenter'), stat: document.getElementById('secStatCenter'), trav: document.getElementById('secTravCenter') },
+    "Front-Right": { dist: document.getElementById('secDistFrontRight'), stat: document.getElementById('secStatFrontRight'), trav: document.getElementById('secTravFrontRight') },
+    "Right": { dist: document.getElementById('secDistRight'), stat: document.getElementById('secStatRight'), trav: document.getElementById('secTravRight') }
   };
 
   // 4. Fetch Available Physical COM Ports
@@ -228,6 +239,24 @@ document.addEventListener('DOMContentLoaded', () => {
     btnPass1.setAttribute('aria-checked', 'false');
     await api.setActivePass('pass2');
   });
+
+  // Scan Mode and Hardware Centering
+  if (scanModeSelect) {
+    scanModeSelect.addEventListener('change', () => {
+      const mode = scanModeSelect.value;
+      const minA = parseInt(servoMinSlider.value, 10);
+      const maxA = parseInt(servoMaxSlider.value, 10);
+      const st = parseInt(servoStepSelect.value, 10);
+      sweepController.sendScanConfig(mode, minA, maxA, st, 1, 0);
+    });
+  }
+
+  if (btnLockBoth90) {
+    btnLockBoth90.addEventListener('click', () => {
+      sweepController.centerBothAt90();
+      if (btnResumeSweep) btnResumeSweep.style.display = 'inline-block';
+    });
+  }
 
   // 7. Reset, Dilation, and Export Actions
   resetBtn.addEventListener('click', async () => {
@@ -358,6 +387,39 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
 
+      // Dual-Beam Badges Update
+      const d1 = tel.d1_cm !== undefined ? tel.d1_cm : tel.d_cm;
+      const d2 = tel.d2_cm !== undefined ? tel.d2_cm : d1;
+      const s1 = tel.s1_ang !== undefined ? tel.s1_ang : (tel.s_ang || 90);
+      const s2 = tel.s2_ang !== undefined ? tel.s2_ang : s1;
+
+      if (badgeD1) badgeD1.textContent = (tel.valid1 || tel.valid) ? `${d1.toFixed(1)} cm` : '-- cm';
+      if (badgeS1Ang) badgeS1Ang.textContent = `@ ${s1.toFixed(0)}°`;
+      if (badgeD2) badgeD2.textContent = (tel.valid2 || tel.valid) ? `${d2.toFixed(1)} cm` : '-- cm';
+      if (badgeS2Ang) badgeS2Ang.textContent = `@ ${s2.toFixed(0)}°`;
+
+      if (badgeDeltaD && tel.delta_d !== null && tel.delta_d !== undefined) {
+        const sign = tel.delta_d >= 0 ? '+' : '';
+        badgeDeltaD.textContent = `${sign}${tel.delta_d.toFixed(1)} cm`;
+      }
+
+      if (badge3DClass) {
+        const c3d = tel.class_3d || "OPEN_CORRIDOR";
+        badge3DClass.textContent = c3d;
+        badge3DClass.style.color = (
+          c3d === 'TALL_SOLID_WALL' ? '#ff3344' :
+          c3d === 'LOW_STEP_RUBBLE' ? '#ffb300' :
+          c3d === 'OVERHANG_HAZARD' ? '#ff6d00' :
+          c3d === 'DOORWAY_DEPTH_PORTAL' ? '#e040fb' : '#00e5ff'
+        );
+      }
+
+      if (badgeSafety) {
+        const isStop = tel.safety_stop === 1;
+        badgeSafety.textContent = isStop ? 'CRITICAL STOP (<18cm)' : 'CLEAR (>18cm)';
+        badgeSafety.style.color = isStop ? '#ff3344' : '#00e676';
+      }
+
       // Telemetry Bar
       const curServoAng = tel.s_ang !== undefined ? tel.s_ang : tel.angle_deg;
       const statServoAngle = document.getElementById('statServoAngle');
@@ -414,10 +476,13 @@ document.addEventListener('DOMContentLoaded', () => {
             if (el) {
               el.dist.textContent = `${sdata.min_distance_cm} cm`;
               el.stat.textContent = sdata.status;
+              if (el.trav && sdata.traversability_pct !== undefined) {
+                el.trav.textContent = `Trav: ${sdata.traversability_pct}%`;
+              }
               el.stat.className = 'sector-status ' + (
                 sdata.status === 'CLEAR_CORRIDOR' ? 'clear' :
-                sdata.status === 'DOORWAY_PORTAL' ? 'portal' :
-                sdata.status === 'LOW_STEP' ? 'step' :
+                sdata.status === 'PORTAL_ENTRANCE' || sdata.status === 'DOORWAY_PORTAL' ? 'portal' :
+                sdata.status === 'LOW_STEP_CLIMBABLE' || sdata.status === 'LOW_STEP' ? 'step' :
                 sdata.status === 'BLOCKED_WALL' ? 'blocked' : ''
               );
             }
@@ -432,7 +497,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Update 3 Viewports
       polarScope.updateState(tel, snapshot.polar_history, snapshot.portals);
       dipCanvas.updateSnapshot(snapshot.semantic_image_b64, ai ? ai.astar_path : []);
-      voxelWorld.updateSnapshot(snapshot.active_voxels, snapshot.portals, curServoAng, ai ? ai.astar_path : []);
+      voxelWorld.updateSnapshot(snapshot.active_voxels, snapshot.portals, curServoAng, ai ? ai.astar_path : [], tel);
     },
     (isConnected) => {
       if (!isConnected) {

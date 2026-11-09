@@ -97,8 +97,10 @@ export class DIPCanvas {
       ctx.beginPath();
 
       this.astarPath.forEach((wp, idx) => {
-        const col = this.originX + (wp.x / this.resCm);
-        const row = this.originY - (wp.y / this.resCm);
+        const wx = wp.x_cm !== undefined ? wp.x_cm : (wp.x || 0);
+        const wy = wp.y_cm !== undefined ? wp.y_cm : (wp.y || 0);
+        const col = this.originX + (wx / this.resCm);
+        const row = this.originY - (wy / this.resCm);
         const px = col * pxPerCell;
         const py = row * pxPerCell;
         if (idx === 0) {
