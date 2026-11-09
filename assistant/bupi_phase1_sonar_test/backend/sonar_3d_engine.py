@@ -208,6 +208,107 @@ class Sonar3DEngine:
             self.cfg.PROB_OCC_THRESH, self.cfg.PROB_FREE_THRESH
         )
 
+    def extract_pinpointed_objects(self) -> List[Dict[str, Any]]:
+        """
+        Clusters continuous obstacle returns across angular bins to pinpoint
+        exact (X, Y) obstacle centroids, physical widths, distances, and 3D classes.
+        Fuses Sensor 1 (Low) and Sensor 2 (High) to classify vertical boundaries.
+        """
+        objects = []
+        if not self.d1_buffer:
+            return objects
+
+        sorted_angles = sorted(self.d1_buffer.keys())
+        clusters: List[List[Tuple[int, float]]] = []
+        current_cluster: List[Tuple[int, float]] = []
+
+        for ang in sorted_angles:
+            d = self.d1_buffer[ang]
+            if d < (self.cfg.MAX_RANGE_CM - 15.0) and d > self.cfg.MIN_RANGE_CM:
+                if not current_cluster:
+                    current_cluster.append((ang, d))
+                else:
+                    prev_ang, prev_d = current_cluster[-1]
+                    if abs(ang - prev_ang) <= 6 and abs(d - prev_d) <= 25.0:
+                        current_cluster.append((ang, d))
+                    else:
+                        if len(current_cluster) >= 2:
+                            clusters.append(current_cluster)
+                        current_cluster = [(ang, d)]
+            else:
+                if len(current_cluster) >= 2:
+                    clusters.append(current_cluster)
+                current_cluster = []
+
+        if len(current_cluster) >= 2:
+            clusters.append(current_cluster)
+
+        obj_id = 1
+        for cluster in clusters:
+            min_entry = min(cluster, key=lambda pt: pt[1])
+            best_ang, min_dist = min_entry[0], min_entry[1]
+            rad = math.radians(best_ang)
+
+            exact_x = round(min_dist * math.cos(rad), 1)
+            exact_y = round(min_dist * math.sin(rad), 1)
+
+            ang_start, d_start = cluster[0]
+            ang_end, d_end = cluster[-1]
+            x_start = d_start * math.cos(math.radians(ang_start))
+            y_start = d_start * math.sin(math.radians(ang_start))
+            x_end = d_end * math.cos(math.radians(ang_end))
+            y_end = d_end * math.sin(math.radians(ang_end))
+            width_cm = round(math.hypot(x_end - x_start, y_end - y_start), 1)
+            width_cm = max(width_cm, 8.0)
+
+            high_dists = [self.d2_buffer[a] for a, _ in cluster if a in self.d2_buffer and self.d2_buffer[a] < 390.0]
+
+            if high_dists:
+                avg_high = sum(high_dists) / len(high_dists)
+                delta_h = avg_high - min_dist
+                if abs(delta_h) <= 20.0:
+                    cls_name = "TALL_SOLID_WALL"
+                    label = "Tall Solid Wall"
+                    color = "#ff3344"
+                    height_cm = 25.0
+                    traversable = False
+                elif delta_h > 20.0:
+                    cls_name = "LOW_STEP_RUBBLE"
+                    label = "Low Step / Rubble"
+                    color = "#ffb300"
+                    height_cm = 6.0
+                    traversable = True
+                else:
+                    cls_name = "OVERHANG_HAZARD"
+                    label = "Hanging Overhang"
+                    color = "#ff6d00"
+                    height_cm = 18.0
+                    traversable = False
+            else:
+                cls_name = "LOW_STEP_RUBBLE" if min_dist < 150.0 else "TALL_SOLID_WALL"
+                label = "Low Floor Obstacle" if min_dist < 150.0 else "Tall Barrier"
+                color = "#ffb300" if min_dist < 150.0 else "#ff3344"
+                height_cm = 6.0 if min_dist < 150.0 else 25.0
+                traversable = (min_dist < 150.0)
+
+            objects.append({
+                "id": f"OBJ-{obj_id}",
+                "class": cls_name,
+                "label": label,
+                "x_cm": exact_x,
+                "y_cm": exact_y,
+                "distance_cm": round(min_dist, 1),
+                "angle_deg": round(best_ang, 1),
+                "width_cm": width_cm,
+                "height_cm": height_cm,
+                "traversable": traversable,
+                "color": color,
+                "points_count": len(cluster)
+            })
+            obj_id += 1
+
+        return objects
+
     def extract_3d_voxels(self) -> List[Dict[str, Any]]:
         voxels = []
         prob_grid = self.get_probability_grid()

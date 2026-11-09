@@ -40,8 +40,10 @@ class SonarCVPipeline:
     def generate_semantic_image(
         self,
         prob_grid: np.ndarray,
-        portals: List[DepthPortal],
-        vertical_features: List[VerticalFeature],
+        portals: List[Any],
+        semantic_matrix: Optional[np.ndarray] = None,
+        points_3d: Optional[List[Dict[str, Any]]] = None,
+        vertical_features: Optional[List[Any]] = None,
         show_dilation: bool = True
     ) -> np.ndarray:
         """
@@ -68,43 +70,60 @@ class SonarCVPipeline:
         obs_mask = prob_grid >= self.cfg.PROB_OCC_THRESH
         semantic_rgb[obs_mask] = [255, 51, 68]
 
-        # 3. Draw Open Depth Corridors (Cyan lines/areas behind low obstacles)
-        for vf in vertical_features:
-            if vf.feature_type == "LOW_OBSTACLE" and vf.corridor_end_x is not None:
-                # Origin -> low obstacle -> corridor end
-                c1 = int(round(self.cfg.ORIGIN_X + (vf.x_cm / self.cfg.RESOLUTION_CM)))
-                r1 = int(round(self.cfg.ORIGIN_Y - (vf.y_cm / self.cfg.RESOLUTION_CM)))
-                c2 = int(round(self.cfg.ORIGIN_X + (vf.corridor_end_x / self.cfg.RESOLUTION_CM)))
-                r2 = int(round(self.cfg.ORIGIN_Y - (vf.corridor_end_y / self.cfg.RESOLUTION_CM)))
-                cv2.line(semantic_rgb, (c1, r1), (c2, r2), (0, 229, 255), 1)
+        # 3. 2.5D Semantic Matrix Overlay
+        if semantic_matrix is not None:
+            # Low Step / Rubble: Yellow (#ffb300)
+            semantic_rgb[semantic_matrix == 2] = [255, 179, 0]
+            # Tall Solid Wall: Red (#ff3344)
+            semantic_rgb[semantic_matrix == 3] = [255, 51, 68]
+            # Hanging Overhang: Orange (#ff6d00)
+            semantic_rgb[semantic_matrix == 4] = [255, 109, 0]
 
-        # 4. Color classified vertical features (Tall walls, low obstacles, overhangs)
-        for vf in vertical_features:
-            col = int(round(self.cfg.ORIGIN_X + (vf.x_cm / self.cfg.RESOLUTION_CM)))
-            row = int(round(self.cfg.ORIGIN_Y - (vf.y_cm / self.cfg.RESOLUTION_CM)))
-            if 0 <= col < w and 0 <= row < h:
-                if vf.feature_type == "LOW_OBSTACLE":
-                    cv2.circle(semantic_rgb, (col, row), 2, (255, 179, 0), -1)  # Amber Yellow
-                elif vf.feature_type == "HANGING_OVERHANG":
-                    cv2.circle(semantic_rgb, (col, row), 2, (255, 109, 0), -1)  # Orange
-                elif vf.feature_type == "TALL_WALL":
-                    cv2.circle(semantic_rgb, (col, row), 2, (255, 51, 68), -1)   # Red
+        # 4. Color classified vertical features (legacy fallback)
+        if vertical_features:
+            for vf in vertical_features:
+                col = int(round(self.cfg.ORIGIN_X + (vf.x_cm / self.cfg.RESOLUTION_CM)))
+                row = int(round(self.cfg.ORIGIN_Y - (vf.y_cm / self.cfg.RESOLUTION_CM)))
+                if 0 <= col < w and 0 <= row < h:
+                    if vf.feature_type == "LOW_OBSTACLE":
+                        cv2.circle(semantic_rgb, (col, row), 2, (255, 179, 0), -1)  # Amber Yellow
+                    elif vf.feature_type == "HANGING_OVERHANG":
+                        cv2.circle(semantic_rgb, (col, row), 2, (255, 109, 0), -1)  # Orange
+                    elif vf.feature_type == "TALL_WALL":
+                        cv2.circle(semantic_rgb, (col, row), 2, (255, 51, 68), -1)   # Red
 
-        # 5. Draw 3D Depth Portal Edges (Magenta markers)
+        # 5. Exact Obstacle Scatter Points from 3D Engine
+        if points_3d:
+            for pt in points_3d[-200:]:
+                x_val = pt.get("x")
+                y_val = pt.get("y")
+                if x_val is not None and y_val is not None:
+                    col = int(round(self.cfg.ORIGIN_X + (x_val / self.cfg.RESOLUTION_CM)))
+                    row = int(round(self.cfg.ORIGIN_Y - (y_val / self.cfg.RESOLUTION_CM)))
+                    if 0 <= col < w and 0 <= row < h:
+                        beam = pt.get("beam", "low")
+                        if beam == "high":
+                            cv2.circle(semantic_rgb, (col, row), 2, (255, 179, 0), -1)  # High beam amber
+                        else:
+                            cv2.circle(semantic_rgb, (col, row), 2, (255, 51, 68), -1)   # Low beam red
+
+        # 6. Draw 3D Depth Portal Edges (Magenta markers)
         for p in portals:
-            pc = int(round(self.cfg.ORIGIN_X + (p.x_cm / self.cfg.RESOLUTION_CM)))
-            pr = int(round(self.cfg.ORIGIN_Y - (p.y_cm / self.cfg.RESOLUTION_CM)))
-            if 0 <= pc < w and 0 <= pr < h:
-                cv2.circle(semantic_rgb, (pc, pr), 3, (224, 64, 251), -1)
+            px = p.get("x_cm") if isinstance(p, dict) else getattr(p, "x_cm", None)
+            py = p.get("y_cm") if isinstance(p, dict) else getattr(p, "y_cm", None)
+            if px is not None and py is not None:
+                pc = int(round(self.cfg.ORIGIN_X + (px / self.cfg.RESOLUTION_CM)))
+                pr = int(round(self.cfg.ORIGIN_Y - (py / self.cfg.RESOLUTION_CM)))
+                if 0 <= pc < w and 0 <= pr < h:
+                    cv2.circle(semantic_rgb, (pc, pr), 3, (224, 64, 251), -1)
 
-        # 6. Safety Buffer Dilation Overlay (if enabled)
+        # 7. Safety Buffer Dilation Overlay (if enabled)
         if show_dilation:
             dilated = self.generate_dilation_mask(prob_grid)
-            # Find contours of dilated mask
             contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             cv2.drawContours(semantic_rgb, contours, -1, (0, 229, 255), 1)
 
-        # 7. Robot / Sensor Origin Marker at (60, 60)
+        # 8. Robot / Sensor Origin Marker at (60, 60)
         ox, oy = self.cfg.ORIGIN_X, self.cfg.ORIGIN_Y
         cv2.circle(semantic_rgb, (ox, oy), 3, (0, 230, 118), -1)  # Bright Green
         cv2.line(semantic_rgb, (ox - 4, oy), (ox + 4, oy), (0, 230, 118), 1)

@@ -37,10 +37,12 @@ document.addEventListener('DOMContentLoaded', () => {
       statSweepDir.textContent = sweepDir;
     }
     if (mode === 2) {
-      document.getElementById('stepAngleLabel').textContent = `${angle.toFixed(0)}°`;
+      const stepLbl = document.getElementById('stepAngleLabel');
+      if (stepLbl) stepLbl.textContent = `${angle.toFixed(0)}°`;
     }
     if (mode === 3) {
-      document.getElementById('manualAngleValue').textContent = `${angle.toFixed(0)}°`;
+      const manVal = document.getElementById('manualAngleValue');
+      if (manVal) manVal.textContent = `${angle.toFixed(0)}°`;
       const slider = document.getElementById('manualAngleSlider');
       if (slider && parseFloat(slider.value) !== angle) {
         slider.value = angle;
@@ -228,6 +230,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (resetBtn) {
     resetBtn.addEventListener('click', async () => {
       await api.resetMap();
+      polarScope.clear();
     });
   }
 
@@ -244,7 +247,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const conn = snapshot.connection || {};
       if (conn.connected) {
         connBadge.className = 'status-badge online';
-        connText.textContent = `ESP32 (${conn.port})`;
+        connText.textContent = `CONNECTED (${conn.port || 'COM3'})`;
       } else if (conn.is_busy) {
         connBadge.className = 'status-badge amber';
         connText.textContent = `${conn.busy_port || 'COM3'} BUSY (CLOSE ARDUINO SERIAL MONITOR)`;
@@ -262,27 +265,34 @@ document.addEventListener('DOMContentLoaded', () => {
         imuStatusText.textContent = 'IMU: OFF (VIRTUAL PACER)';
       }
 
-      // Active Pass Sync
+      // Active Pass Sync (if elements present)
       if (tel.active_pass && tel.active_pass !== activePass) {
         activePass = tel.active_pass;
-        if (activePass === 'pass1') {
-          btnPass1.classList.add('active');
-          btnPass2.classList.remove('active');
-        } else {
-          btnPass2.classList.add('active');
-          btnPass1.classList.remove('active');
+        const bP1 = document.getElementById('btnPass1');
+        const bP2 = document.getElementById('btnPass2');
+        if (bP1 && bP2) {
+          if (activePass === 'pass1') {
+            bP1.classList.add('active');
+            bP2.classList.remove('active');
+          } else {
+            bP2.classList.add('active');
+            bP1.classList.remove('active');
+          }
         }
       }
 
       // Dual-Beam Badges Update
-      const d1 = tel.d1_cm !== undefined ? tel.d1_cm : tel.d_cm;
+      const d1 = tel.d1_cm !== undefined ? tel.d1_cm : (tel.d_cm !== undefined ? tel.d_cm : 400.0);
       const d2 = tel.d2_cm !== undefined ? tel.d2_cm : d1;
-      const s1 = tel.s1_ang !== undefined ? tel.s1_ang : (tel.s_ang || 90);
+      const s1 = tel.s1_ang !== undefined ? tel.s1_ang : (tel.s_ang !== undefined ? tel.s_ang : 90.0);
       const s2 = tel.s2_ang !== undefined ? tel.s2_ang : s1;
 
-      if (badgeD1) badgeD1.textContent = (tel.valid1 || tel.valid) ? `${d1.toFixed(1)} cm` : '-- cm';
+      const v1 = (tel.valid1 === 1 || tel.valid1 === true || tel.valid === 1 || tel.valid === true || (d1 > 2 && d1 < 395));
+      const v2 = (tel.valid2 === 1 || tel.valid2 === true || (d2 > 2 && d2 < 395 && d2 !== d1));
+
+      if (badgeD1) badgeD1.textContent = v1 ? `${d1.toFixed(1)} cm` : '-- cm';
       if (badgeS1Ang) badgeS1Ang.textContent = `@ ${s1.toFixed(0)}°`;
-      if (badgeD2) badgeD2.textContent = (tel.valid2 || tel.valid) ? `${d2.toFixed(1)} cm` : '-- cm';
+      if (badgeD2) badgeD2.textContent = v2 ? `${d2.toFixed(1)} cm` : '-- cm';
       if (badgeS2Ang) badgeS2Ang.textContent = `@ ${s2.toFixed(0)}°`;
 
       if (badgeDeltaD && tel.delta_d !== null && tel.delta_d !== undefined) {
@@ -308,7 +318,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       // Telemetry Bar
-      const curServoAng = tel.s_ang !== undefined ? tel.s_ang : tel.angle_deg;
+      const curServoAng = s1;
       const statServoAngle = document.getElementById('statServoAngle');
       const statSweepDir = document.getElementById('statSweepDir');
       if (statServoAngle) {
@@ -322,9 +332,9 @@ document.addEventListener('DOMContentLoaded', () => {
         );
       }
 
-      if (tel.valid) {
-        statDistance.textContent = `${tel.d_cm.toFixed(1)} cm`;
-        statDistance.className = tel.d_cm < 40 ? 'stat-value red' : 'stat-value green';
+      if (v1) {
+        statDistance.textContent = `${d1.toFixed(1)} cm`;
+        statDistance.className = d1 < 40 ? 'stat-value red' : 'stat-value green';
       } else {
         statDistance.textContent = 'NO ECHO (TIMEOUT)';
         statDistance.className = 'stat-value amber';
@@ -381,9 +391,48 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
 
+      // Update Pinpointed Detected Objects Table
+      const pinObjs = snapshot.pinpointed_objects || [];
+      const tblBody = document.getElementById('detectedObjectsTableBody');
+      const countTxt = document.getElementById('objectsCountText');
+      if (countTxt) {
+        countTxt.textContent = `${pinObjs.length} OBJECT${pinObjs.length === 1 ? '' : 'S'}`;
+      }
+
+      if (tblBody) {
+        if (pinObjs.length === 0) {
+          tblBody.innerHTML = `
+            <tr class="empty-row">
+              <td colspan="8">Scanning sector... No discrete obstacles resolved yet.</td>
+            </tr>
+          `;
+        } else {
+          tblBody.innerHTML = pinObjs.map((obj) => {
+            const xSign = obj.x_cm >= 0 ? '+' : '';
+            const ySign = obj.y_cm >= 0 ? '+' : '';
+            const dirBadge = obj.traversable
+              ? `<span class="obj-directive-badge traversable">STEP OVER (LOW)</span>`
+              : `<span class="obj-directive-badge stop">STOP / AVOID</span>`;
+
+            return `
+              <tr>
+                <td><span class="obj-id-badge" style="color: ${obj.color};">${obj.id}</span></td>
+                <td style="color: ${obj.color}; font-weight: 600;">${obj.label || obj.class}</td>
+                <td><strong>${obj.distance_cm.toFixed(1)} cm</strong></td>
+                <td>${obj.angle_deg.toFixed(1)}°</td>
+                <td><code style="color: var(--color-primary);">${xSign}${obj.x_cm.toFixed(1)}, ${ySign}${obj.y_cm.toFixed(1)} cm</code></td>
+                <td>${obj.width_cm.toFixed(1)} cm</td>
+                <td>${obj.height_cm.toFixed(0)} cm (${obj.class === 'LOW_STEP_RUBBLE' ? 'Low Step' : 'Full Wall'})</td>
+                <td>${dirBadge}</td>
+              </tr>
+            `;
+          }).join('');
+        }
+      }
+
       // Update 3 Viewports
-      polarScope.updateState(tel, snapshot.polar_history, snapshot.portals);
-      dipCanvas.updateSnapshot(snapshot.semantic_image_b64, ai ? ai.astar_path : []);
+      polarScope.updateState(tel, snapshot.polar_history, snapshot.portals, pinObjs);
+      dipCanvas.updateSnapshot(snapshot.semantic_image_b64, ai ? ai.astar_path : [], snapshot.points_3d, tel, pinObjs);
       voxelWorld.updateSnapshot(snapshot.active_voxels, snapshot.portals, curServoAng, ai ? ai.astar_path : [], tel);
     },
     (isConnected) => {

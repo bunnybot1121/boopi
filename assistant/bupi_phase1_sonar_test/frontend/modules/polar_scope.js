@@ -21,6 +21,8 @@ export class PolarScope {
     this.class3d = "OPEN_CORRIDOR";
     this.history = [];
     this.portals = [];
+    this.persistentObstacles = new Map();
+    this.pinpointedObjects = [];
     this.onAngleAim = null;
     this.isAimDragging = false;
 
@@ -74,26 +76,43 @@ export class PolarScope {
     this.render();
   }
 
-  updateState(telemetry, history, portals) {
+  updateState(telemetry, history, portals, pinpointedObjects = []) {
     if (telemetry) {
-      this.s1Ang = telemetry.s1_ang !== undefined ? telemetry.s1_ang : (telemetry.s_ang || 90.0);
+      this.s1Ang = telemetry.s1_ang !== undefined ? telemetry.s1_ang : (telemetry.s_ang !== undefined ? telemetry.s_ang : 90.0);
       this.s2Ang = telemetry.s2_ang !== undefined ? telemetry.s2_ang : this.s1Ang;
       this.currentAngle = this.s1Ang;
 
-      this.d1Cm = telemetry.d1_cm !== undefined ? telemetry.d1_cm : (telemetry.d_cm || 400.0);
+      this.d1Cm = telemetry.d1_cm !== undefined ? telemetry.d1_cm : (telemetry.d_cm !== undefined ? telemetry.d_cm : 400.0);
       this.d2Cm = telemetry.d2_cm !== undefined ? telemetry.d2_cm : this.d1Cm;
 
-      this.valid1 = telemetry.valid1 !== undefined ? (telemetry.valid1 === 1) : (telemetry.valid === 1);
-      this.valid2 = telemetry.valid2 !== undefined ? (telemetry.valid2 === 1) : this.valid1;
+      this.valid1 = telemetry.valid1 !== undefined ? (telemetry.valid1 === 1 || telemetry.valid1 === true) : (telemetry.valid === 1 || telemetry.valid === true);
+      this.valid2 = telemetry.valid2 !== undefined ? (telemetry.valid2 === 1 || telemetry.valid2 === true) : this.valid1;
 
       this.deltaD = telemetry.delta_d !== undefined ? telemetry.delta_d : (this.d2Cm - this.d1Cm);
       this.class3d = telemetry.class_3d || "OPEN_CORRIDOR";
 
       this.minAng = telemetry.min_ang !== undefined ? telemetry.min_ang : 45.0;
       this.maxAng = telemetry.max_ang !== undefined ? telemetry.max_ang : 135.0;
+
+      if ((this.valid1 || (this.d1Cm > 2 && this.d1Cm < 390)) && this.d1Cm < 390) {
+        this.persistentObstacles.set(Math.round(this.s1Ang), {
+          d1: this.d1Cm,
+          d2: this.d2Cm,
+          angle: this.s1Ang
+        });
+      }
     }
     if (history) this.history = history;
     if (portals) this.portals = portals;
+    if (pinpointedObjects) this.pinpointedObjects = pinpointedObjects;
+    this.render();
+  }
+
+  clear() {
+    this.persistentObstacles.clear();
+    this.pinpointedObjects = [];
+    this.history = [];
+    this.portals = [];
     this.render();
   }
 
@@ -248,8 +267,77 @@ export class PolarScope {
       }
     });
 
+    // 7b. Persistent Obstacle Mapped Dots
+    this.persistentObstacles.forEach((pt) => {
+      if (pt.d1 && pt.d1 < 390) {
+        const rad = (pt.angle * Math.PI) / 180.0;
+        const pr = (pt.d1 / this.maxRangeCm) * maxRadius;
+        ctx.beginPath();
+        ctx.arc(ox + pr * Math.cos(rad), oy - pr * Math.sin(rad), 3.2, 0, Math.PI * 2);
+        ctx.fillStyle = '#ff3344';
+        ctx.shadowColor = '#ff3344';
+        ctx.shadowBlur = 4;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+      if (pt.d2 && pt.d2 < 390 && Math.abs(pt.d2 - pt.d1) > 20) {
+        const rad2 = (pt.angle * Math.PI) / 180.0;
+        const pr2 = (pt.d2 / this.maxRangeCm) * maxRadius;
+        ctx.beginPath();
+        ctx.arc(ox + pr2 * Math.cos(rad2), oy - pr2 * Math.sin(rad2), 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#ffb300';
+        ctx.fill();
+      }
+    });
+
+    // 7c. Pinpointed Discrete Obstacles (Clustered & Position-Resolved)
+    if (this.pinpointedObjects && this.pinpointedObjects.length > 0) {
+      this.pinpointedObjects.forEach((obj) => {
+        const rad = (obj.angle_deg * Math.PI) / 180.0;
+        const pr = Math.min(obj.distance_cm / this.maxRangeCm, 1.0) * maxRadius;
+        const px = ox + pr * Math.cos(rad);
+        const py = oy - pr * Math.sin(rad);
+        const colHex = obj.color || '#ff3344';
+
+        ctx.save();
+        // Target Reticle
+        ctx.beginPath();
+        ctx.arc(px, py, 7, 0, Math.PI * 2);
+        ctx.strokeStyle = colHex;
+        ctx.lineWidth = 1.8;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(px - 10, py);
+        ctx.lineTo(px + 10, py);
+        ctx.moveTo(px, py - 10);
+        ctx.lineTo(px, py + 10);
+        ctx.strokeStyle = colHex;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // Tactical Label Tag
+        const tag = `${obj.id}: ${obj.distance_cm.toFixed(0)}cm @ ${obj.angle_deg.toFixed(0)}°`;
+        ctx.font = '10px "JetBrains Mono", monospace';
+        const tw = ctx.measureText(tag).width;
+        const lx = px >= ox ? px + 12 : px - tw - 16;
+        const ly = py - 8;
+
+        ctx.fillStyle = 'rgba(11, 15, 20, 0.88)';
+        ctx.fillRect(lx - 4, ly - 10, tw + 8, 15);
+        ctx.strokeStyle = colHex;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(lx - 4, ly - 10, tw + 8, 15);
+
+        ctx.fillStyle = colHex;
+        ctx.fillText(tag, lx, ly + 2);
+        ctx.restore();
+      });
+    }
+
     // 8. Live Hit Badges
-    if (this.valid1 && this.d1Cm < 395) {
+    const hasHit1 = (this.valid1 || (this.d1Cm > 2 && this.d1Cm < 395)) && this.d1Cm < 395;
+    if (hasHit1) {
       const h1x = ox + r1 * Math.cos(rad1);
       const h1y = oy - r1 * Math.sin(rad1);
       ctx.beginPath();
@@ -261,7 +349,8 @@ export class PolarScope {
       ctx.fillText(`Low: ${this.d1Cm.toFixed(1)}cm`, h1x + 8, h1y - 6);
     }
 
-    if (this.valid2 && this.d2Cm < 395) {
+    const hasHit2 = (this.valid2 || (this.d2Cm > 2 && this.d2Cm < 395)) && this.d2Cm < 395 && this.d2Cm !== this.d1Cm;
+    if (hasHit2) {
       const h2x = ox + r2 * Math.cos(rad2);
       const h2y = oy - r2 * Math.sin(rad2);
       ctx.beginPath();

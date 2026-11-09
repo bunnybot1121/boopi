@@ -153,7 +153,7 @@ class SonarImagingEngine:
             "ts": ts
         }
         self.polar_history.append(history_item)
-        if len(self.polar_history) > 120:
+        if len(self.polar_history) > 360:
             self.polar_history.pop(0)
 
         return self.latest_telemetry
@@ -205,7 +205,12 @@ class SonarImagingEngine:
         image_b64 = None
         if include_image:
             semantic_img = self.cv_pipe.generate_semantic_image(
-                prob_grid, portals, vertical_features, show_dilation=show_dilation
+                prob_grid,
+                portals,
+                semantic_matrix=self.engine_3d.semantic_matrix,
+                points_3d=self.engine_3d.points_3d,
+                vertical_features=vertical_features,
+                show_dilation=show_dilation
             )
             image_b64 = self.cv_pipe.encode_base64_data_url(semantic_img)
 
@@ -224,9 +229,10 @@ class SonarImagingEngine:
         return {
             "telemetry": self.latest_telemetry,
             "portals": portals,
+            "pinpointed_objects": self.engine_3d.extract_pinpointed_objects(),
             "vertical_features": [vf.to_dict() for vf in vertical_features],
-            "points_3d": self.engine_3d.points_3d[-150:],
-            "polar_history": self.polar_history[-60:],
+            "points_3d": self.engine_3d.points_3d[-200:],
+            "polar_history": self.polar_history[-180:],
             "semantic_image_b64": image_b64,
             "active_voxels": active_voxels,
             "ai_decision": {

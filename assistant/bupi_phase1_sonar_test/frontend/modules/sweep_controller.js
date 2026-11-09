@@ -123,8 +123,9 @@ export class SweepController {
 
   handleTelemetry(telemetry) {
     if (this.activeMode === 0) {
-      if (telemetry.s_ang !== undefined) {
-        this.currentAngle = telemetry.s_ang;
+      const ang = telemetry.s1_ang !== undefined ? telemetry.s1_ang : telemetry.s_ang;
+      if (ang !== undefined) {
+        this.currentAngle = ang;
         if (this.onAngleChanged) {
           this.onAngleChanged(this.currentAngle, 0, telemetry.sweep_dir);
         }

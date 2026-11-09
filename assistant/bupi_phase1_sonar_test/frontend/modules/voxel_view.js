@@ -19,6 +19,8 @@ export class VoxelWorld {
     this.astarPath = [];
     this.s1Ang = 90.0;
     this.s2Ang = 90.0;
+    this.lastRebuildTime = 0;
+    this.lastVoxelCount = -1;
 
     this.useThree = typeof window.THREE !== 'undefined';
     if (this.useThree) {
@@ -169,7 +171,13 @@ export class VoxelWorld {
     }
 
     if (this.useThree) {
-      this.rebuildThreeScene();
+      const now = performance.now();
+      const countChanged = this.voxels.length !== this.lastVoxelCount;
+      if (countChanged || (now - this.lastRebuildTime > 300)) {
+        this.lastRebuildTime = now;
+        this.lastVoxelCount = this.voxels.length;
+        this.rebuildThreeScene();
+      }
     } else {
       this.renderIsometricFallback();
     }

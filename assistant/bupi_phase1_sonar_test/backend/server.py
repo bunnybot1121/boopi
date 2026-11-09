@@ -26,14 +26,19 @@ active_websockets: List[WebSocket] = []
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Attempt auto-connection to an attached ESP32 port (e.g. COM3 or first detected USB port)
-    ports = SerialManager.list_ports()
-    for p in ports:
-        dev = p["device"]
-        desc = p.get("description", "").lower()
-        if "usb" in desc or "ch340" in desc or "cp210" in desc or "uart" in desc or dev == "COM3":
-            if serial_mgr.connect(dev, 115200):
-                break
+    # Attempt auto-connection to an attached ESP32 port (specifically COM3 or auto-detected USB)
+    connected = serial_mgr.connect("COM3", 115200)
+    if connected:
+        print("[STARTUP] Auto-connected to ESP32 on COM3 at 115200 baud")
+    else:
+        ports = SerialManager.list_ports()
+        for p in ports:
+            dev = p["device"]
+            desc = p.get("description", "").lower()
+            if "usb" in desc or "ch340" in desc or "cp210" in desc or "uart" in desc:
+                if serial_mgr.connect(dev, 115200):
+                    print(f"[STARTUP] Auto-connected to ESP32 on {dev} at 115200 baud")
+                    break
     b_task = asyncio.create_task(broadcast_loop())
     yield
     b_task.cancel()
@@ -102,8 +107,12 @@ class IngestPingRequest(BaseModel):
     sweep_dir: str = "STEADY"
 
 
+broadcast_count: int = 0
+
+
 async def broadcast_loop():
-    """Broadcast state snapshots to all connected WebSockets at ~15 FPS."""
+    """Broadcast state snapshots to all connected WebSockets at 20 FPS."""
+    global broadcast_count
     while True:
         try:
             if active_websockets:
@@ -118,15 +127,24 @@ async def broadcast_loop():
                 for ws in list(active_websockets):
                     try:
                         await ws.send_json(snapshot)
-                    except Exception:
+                    except Exception as e:
+                        print(f"[WS ERROR] send_json failed: {type(e).__name__}: {e}")
                         disconnected.append(ws)
 
                 for dead_ws in disconnected:
                     if dead_ws in active_websockets:
                         active_websockets.remove(dead_ws)
+
+                broadcast_count += 1
+                if broadcast_count % 50 == 0:
+                    tel = snapshot.get("telemetry", {})
+                    s1 = tel.get("s1_ang", 90.0)
+                    d1 = tel.get("d1_cm", 400.0)
+                    d2 = tel.get("d2_cm", 400.0)
+                    print(f"[WS BROADCAST] Pushed snapshot #{broadcast_count} to {len(active_websockets)} client(s): s1={s1:.1f}°, d1={d1:.1f}cm, d2={d2:.1f}cm")
         except Exception:
             pass
-        await asyncio.sleep(0.066)
+        await asyncio.sleep(0.05)
 
 
 @app.get("/api/ports")
@@ -258,6 +276,19 @@ def export_matrix():
 @app.websocket("/ws/sonar")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
+    # Immediately send current state snapshot so the client renders at once
+    try:
+        init_snapshot = engine.get_state_snapshot(include_image=True)
+        init_snapshot["connection"] = {
+            "connected": serial_mgr.is_connected,
+            "port": serial_mgr.current_port,
+            "is_busy": serial_mgr.is_port_busy,
+            "busy_port": serial_mgr.busy_port_name
+        }
+        await websocket.send_json(init_snapshot)
+    except Exception:
+        pass
+
     active_websockets.append(websocket)
     try:
         while True:
@@ -369,3 +400,9 @@ def view_devlog():
 frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
 if frontend_dir.exists():
     app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("bupi_phase1_sonar_test.backend.server:app", host="0.0.0.0", port=8050, reload=False)
+

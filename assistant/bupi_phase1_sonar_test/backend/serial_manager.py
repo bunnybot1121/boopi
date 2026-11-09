@@ -4,6 +4,7 @@ Thread-safe with no-reset DTR/RTS mode for ESP32, active watchdog, and robust JS
 """
 
 import json
+import re
 import threading
 import time
 from typing import Callable, List, Optional
@@ -25,6 +26,7 @@ class SerialManager:
         self.is_connected: bool = False
         self.is_port_busy: bool = False
         self.busy_port_name: Optional[str] = None
+        self.packet_count: int = 0
 
         self._serial_thread: Optional[threading.Thread] = None
         self._watchdog_thread: Optional[threading.Thread] = None
@@ -82,8 +84,11 @@ class SerialManager:
 
     def connect(self, port: str, baud: int = 115200) -> bool:
         """Connect to physical serial port with no-reset DTR/RTS flags for ESP32."""
+        match = re.search(r"(COM\d+|/dev/tty\w+)", str(port), re.I)
+        clean_port = match.group(1).upper() if match else str(port).strip()
+
         with self._lock:
-            if self.is_connected and self.current_port == port and self.baud_rate == baud:
+            if self.is_connected and self.current_port == clean_port and self.baud_rate == baud:
                 return True
 
             self._stop_reader_internal()
@@ -91,7 +96,7 @@ class SerialManager:
 
             try:
                 ser_obj = serial.Serial(
-                    port, baud,
+                    clean_port, baud,
                     timeout=0.2,
                     dsrdtr=False,
                     rtscts=False
@@ -109,7 +114,7 @@ class SerialManager:
                     pass
 
                 self.ser = ser_obj
-                self.current_port = port
+                self.current_port = clean_port
                 self.baud_rate = baud
                 self.is_connected = True
                 self.is_port_busy = False
@@ -126,7 +131,7 @@ class SerialManager:
                 err_str = str(e).lower()
                 if "access is denied" in err_str or "permission" in err_str:
                     self.is_port_busy = True
-                    self.busy_port_name = port
+                    self.busy_port_name = clean_port
                 else:
                     self.is_port_busy = False
                     self.busy_port_name = None
@@ -187,13 +192,22 @@ class SerialManager:
                 if not ser_obj or not ser_obj.is_open:
                     break
 
-                waiting = 0
                 try:
                     waiting = ser_obj.in_waiting
                 except Exception:
-                    break
+                    if not ser_obj.is_open:
+                        break
+                    time.sleep(0.05)
+                    continue
 
-                chunk = ser_obj.read(waiting or 1).decode("utf-8", errors="ignore")
+                try:
+                    chunk = ser_obj.read(waiting or 1).decode("utf-8", errors="ignore")
+                except Exception:
+                    if not ser_obj.is_open:
+                        break
+                    time.sleep(0.05)
+                    continue
+
                 if not chunk:
                     time.sleep(0.01)
                     continue
@@ -284,12 +298,17 @@ class SerialManager:
                         bot_id=bot_id
                     )
 
+                    self.packet_count += 1
+                    if self.packet_count % 50 == 0:
+                        print(f"[SERIAL->WS] Packet #{self.packet_count}: s1={s1_ang:.1f}°, d1={d1_cm:.1f}cm, d2={d2_cm:.1f}cm, valid1={1 if valid1 else 0}, valid2={1 if valid2 else 0}")
+
                     if self.on_ping_callback:
                         self.on_ping_callback(telemetry)
 
-            except Exception:
-                time.sleep(0.02)
-                break
+            except Exception as e:
+                if not ser_obj.is_open or self._stop_event.is_set() or self._reader_stop_event.is_set():
+                    break
+                time.sleep(0.05)
 
         with self._lock:
             if self.ser is ser_obj:

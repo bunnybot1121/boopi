@@ -172,6 +172,47 @@
       </article>
     </main>
 
+    <!-- Pinpointed Detected Obstacles & Spatial Map -->
+    <section class="detected-objects-section" aria-label="Pinpointed Detected Obstacles">
+      <div class="detected-objects-header">
+        <div class="detected-title-wrap">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="22" y1="12" x2="18" y2="12"/>
+            <line x1="6" y1="12" x2="2" y2="12"/>
+            <line x1="12" y1="6" x2="12" y2="2"/>
+            <line x1="12" y1="22" x2="12" y2="18"/>
+          </svg>
+          <h2 class="detected-section-title">Pinpointed Detected Objects &amp; Spatial Map</h2>
+        </div>
+        <div class="objects-count-badge" id="objectsCountBadge">
+          DETECTED: <span id="objectsCountText" style="color: var(--color-primary); font-weight: 700;">0 OBJECTS</span>
+        </div>
+      </div>
+
+      <div class="table-responsive">
+        <table class="detected-objects-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Classification</th>
+              <th>Normal Dist (d<sub>min</sub>)</th>
+              <th>Bearing (&theta;)</th>
+              <th>Cartesian (X, Y)</th>
+              <th>Est. Width</th>
+              <th>Height Profile</th>
+              <th>Nav Directive</th>
+            </tr>
+          </thead>
+          <tbody id="detectedObjectsTableBody">
+            <tr class="empty-row">
+              <td colspan="8">Scanning sector... No discrete obstacles resolved yet.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     <!-- AI Map Reader & Navigation Decision Panel -->
     <section class="ai-decision-panel" aria-label="AI Map Reader & Navigation Directives">
       <div class="ai-panel-header">

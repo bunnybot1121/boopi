@@ -53,7 +53,7 @@ struct ScanConfig {
   float min_ang        = 45.0f;
   float max_ang        = 135.0f;
   float step_deg       = 2.0f;
-  int settle_ms        = 10;
+  int settle_ms        = 25;  // 25ms mechanical servo horn stabilization
   int move_ms          = 35;
   bool sweep_enabled   = true;
   bool center_locked   = false;
@@ -61,6 +61,8 @@ struct ScanConfig {
   float pitch_max      = 30.0f;
   float pitch_step     = 5.0f;
 } cfg;
+
+#define SERVO_HORN_OFFSET_CM 3.5f  // Distance from servo rotation pivot to transducer face
 
 // Turret runtime positions (float for sub-degree smooth motion)
 float cur_s1_ang = 90.0f;
@@ -157,7 +159,7 @@ void moveServosSmooth(float target_s1, float target_s2, int duration_ms) {
   delay(cfg.settle_ms);
 }
 
-// --- HC-SR04 Ultrasonic Transducer Driver (with 2-Burst Anti-Dropout Retry) ---
+// --- HC-SR04 Ultrasonic Transducer Driver (Calibrated at 24°C + Servo Pivot Offset) ---
 float fireSingleUltrasonic(uint8_t trig_pin, uint8_t echo_pin, bool &is_valid) {
   for (int attempt = 0; attempt < 2; attempt++) {
     digitalWrite(trig_pin, LOW);
@@ -167,14 +169,15 @@ float fireSingleUltrasonic(uint8_t trig_pin, uint8_t echo_pin, bool &is_valid) {
     digitalWrite(trig_pin, LOW);
 
     unsigned long duration_us = pulseIn(echo_pin, HIGH, 25000UL);
-    if (duration_us > 0) {
-      float dist_cm = (float)duration_us * 0.0343f / 2.0f;
+    if (duration_us > 115) { // Minimum ~2cm
+      // Speed of sound at 24°C: 345.8 m/s -> 0.03458 cm/us / 2 = 0.01729 cm/us
+      float dist_cm = ((float)duration_us * 0.01729f) + SERVO_HORN_OFFSET_CM;
       if (dist_cm >= 2.0f && dist_cm <= 400.0f) {
         is_valid = true;
         return dist_cm;
       }
     }
-    delayMicroseconds(400);
+    delayMicroseconds(500);
   }
   is_valid = false;
   return 400.0f;
@@ -277,7 +280,12 @@ void handleSerialCommands() {
     if (idx_step != -1) cfg.step_deg = constrain((float)line.substring(idx_step + 7).toFloat(), 0.5f, 10.0f);
 
     int idx_en = line.indexOf("\"sweep_en\":");
-    if (idx_en != -1) cfg.sweep_enabled = (line.substring(idx_en + 11).toInt() == 1);
+    if (idx_en != -1) {
+      cfg.sweep_enabled = (line.substring(idx_en + 11).toInt() == 1);
+      if (cfg.sweep_enabled) {
+        cfg.center_locked = false;
+      }
+    }
   }
 }
 
@@ -381,16 +389,12 @@ void loop() {
   // 3. Staggered Anti-Crosstalk Ultrasonic Transducer Pings
   bool valid1 = false, valid2 = false;
   float raw_d1 = fireSingleUltrasonic(TRIG_1_PIN, ECHO_1_PIN, valid1);
-  delay(12); // Acoustic reverberation decay gap
+  delay(28); // Generous 28ms acoustic reverberation decay gap to prevent crosstalk into Sensor 2
   float raw_d2 = fireSingleUltrasonic(TRIG_2_PIN, ECHO_2_PIN, valid2);
 
-  // 4. Rolling 3-Sample Median Filter
-  s1_hist[hist_idx] = valid1 ? raw_d1 : 400.0f;
-  s2_hist[hist_idx] = valid2 ? raw_d2 : 400.0f;
-  hist_idx = (hist_idx + 1) % 3;
-
-  float d1_filt = median3(s1_hist[0], s1_hist[1], s1_hist[2]);
-  float d2_filt = median3(s2_hist[0], s2_hist[1], s2_hist[2]);
+  // 4. Instant Angle-True Filter (Zero multi-angle smearing / zero angular lag)
+  float d1_filt = valid1 ? raw_d1 : 400.0f;
+  float d2_filt = valid2 ? raw_d2 : 400.0f;
   float delta_d = d2_filt - d1_filt;
 
   // 5. Tier-1 Hardware Safety Stop (<18.0cm on either sensor)
