@@ -61,18 +61,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 3. UI Element References
   const portSelect = document.getElementById('portSelect');
-  const baudSelect = document.getElementById('baudSelect');
   const connectBtn = document.getElementById('connectBtn');
   const refreshPortsBtn = document.getElementById('refreshPortsBtn');
   const scanModeSelect = document.getElementById('scanModeSelect');
   const btnLockBoth90 = document.getElementById('btnLockBoth90');
-  const btnPass1 = document.getElementById('btnPass1');
-  const btnPass2 = document.getElementById('btnPass2');
   const resetBtn = document.getElementById('resetBtn');
-  const dilationToggleBtn = document.getElementById('dilationToggleBtn');
-  const exportPngBtn = document.getElementById('exportPngBtn');
-  const exportJsonBtn = document.getElementById('exportJsonBtn');
-  const copyAsciiBtn = document.getElementById('copyAsciiBtn');
 
   // Dual-Beam Badges
   const badgeD1 = document.getElementById('badgeD1');
@@ -82,15 +75,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const badgeDeltaD = document.getElementById('badgeDeltaD');
   const badge3DClass = document.getElementById('badge3DClass');
   const badgeSafety = document.getElementById('badgeSafety');
-
-  // Mode Tabs & Containers
-  const modeTabs = [
-    { btn: document.getElementById('tabMode0'), container: document.getElementById('servoControls'), mode: 0 },
-    { btn: document.getElementById('tabMode3'), container: document.getElementById('dialControls'), mode: 3 },
-    { btn: document.getElementById('tabMode2'), container: document.getElementById('stepControls'), mode: 2 },
-    { btn: document.getElementById('tabMode1'), container: document.getElementById('pacerControls'), mode: 1 },
-    { btn: document.getElementById('tabMode4'), container: document.getElementById('mpuControls'), mode: 4 }
-  ];
 
   // Servo Sector Control Elements
   const btnSectorFocused = document.getElementById('btnSectorFocused');
@@ -214,31 +198,13 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // 5. Connect Port Action
-  connectBtn.addEventListener('click', async () => {
-    const port = portSelect.value;
-    const baud = baudSelect.value;
-    if (!port) return;
-    await api.connectPort(port, baud);
-  });
-
-  // 6. Scan Layer Pass Toggle
-  btnPass1.addEventListener('click', async () => {
-    activePass = 'pass1';
-    btnPass1.classList.add('active');
-    btnPass1.setAttribute('aria-checked', 'true');
-    btnPass2.classList.remove('active');
-    btnPass2.setAttribute('aria-checked', 'false');
-    await api.setActivePass('pass1');
-  });
-
-  btnPass2.addEventListener('click', async () => {
-    activePass = 'pass2';
-    btnPass2.classList.add('active');
-    btnPass2.setAttribute('aria-checked', 'true');
-    btnPass1.classList.remove('active');
-    btnPass1.setAttribute('aria-checked', 'false');
-    await api.setActivePass('pass2');
-  });
+  if (connectBtn) {
+    connectBtn.addEventListener('click', async () => {
+      const port = portSelect.value;
+      if (!port) return;
+      await api.connectPort(port, 115200);
+    });
+  }
 
   // Scan Mode and Hardware Centering
   if (scanModeSelect) {
@@ -258,91 +224,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // 7. Reset, Dilation, and Export Actions
-  resetBtn.addEventListener('click', async () => {
-    await api.resetMap();
-  });
-
-  dilationToggleBtn.addEventListener('click', () => {
-    showDilation = !showDilation;
-    dilationToggleBtn.textContent = `Dilation: ${showDilation ? 'ON' : 'OFF'}`;
-  });
-
-  exportPngBtn.addEventListener('click', () => {
-    window.open(`/api/map_image?dilation=${showDilation ? '1' : '0'}`, '_blank');
-  });
-
-  exportJsonBtn.addEventListener('click', async () => {
-    const data = await api.exportJson();
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `bupi_sonar_matrix_${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  });
-
-  if (copyAsciiBtn) {
-    copyAsciiBtn.addEventListener('click', () => {
-      navigator.clipboard.writeText(asciiMatrixView.textContent);
-      copyAsciiBtn.textContent = 'Copied!';
-      setTimeout(() => { copyAsciiBtn.textContent = 'Copy ASCII'; }, 1500);
+  // 7. Reset Actions
+  if (resetBtn) {
+    resetBtn.addEventListener('click', async () => {
+      await api.resetMap();
     });
   }
-
-  // 8. Hand-Sweep Mode Tab Switching
-  modeTabs.forEach(({ btn, container, mode }) => {
-    btn.addEventListener('click', () => {
-      modeTabs.forEach((t) => {
-        t.btn.classList.remove('active');
-        t.btn.setAttribute('aria-selected', 'false');
-        if (t.container) t.container.style.display = 'none';
-      });
-      btn.classList.add('active');
-      btn.setAttribute('aria-selected', 'true');
-      if (container) container.style.display = 'flex';
-      sweepController.setMode(mode);
-    });
-  });
-
-  // Mode 1: Pacer Speed
-  const pacerSpeedRange = document.getElementById('pacerSpeedRange');
-  const pacerSpeedValue = document.getElementById('pacerSpeedValue');
-  pacerSpeedRange.addEventListener('input', (e) => {
-    const s = parseInt(e.target.value, 10);
-    pacerSpeedValue.textContent = `${s}s`;
-    sweepController.setPacerPeriod(s);
-  });
-
-  // Mode 2: Step Plotter Controls & Spacebar
-  const stepNextBtn = document.getElementById('stepNextBtn');
-  const stepPrevBtn = document.getElementById('stepPrevBtn');
-  const stepPingBtn = document.getElementById('stepPingBtn');
-
-  stepNextBtn.addEventListener('click', () => sweepController.stepNext());
-  stepPrevBtn.addEventListener('click', () => sweepController.stepPrev());
-  stepPingBtn.addEventListener('click', () => sweepController.triggerStepPing(latestDistance));
-
-  window.addEventListener('keydown', (e) => {
-    if (e.code === 'Space' && sweepController.activeMode === 2) {
-      e.preventDefault();
-      sweepController.triggerStepPing(latestDistance);
-    }
-  });
-
-  // Mode 3: Manual Slider
-  const manualAngleSlider = document.getElementById('manualAngleSlider');
-  manualAngleSlider.addEventListener('input', (e) => {
-    const val = parseFloat(e.target.value);
-    sweepController.setManualAngle(val);
-  });
-
-  // Mode 4: Zero Yaw
-  const zeroYawBtn = document.getElementById('zeroYawBtn');
-  zeroYawBtn.addEventListener('click', () => {
-    api.sendWs({ action: 'zero_yaw' });
-  });
 
   // 9. Real-Time WebSocket Processor
   api.initWebSocket(
@@ -503,6 +390,9 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!isConnected) {
         connBadge.className = 'status-badge error';
         connText.textContent = 'SERVER DISCONNECTED';
+      } else {
+        connBadge.className = 'status-badge online';
+        connText.textContent = 'SERVER CONNECTED';
       }
     }
   );

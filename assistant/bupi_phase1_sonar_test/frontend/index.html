@@ -32,18 +32,12 @@
       </div>
     </header>
 
-    <!-- Top Controls: Physical USB Serial Port & Pass Layer -->
+    <!-- Top Controls: Physical USB Serial Port & Scan Mode -->
     <nav class="control-bar" aria-label="Device and Layer Controls">
       <div class="control-group">
         <label for="portSelect" class="field-label">ESP32 Port</label>
         <select id="portSelect" class="select-input" aria-label="Select Serial COM Port">
           <option value="" disabled selected>Scanning COM ports...</option>
-        </select>
-
-        <label for="baudSelect" class="field-label">Baud</label>
-        <select id="baudSelect" class="select-input" style="min-width: 95px;" aria-label="Serial Baud Rate">
-          <option value="115200" selected>115200</option>
-          <option value="9600">9600</option>
         </select>
 
         <button id="connectBtn" class="tactical-btn primary" type="button">
@@ -65,28 +59,12 @@
         </select>
 
         <button id="btnLockBoth90" class="tactical-btn amber" type="button" title="Lock both servos at 90° to align hardware horns">
-          🎯 Lock Both Servos 90°
+          🎯 Lock 90°
         </button>
 
         <button id="resetBtn" class="tactical-btn danger" type="button" title="Clear Grid & Buffers">
-          Clear / New 3D Scan
+          🗑️ Clear Map
         </button>
-
-        <button id="dilationToggleBtn" class="tactical-btn" type="button" title="Toggle Robot Collision Buffer">
-          Dilation: ON
-        </button>
-
-        <button id="exportPngBtn" class="tactical-btn" type="button" title="Download High-Res Map PNG">
-          PNG
-        </button>
-
-        <button id="exportJsonBtn" class="tactical-btn" type="button" title="Export Full Spatial Matrix">
-          JSON
-        </button>
-
-        <a href="/devlog" target="_blank" class="tactical-btn amber" title="Open Engineering DevLog & Troubleshooting Playbook" style="text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
-          📖 DevLog
-        </a>
       </div>
     </nav>
 
@@ -120,82 +98,29 @@
       </div>
     </section>
 
-    <!-- Sweep Angle Controller Bar (Hardware Servo & Fallback Modes) -->
-    <section class="sweep-mode-bar" aria-label="Sweep Angle Calibration">
-      <div class="control-group">
-        <span class="field-label">Turret Mode</span>
-        <div class="sweep-mode-tabs" role="tablist">
-          <button id="tabMode0" class="sweep-tab active" role="tab" aria-selected="true" type="button">
-            Mode 0: Hardware Servo Turret (Live s_ang)
-          </button>
-          <button id="tabMode3" class="sweep-tab" role="tab" aria-selected="false" type="button">
-            Mode 3: Manual Aim
-          </button>
-          <button id="tabMode2" class="sweep-tab" role="tab" aria-selected="false" type="button">
-            Mode 2: Step Plotter
-          </button>
-          <button id="tabMode1" class="sweep-tab" role="tab" aria-selected="false" type="button">
-            Mode 1: Auto-Pacer
-          </button>
-          <button id="tabMode4" class="sweep-tab" role="tab" aria-selected="false" type="button">
-            Mode 4: MPU6050
-          </button>
-        </div>
-      </div>
-
-      <!-- Mode 0 Controls: Hardware Servo Turret Presets & Sector Boundaries -->
-      <div id="servoControls" class="sweep-slider-container" style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;">
+    <!-- Hardware Servo Sector Calibration Bar -->
+    <section class="sweep-mode-bar" aria-label="Hardware Servo Sector Calibration">
+      <div id="servoControls" class="sweep-slider-container" style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; width: 100%;">
         <span class="field-label" style="color: var(--color-primary); font-weight: 600;">Sector Presets:</span>
-        <button id="btnSectorFocused" class="tactical-btn" type="button" title="60 deg to 120 deg focused forward sector">60°–120° (Wall Line)</button>
+        <button id="btnSectorFocused" class="tactical-btn" type="button" title="60 deg to 120 deg focused forward sector">60°–120° (Focused)</button>
         <button id="btnSectorCone" class="tactical-btn primary" type="button" title="45 deg to 135 deg standard 90-degree vision cone">45°–135° (Standard Cone)</button>
-        <button id="btnSectorFull" class="tactical-btn" type="button" title="0 deg to 180 deg full room scan">0°–180° (Full Sweep)</button>
+        <button id="btnSectorFull" class="tactical-btn" type="button" title="0 deg to 180 deg full room scan">0°–180° (Full Room)</button>
 
-        <span class="field-label" style="margin-left: 6px;">Min: <strong id="servoMinValue" style="color: var(--color-primary);">45°</strong></span>
-        <input id="servoMinSlider" class="tactical-range" type="range" min="0" max="90" step="5" value="45" style="width: 75px;" aria-label="Servo min sweep angle">
+        <span class="field-label" style="margin-left: 12px;">Min: <strong id="servoMinValue" style="color: var(--color-primary);">45°</strong></span>
+        <input id="servoMinSlider" class="tactical-range" type="range" min="0" max="90" step="5" value="45" style="width: 80px;" aria-label="Servo min sweep angle">
 
         <span class="field-label">Max: <strong id="servoMaxValue" style="color: var(--color-primary);">135°</strong></span>
-        <input id="servoMaxSlider" class="tactical-range" type="range" min="90" max="180" step="5" value="135" style="width: 75px;" aria-label="Servo max sweep angle">
+        <input id="servoMaxSlider" class="tactical-range" type="range" min="90" max="180" step="5" value="135" style="width: 80px;" aria-label="Servo max sweep angle">
 
         <label for="servoStepSelect" class="field-label">Step</label>
         <select id="servoStepSelect" class="select-input" style="min-width: 60px; height: 32px;" aria-label="Servo step degrees">
-          <option value="2">2°</option>
-          <option value="3" selected>3°</option>
+          <option value="2" selected>2°</option>
+          <option value="3">3°</option>
           <option value="5">5°</option>
-          <option value="10">10°</option>
         </select>
 
-        <button id="btnCenterServo" class="tactical-btn amber" type="button" title="Hold servo at 90 deg straight ahead to physically align sensor on servo horn">🎯 Center at 90°</button>
+        <button id="btnCenterServo" class="tactical-btn amber" type="button" title="Hold servo at 90 deg straight ahead">🎯 Center 90°</button>
         <button id="btnResumeSweep" class="tactical-btn primary" type="button" style="display: none;" title="Resume bidirectional servo sweep">▶ Resume Sweep</button>
-      </div>
-
-      <!-- Mode 1 Options: Pacer Speed -->
-      <div id="pacerControls" class="sweep-slider-container" style="display: none;">
-        <label for="pacerSpeedRange" class="field-label">Pacer Period</label>
-        <input id="pacerSpeedRange" class="tactical-range" type="range" min="3" max="10" step="1" value="6" aria-label="Sweep pacer period in seconds">
-        <span id="pacerSpeedValue" class="stat-value" style="font-size: 13px;">6s</span>
-      </div>
-
-      <!-- Mode 2 Helper: Step & Spacebar -->
-      <div id="stepControls" class="step-helper-box" style="display: none;">
-        <span class="field-label">Current Step Angle: <strong id="stepAngleLabel" style="color: var(--color-primary);">90°</strong></span>
-        <button id="stepPrevBtn" class="tactical-btn" type="button">-15°</button>
-        <button id="stepPingBtn" class="tactical-btn primary" type="button">
-          <span class="key-badge">SPACEBAR</span> Ping & Lock
-        </button>
-        <button id="stepNextBtn" class="tactical-btn" type="button">+15°</button>
-      </div>
-
-      <!-- Mode 3 Slider: Manual Angle Aim -->
-      <div id="dialControls" class="sweep-slider-container" style="display: none;">
-        <label for="manualAngleSlider" class="field-label">Aim Angle</label>
-        <input id="manualAngleSlider" class="tactical-range" type="range" min="0" max="180" step="1" value="90" style="width: 180px;" aria-label="Manual aiming angle degrees">
-        <span id="manualAngleValue" class="stat-value" style="font-size: 14px;">90°</span>
-        <span class="field-label" style="margin-left: 8px; color: var(--color-text-dim);">(Or click/drag on Radar Scope)</span>
-      </div>
-
-      <!-- Mode 4 MPU Controls -->
-      <div id="mpuControls" class="sweep-slider-container" style="display: none;">
-        <button id="zeroYawBtn" class="tactical-btn amber" type="button">Zero Yaw (Center)</button>
       </div>
     </section>
 
