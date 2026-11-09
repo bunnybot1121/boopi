@@ -5,28 +5,16 @@
  *
  * Hardware Peripherals:
  *   - 1x ESP32 Dev Module
- *   - 1x Servo Motor (SG90 / MG90S / MG996R):
- *       SIGNAL -> GPIO 13 (50 Hz PWM via portable ledc abstraction)
- *       VCC    -> 5V / VIN (or external 5V 1A BEC)
- *       GND    -> Common GND
- *   - 1x HC-SR04 Ultrasonic Sensor (Mounted on Servo Horn):
- *       TRIG   -> GPIO 5
- *       ECHO   -> GPIO 18 (via 1k / 2k voltage divider or direct to 3.3V GPIO)
- *       VCC    -> 5V / VIN (MUST be 5V for transducer oscillation)
- *       GND    -> Common GND
- *   - Optional MPU-6050 6-Axis IMU (Raw Wire.h, auto-detected):
- *       SDA    -> GPIO 21
- *       SCL    -> GPIO 22
+ *   - 1x Servo Motor (SG90 / MG90S / MG996R) on GPIO 13 (50 Hz LEDC PWM)
+ *   - 1x HC-SR04 Ultrasonic Sensor on TRIG=GPIO 5, ECHO=GPIO 18
+ *   - Optional MPU-6050 6-Axis IMU on SDA=GPIO 21, SCL=GPIO 22
  *
  * Telemetry Output: Newline-delimited JSON over USB Serial @ 115200 baud
- * Format:
- *   {"bot_id":"BUPI-01","ts":12450,"s_ang":75,"min_ang":45,"max_ang":135,"d_cm":114.2,"valid":1,"safety_stop":0,"imu":false,"yaw":null,"pitch":null}
- *
- * Two-Way Serial Configuration Input:
- *   {"cmd":"SERVO_CFG","min_ang":60,"max_ang":120,"step":3,"sweep_en":1,"hold_ang":90}
+ * Features: Sub-degree S-curve smoothstep interpolation & soft turnaround deceleration
  */
 
 #include <Wire.h>
+#include <math.h>
 
 // --- Pinout Configuration ---
 #define SERVO_PIN      13
@@ -39,7 +27,7 @@
 #define ECHO_TIMEOUT_US     25000       // 25ms timeout (~428 cm max distance, never hangs)
 #define CRITICAL_SAFETY_CM  15.0f
 
-// --- MPU-6050 Registers (Raw Wire.h, Zero External Libraries) ---
+// --- MPU-6050 Registers ---
 #define MPU_ADDR_PRIMARY    0x68
 #define MPU_ADDR_SECONDARY  0x69
 #define MPU_REG_PWR_MGMT_1  0x6B
@@ -55,13 +43,13 @@
 #endif
 
 // --- Servo Turret State ---
-int min_angle = 45;         // Default forward-right sector
-int max_angle = 135;        // Default forward-left sector
-int step_deg = 3;           // 3-degree angular step
-int settle_ms = 30;         // Settle time for mechanical stabilization
-int current_angle = 90;     // Start centered straight ahead
-int sweep_direction = 1;    // +1 = sweeping right-to-left, -1 = left-to-right
-bool sweep_enabled = true;  // Continuous sweep or fixed angle hold
+int min_angle = 45;
+int max_angle = 135;
+int step_deg = 2;
+int settle_ms = 10;
+float current_angle_f = 90.0f;
+int sweep_direction = 1;
+bool sweep_enabled = true;
 int hold_angle = 90;
 
 // --- IMU Tracking State ---
@@ -72,14 +60,12 @@ float current_yaw = 90.0f;
 float current_pitch = 0.0f;
 unsigned long last_imu_us = 0;
 
-// --- 3-Sample Median Filter ---
 float calculate_median3(float a, float b, float c) {
   if ((a <= b && b <= c) || (c <= b && b <= a)) return b;
   if ((b <= a && a <= c) || (c <= a && a <= b)) return a;
   return c;
 }
 
-// Universal zero-conflict servo PWM initialization
 void init_servo_pwm() {
 #if BUPI_LEDC_V3
   ledcAttach(SERVO_PIN, 50, 16);
@@ -89,13 +75,10 @@ void init_servo_pwm() {
 #endif
 }
 
-// Drive servo to exact angle (0..180 deg) using 500..2400 us pulse width
-void write_servo_angle(int angle_deg) {
-  angle_deg = constrain(angle_deg, 0, 180);
-  // Map 0..180 deg to 500..2400 us pulse
-  uint32_t pulse_us = 500 + ((uint32_t)angle_deg * 1900UL) / 180UL;
-  // 16-bit resolution duty on 20000 us (50 Hz) period: duty = (pulse_us * 65535) / 20000
-  uint32_t duty = (pulse_us * 65535UL) / 20000UL;
+void write_servo_angle(float angle_deg) {
+  angle_deg = constrain(angle_deg, 0.0f, 180.0f);
+  float pulse_us = 500.0f + (angle_deg * 1900.0f) / 180.0f;
+  uint32_t duty = (uint32_t)((pulse_us * 65535.0f) / 20000.0f);
 #if BUPI_LEDC_V3
   ledcWrite(SERVO_PIN, duty);
 #else
@@ -103,7 +86,34 @@ void write_servo_angle(int angle_deg) {
 #endif
 }
 
-// Non-blocking single HC-SR04 ping with 25ms timeout
+// Quintic smoothstep easing for zero acceleration jerk
+float smooth_easing(float t) {
+  if (t <= 0.0f) return 0.0f;
+  if (t >= 1.0f) return 1.0f;
+  return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
+}
+
+void move_servo_smooth(float target_ang, int duration_ms) {
+  float start_ang = current_angle_f;
+  float delta = target_ang - start_ang;
+  if (fabsf(delta) < 0.05f) {
+    write_servo_angle(target_ang);
+    current_angle_f = target_ang;
+    return;
+  }
+  int slices = duration_ms / 5;
+  if (slices < 4) slices = 4;
+  int slice_ms = duration_ms / slices;
+  for (int i = 1; i <= slices; i++) {
+    float t = (float)i / (float)slices;
+    float ease = smooth_easing(t);
+    write_servo_angle(start_ang + delta * ease);
+    delay(slice_ms);
+  }
+  write_servo_angle(target_ang);
+  current_angle_f = target_ang;
+}
+
 float ping_single(bool &is_valid) {
   digitalWrite(TRIG_PIN, LOW);
   delayMicroseconds(2);
@@ -116,18 +126,15 @@ float ping_single(bool &is_valid) {
     is_valid = false;
     return 400.0f;
   }
-
   float d = (float)duration * 0.01715f;
   if (d < 2.0f || d > 400.0f) {
     is_valid = false;
     return 400.0f;
   }
-
   is_valid = true;
   return d;
 }
 
-// 3-Sample Rapid Median Ultrasonic Scan
 float read_median_distance(bool &is_valid) {
   bool v1, v2, v3;
   float d1 = ping_single(v1);
@@ -135,15 +142,11 @@ float read_median_distance(bool &is_valid) {
   float d2 = ping_single(v2);
   delayMicroseconds(400);
   float d3 = ping_single(v3);
-
-  // Valid if at least 2 of 3 readings captured an echo
   int valid_count = (v1 ? 1 : 0) + (v2 ? 1 : 0) + (v3 ? 1 : 0);
   is_valid = (valid_count >= 2);
-
   return calculate_median3(d1, d2, d3);
 }
 
-// Probe I2C for MPU-6050
 bool detect_mpu(uint8_t &found_addr) {
   Wire.beginTransmission(MPU_ADDR_PRIMARY);
   if (Wire.endTransmission() == 0) {
@@ -158,16 +161,15 @@ bool detect_mpu(uint8_t &found_addr) {
   return false;
 }
 
-// Initialize MPU-6050 and calibrate resting gyro Z
 void init_mpu(uint8_t addr) {
   Wire.beginTransmission(addr);
   Wire.write(MPU_REG_PWR_MGMT_1);
-  Wire.write(0x00); // Wake up device
+  Wire.write(0x00);
   Wire.endTransmission(true);
   delay(25);
 
   long accum = 0;
-  for (int i = 0; i < 100; i++) {
+  for (int i = 0; i < 60; i++) {
     Wire.beginTransmission(addr);
     Wire.write(MPU_REG_GYRO_ZOUT);
     Wire.endTransmission(false);
@@ -178,11 +180,10 @@ void init_mpu(uint8_t addr) {
     }
     delay(2);
   }
-  gyro_z_bias = (float)accum / 100.0f;
+  gyro_z_bias = (float)accum / 60.0f;
   last_imu_us = micros();
 }
 
-// Update IMU Pitch & Yaw
 void update_imu() {
   if (!imu_detected) return;
 
@@ -195,9 +196,8 @@ void update_imu() {
     int16_t ax = (Wire.read() << 8) | Wire.read();
     int16_t ay = (Wire.read() << 8) | Wire.read();
     int16_t az = (Wire.read() << 8) | Wire.read();
-    Wire.read(); Wire.read(); // Skip temp
-    Wire.read(); Wire.read(); // Skip gyro X
-    Wire.read(); Wire.read(); // Skip gyro Y
+    Wire.read(); Wire.read();
+    Wire.read(); Wire.read();
     int16_t gz = (Wire.read() << 8) | Wire.read();
 
     unsigned long now_us = micros();
@@ -205,13 +205,10 @@ void update_imu() {
     last_imu_us = now_us;
     if (dt <= 0.0f || dt > 0.5f) dt = 0.02f;
 
-    // Pitch from Accelerometer
     float accel_mag = sqrtf((float)ay * ay + (float)az * az);
     if (accel_mag > 0.0f) {
       current_pitch = atan2f(-(float)ax, accel_mag) * 57.29578f;
     }
-
-    // Yaw integration from Gyro Z
     float gz_dps = ((float)gz - gyro_z_bias) / 131.0f;
     if (fabsf(gz_dps) > 0.4f) {
       current_yaw += gz_dps * dt;
@@ -221,7 +218,6 @@ void update_imu() {
   }
 }
 
-// Simple fast key-value extractor for JSON commands without external library dependencies
 int extract_json_int(const String &json, const String &key, int default_val) {
   int k_idx = json.indexOf("\"" + key + "\"");
   if (k_idx < 0) return default_val;
@@ -235,7 +231,6 @@ int extract_json_int(const String &json, const String &key, int default_val) {
   return val_str.toInt();
 }
 
-// Process incoming Laptop UI serial commands
 void process_serial_command() {
   if (!Serial.available()) return;
   String line = Serial.readStringUntil('\n');
@@ -256,8 +251,7 @@ void process_serial_command() {
     hold_angle = constrain(new_hold, 0, 180);
 
     if (!sweep_enabled) {
-      current_angle = hold_angle;
-      write_servo_angle(current_angle);
+      move_servo_smooth((float)hold_angle, 150);
     }
   } else if (line.indexOf("zero_yaw") >= 0) {
     current_yaw = 90.0f;
@@ -268,17 +262,14 @@ void setup() {
   Serial.begin(115200);
   while (!Serial && millis() < 800);
 
-  // Initialize HC-SR04 Pins
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
   digitalWrite(TRIG_PIN, LOW);
 
-  // Initialize Servo PWM on GPIO 13
   init_servo_pwm();
-  write_servo_angle(current_angle);
-  delay(150);
+  move_servo_smooth(90.0f, 200);
+  delay(100);
 
-  // Probe Optional I2C MPU-6050
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, 400000);
   imu_detected = detect_mpu(mpu_addr);
   if (imu_detected) {
@@ -287,33 +278,39 @@ void setup() {
 }
 
 void loop() {
-  // 1. Check for incoming Laptop commands
   process_serial_command();
 
-  // 2. Step Servo Position
   if (sweep_enabled) {
-    current_angle += sweep_direction * step_deg;
-    if (current_angle >= max_angle) {
-      current_angle = max_angle;
-      sweep_direction = -1; // Reverse toward right
-    } else if (current_angle <= min_angle) {
-      current_angle = min_angle;
-      sweep_direction = 1;  // Reverse toward left
+    float dist_min = current_angle_f - (float)min_angle;
+    float dist_max = (float)max_angle - current_angle_f;
+    float dist_edge = dist_min < dist_max ? dist_min : dist_max;
+    if (dist_edge < 0.0f) dist_edge = 0.0f;
+
+    float speed_factor = 1.0f;
+    if (dist_edge < 12.0f) {
+      speed_factor = 0.40f + 0.60f * (0.5f * (1.0f - cosf((dist_edge / 12.0f) * 3.14159265f)));
     }
-    write_servo_angle(current_angle);
+    float dyn_step = (float)step_deg * speed_factor;
+    if (dyn_step < 0.6f) dyn_step = 0.6f;
+
+    current_angle_f += (float)sweep_direction * dyn_step;
+    if (current_angle_f >= (float)max_angle) {
+      current_angle_f = (float)max_angle;
+      sweep_direction = -1;
+    } else if (current_angle_f <= (float)min_angle) {
+      current_angle_f = (float)min_angle;
+      sweep_direction = 1;
+    }
+    move_servo_smooth(current_angle_f, 32);
   } else {
-    current_angle = hold_angle;
-    write_servo_angle(current_angle);
+    move_servo_smooth((float)hold_angle, 50);
   }
 
-  // 3. Mechanical Settle Delay
   delay(settle_ms);
 
-  // 4. Fire Rapid 3-Sample Median Ping
   bool is_valid = false;
   float d_cm = read_median_distance(is_valid);
 
-  // 5. Update IMU if present
   if (imu_detected) {
     update_imu();
   }
@@ -321,11 +318,10 @@ void loop() {
   int safety_stop = (is_valid && d_cm <= CRITICAL_SAFETY_CM) ? 1 : 0;
   unsigned long now = millis();
 
-  // 6. Stream JSON Telemetry Packet with Hardware Servo Angle "s_ang"
   Serial.print("{\"bot_id\":\"BUPI-01\",\"ts\":");
   Serial.print(now);
   Serial.print(",\"s_ang\":");
-  Serial.print(current_angle);
+  Serial.print(current_angle_f, 1);
   Serial.print(",\"min_ang\":");
   Serial.print(min_angle);
   Serial.print(",\"max_ang\":");
@@ -339,17 +335,10 @@ void loop() {
   Serial.print(",\"imu\":");
   Serial.print(imu_detected ? "true" : "false");
   Serial.print(",\"yaw\":");
-  if (imu_detected) {
-    Serial.print(current_yaw, 1);
-  } else {
-    Serial.print("null");
-  }
+  if (imu_detected) Serial.print(current_yaw, 1);
+  else Serial.print("null");
   Serial.print(",\"pitch\":");
-  if (imu_detected) {
-    Serial.print(current_pitch, 1);
-  } else {
-    Serial.print("null");
-  }
+  if (imu_detected) Serial.print(current_pitch, 1);
+  else Serial.print("null");
   Serial.println("}");
 }
-

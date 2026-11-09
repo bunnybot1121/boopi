@@ -1,32 +1,20 @@
 /*
  * BUPI Autonomous Robotics Fleet — Ultrasonic Hardware Servo Turret Firmware
- * Sketch: bupi_phase1_sonar_node.ino
+ * Sketch: bupi_sonar_vision_node.ino
  * Path: bupi_phase1_sonar_test/esp32_firmware/bupi_phase1_sonar_node/bupi_phase1_sonar_node.ino
  *
  * Hardware Peripherals:
  *   - 1x ESP32 Dev Module
- *   - 1x Servo Motor (SG90 / MG90S / MG996R):
- *       SIGNAL -> GPIO 13 (50 Hz PWM via portable ledc abstraction)
- *       VCC    -> 5V / VIN
- *       GND    -> Common GND
- *   - 1x HC-SR04 Ultrasonic Sensor (Mounted on Servo Horn):
- *       TRIG   -> GPIO 5
- *       ECHO   -> GPIO 18 (via 1k / 2k voltage divider or direct to 3.3V GPIO)
- *       VCC    -> 5V / VIN (MUST be 5V for transducer oscillation)
- *       GND    -> Common GND
- *   - Optional MPU-6050 6-Axis IMU (Raw Wire.h, auto-detected):
- *       SDA    -> GPIO 21
- *       SCL    -> GPIO 22
+ *   - 1x Servo Motor (SG90 / MG90S / MG996R) on GPIO 13 (50 Hz LEDC PWM)
+ *   - 1x HC-SR04 Ultrasonic Sensor on TRIG=GPIO 5, ECHO=GPIO 18
+ *   - Optional MPU-6050 6-Axis IMU on SDA=GPIO 21, SCL=GPIO 22
  *
  * Telemetry Output: Newline-delimited JSON over USB Serial @ 115200 baud
- * Format:
- *   {"bot_id":"BUPI-01","ts":12450,"s_ang":75,"min_ang":45,"max_ang":135,"d_cm":114.2,"valid":1,"safety_stop":0,"imu":false,"yaw":null,"pitch":null}
- *
- * Two-Way Serial Configuration Input:
- *   {"cmd":"SERVO_CFG","min_ang":60,"max_ang":120,"step":3,"sweep_en":1,"hold_ang":90}
+ * Features: Sub-degree S-curve smoothstep interpolation & soft turnaround deceleration
  */
 
 #include <Wire.h>
+#include <math.h>
 
 // --- Pinout Configuration ---
 #define SERVO_PIN      13
@@ -36,10 +24,10 @@
 #define I2C_SCL_PIN    22
 
 // --- Timing & Sensor Limits ---
-#define ECHO_TIMEOUT_US     25000
+#define ECHO_TIMEOUT_US     25000       // 25ms timeout (~428 cm max distance, never hangs)
 #define CRITICAL_SAFETY_CM  15.0f
 
-// --- MPU-6050 Registers (Raw Wire.h) ---
+// --- MPU-6050 Registers ---
 #define MPU_ADDR_PRIMARY    0x68
 #define MPU_ADDR_SECONDARY  0x69
 #define MPU_REG_PWR_MGMT_1  0x6B
@@ -57,9 +45,9 @@
 // --- Servo Turret State ---
 int min_angle = 45;
 int max_angle = 135;
-int step_deg = 3;
-int settle_ms = 30;
-int current_angle = 90;
+int step_deg = 2;
+int settle_ms = 10;
+float current_angle_f = 90.0f;
 int sweep_direction = 1;
 bool sweep_enabled = true;
 int hold_angle = 90;
@@ -87,15 +75,43 @@ void init_servo_pwm() {
 #endif
 }
 
-void write_servo_angle(int angle_deg) {
-  angle_deg = constrain(angle_deg, 0, 180);
-  uint32_t pulse_us = 500 + ((uint32_t)angle_deg * 1900UL) / 180UL;
-  uint32_t duty = (pulse_us * 65535UL) / 20000UL;
+void write_servo_angle(float angle_deg) {
+  angle_deg = constrain(angle_deg, 0.0f, 180.0f);
+  float pulse_us = 500.0f + (angle_deg * 1900.0f) / 180.0f;
+  uint32_t duty = (uint32_t)((pulse_us * 65535.0f) / 20000.0f);
 #if BUPI_LEDC_V3
   ledcWrite(SERVO_PIN, duty);
 #else
   ledcWrite(SERVO_PWM_CHANNEL, duty);
 #endif
+}
+
+// Quintic smoothstep easing for zero acceleration jerk
+float smooth_easing(float t) {
+  if (t <= 0.0f) return 0.0f;
+  if (t >= 1.0f) return 1.0f;
+  return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
+}
+
+void move_servo_smooth(float target_ang, int duration_ms) {
+  float start_ang = current_angle_f;
+  float delta = target_ang - start_ang;
+  if (fabsf(delta) < 0.05f) {
+    write_servo_angle(target_ang);
+    current_angle_f = target_ang;
+    return;
+  }
+  int slices = duration_ms / 5;
+  if (slices < 4) slices = 4;
+  int slice_ms = duration_ms / slices;
+  for (int i = 1; i <= slices; i++) {
+    float t = (float)i / (float)slices;
+    float ease = smooth_easing(t);
+    write_servo_angle(start_ang + delta * ease);
+    delay(slice_ms);
+  }
+  write_servo_angle(target_ang);
+  current_angle_f = target_ang;
 }
 
 float ping_single(bool &is_valid) {
@@ -110,13 +126,11 @@ float ping_single(bool &is_valid) {
     is_valid = false;
     return 400.0f;
   }
-
   float d = (float)duration * 0.01715f;
   if (d < 2.0f || d > 400.0f) {
     is_valid = false;
     return 400.0f;
   }
-
   is_valid = true;
   return d;
 }
@@ -128,10 +142,8 @@ float read_median_distance(bool &is_valid) {
   float d2 = ping_single(v2);
   delayMicroseconds(400);
   float d3 = ping_single(v3);
-
   int valid_count = (v1 ? 1 : 0) + (v2 ? 1 : 0) + (v3 ? 1 : 0);
   is_valid = (valid_count >= 2);
-
   return calculate_median3(d1, d2, d3);
 }
 
@@ -157,7 +169,7 @@ void init_mpu(uint8_t addr) {
   delay(25);
 
   long accum = 0;
-  for (int i = 0; i < 100; i++) {
+  for (int i = 0; i < 60; i++) {
     Wire.beginTransmission(addr);
     Wire.write(MPU_REG_GYRO_ZOUT);
     Wire.endTransmission(false);
@@ -168,7 +180,7 @@ void init_mpu(uint8_t addr) {
     }
     delay(2);
   }
-  gyro_z_bias = (float)accum / 100.0f;
+  gyro_z_bias = (float)accum / 60.0f;
   last_imu_us = micros();
 }
 
@@ -186,7 +198,6 @@ void update_imu() {
     int16_t az = (Wire.read() << 8) | Wire.read();
     Wire.read(); Wire.read();
     Wire.read(); Wire.read();
-    Wire.read(); Wire.read();
     int16_t gz = (Wire.read() << 8) | Wire.read();
 
     unsigned long now_us = micros();
@@ -198,7 +209,6 @@ void update_imu() {
     if (accel_mag > 0.0f) {
       current_pitch = atan2f(-(float)ax, accel_mag) * 57.29578f;
     }
-
     float gz_dps = ((float)gz - gyro_z_bias) / 131.0f;
     if (fabsf(gz_dps) > 0.4f) {
       current_yaw += gz_dps * dt;
@@ -241,8 +251,7 @@ void process_serial_command() {
     hold_angle = constrain(new_hold, 0, 180);
 
     if (!sweep_enabled) {
-      current_angle = hold_angle;
-      write_servo_angle(current_angle);
+      move_servo_smooth((float)hold_angle, 150);
     }
   } else if (line.indexOf("zero_yaw") >= 0) {
     current_yaw = 90.0f;
@@ -258,8 +267,8 @@ void setup() {
   digitalWrite(TRIG_PIN, LOW);
 
   init_servo_pwm();
-  write_servo_angle(current_angle);
-  delay(150);
+  move_servo_smooth(90.0f, 200);
+  delay(100);
 
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, 400000);
   imu_detected = detect_mpu(mpu_addr);
@@ -272,18 +281,29 @@ void loop() {
   process_serial_command();
 
   if (sweep_enabled) {
-    current_angle += sweep_direction * step_deg;
-    if (current_angle >= max_angle) {
-      current_angle = max_angle;
+    float dist_min = current_angle_f - (float)min_angle;
+    float dist_max = (float)max_angle - current_angle_f;
+    float dist_edge = dist_min < dist_max ? dist_min : dist_max;
+    if (dist_edge < 0.0f) dist_edge = 0.0f;
+
+    float speed_factor = 1.0f;
+    if (dist_edge < 12.0f) {
+      speed_factor = 0.40f + 0.60f * (0.5f * (1.0f - cosf((dist_edge / 12.0f) * 3.14159265f)));
+    }
+    float dyn_step = (float)step_deg * speed_factor;
+    if (dyn_step < 0.6f) dyn_step = 0.6f;
+
+    current_angle_f += (float)sweep_direction * dyn_step;
+    if (current_angle_f >= (float)max_angle) {
+      current_angle_f = (float)max_angle;
       sweep_direction = -1;
-    } else if (current_angle <= min_angle) {
-      current_angle = min_angle;
+    } else if (current_angle_f <= (float)min_angle) {
+      current_angle_f = (float)min_angle;
       sweep_direction = 1;
     }
-    write_servo_angle(current_angle);
+    move_servo_smooth(current_angle_f, 32);
   } else {
-    current_angle = hold_angle;
-    write_servo_angle(current_angle);
+    move_servo_smooth((float)hold_angle, 50);
   }
 
   delay(settle_ms);
@@ -301,7 +321,7 @@ void loop() {
   Serial.print("{\"bot_id\":\"BUPI-01\",\"ts\":");
   Serial.print(now);
   Serial.print(",\"s_ang\":");
-  Serial.print(current_angle);
+  Serial.print(current_angle_f, 1);
   Serial.print(",\"min_ang\":");
   Serial.print(min_angle);
   Serial.print(",\"max_ang\":");
@@ -315,16 +335,10 @@ void loop() {
   Serial.print(",\"imu\":");
   Serial.print(imu_detected ? "true" : "false");
   Serial.print(",\"yaw\":");
-  if (imu_detected) {
-    Serial.print(current_yaw, 1);
-  } else {
-    Serial.print("null");
-  }
+  if (imu_detected) Serial.print(current_yaw, 1);
+  else Serial.print("null");
   Serial.print(",\"pitch\":");
-  if (imu_detected) {
-    Serial.print(current_pitch, 1);
-  } else {
-    Serial.print("null");
-  }
+  if (imu_detected) Serial.print(current_pitch, 1);
+  else Serial.print("null");
   Serial.println("}");
 }

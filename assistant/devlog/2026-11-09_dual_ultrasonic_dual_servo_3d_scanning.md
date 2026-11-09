@@ -61,3 +61,14 @@
 - `tests/test_bupi_sonar_pipeline.py`: 8/8 tests passed (100% green, 0.67s execution).
   - Validated coordinate transformations, Bayesian cone integration, single-pass $\Delta d$ depth classification, 3D point cloud generation, 2.5D A* pathfinding, and FastAPI dual-ping REST/WebSocket endpoints.
 
+---
+
+## 6. Motor Motion Smoothing Upgrade (S-Curve Hermite Interpolation)
+- **Problem**: Previous discrete $3^\circ$ step jumps caused mechanical chattering, gear vibration, and hard turnaround bounces at sector limits ($45^\circ/135^\circ$).
+- **Solution**:
+  1. **Floating-Point Sub-Degree Resolution**: Upgraded LEDC 14-bit PWM duty calculation to accept `float angle_deg`, achieving $0.11^\circ$ physical step resolution.
+  2. **Quintic Smoothstep S-Curve Easing**: Implemented $S(t) = 6t^5 - 15t^4 + 10t^3$ over 35ms micro-stepped intervals, guaranteeing zero velocity and zero acceleration jerk at motion onset and termination.
+  3. **Soft Boundary Deceleration**: Harmonic cosine deceleration factor applied within $12^\circ$ of sweep limits (`min_ang` / `max_ang`), easing into a smooth turnaround rather than a mechanical impact.
+  4. **Anti-Brownout PWM Staggering**: 2ms stagger between Servo 1 and Servo 2 updates to prevent inductive inrush current spikes.
+
+
