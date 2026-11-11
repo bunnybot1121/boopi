@@ -1,27 +1,29 @@
 /**
  * Viewport 1: Dual-Beam Polar Radar Sonar Scope.
- * Renders real-time sweep beams for both Sensor 1 (Low) and Sensor 2 (High),
- * sector boundaries, depth jump portals, and phosphor fading trails.
+ * Dynamically scales across 100/150/200/400cm presets and renders
+ * connected Sonar Contour Polylines with shaded safe/obstacle zones.
  */
+
+import { getTacticalPalette } from './theme.js';
 
 export class PolarScope {
   constructor(canvasElement) {
     this.canvas = canvasElement;
     this.ctx = canvasElement.getContext('2d');
+    this.palette = getTacticalPalette();
 
-    this.maxRangeCm = 400.0;
-    this.currentAngle = 90.0;
+    this.maxRangeCm = 200.0;
     this.s1Ang = 90.0;
     this.s2Ang = 90.0;
     this.d1Cm = 400.0;
     this.d2Cm = 400.0;
     this.valid1 = false;
     this.valid2 = false;
-    this.deltaD = 0.0;
-    this.class3d = "OPEN_CORRIDOR";
+    this.minAng = 45.0;
+    this.maxAng = 135.0;
     this.history = [];
     this.portals = [];
-    this.persistentObstacles = new Map();
+    this.contourScan = [];
     this.pinpointedObjects = [];
     this.onAngleAim = null;
     this.isAimDragging = false;
@@ -33,37 +35,18 @@ export class PolarScope {
 
   initAimEvents() {
     this.canvas.style.cursor = 'crosshair';
-
     const calcAngle = (e) => {
       const rect = this.canvas.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
-      const ox = this.width / 2;
-      const oy = this.height - 28;
-      const dx = mx - ox;
-      const dy = oy - my;
-      if (dy > -25) {
-        let rad = Math.atan2(dy, dx);
-        let deg = (rad * 180.0) / Math.PI;
-        deg = Math.max(0.0, Math.min(180.0, deg));
-        if (this.onAngleAim) {
-          this.onAngleAim(Math.round(deg));
-        }
+      const dx = (e.clientX - rect.left) - this.width / 2;
+      const dy = (this.height - 28) - (e.clientY - rect.top);
+      if (dy > -25 && this.onAngleAim) {
+        const deg = Math.max(0.0, Math.min(180.0, (Math.atan2(dy, dx) * 180.0) / Math.PI));
+        this.onAngleAim(Math.round(deg));
       }
     };
-
-    this.canvas.addEventListener('mousedown', (e) => {
-      this.isAimDragging = true;
-      calcAngle(e);
-    });
-
-    window.addEventListener('mousemove', (e) => {
-      if (this.isAimDragging) calcAngle(e);
-    });
-
-    window.addEventListener('mouseup', () => {
-      this.isAimDragging = false;
-    });
+    this.canvas.addEventListener('mousedown', (e) => { this.isAimDragging = true; calcAngle(e); });
+    window.addEventListener('mousemove', (e) => { if (this.isAimDragging) calcAngle(e); });
+    window.addEventListener('mouseup', () => { this.isAimDragging = false; });
   }
 
   resize() {
@@ -72,48 +55,135 @@ export class PolarScope {
     this.height = rect.height;
     this.canvas.width = this.width * window.devicePixelRatio;
     this.canvas.height = this.height * window.devicePixelRatio;
-    this.ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    this.ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
     this.render();
   }
 
-  updateState(telemetry, history, portals, pinpointedObjects = []) {
+  getRingSteps() {
+    if (this.maxRangeCm <= 105) return [25, 50, 75, 100];
+    if (this.maxRangeCm <= 155) return [50, 100, 150];
+    if (this.maxRangeCm <= 205) return [50, 100, 150, 200];
+    return [100, 200, 300, 400];
+  }
+
+  updateState(telemetry, history, portals, pinpointedObjects = [], contourScan = [], gridMeta = null) {
+    if (gridMeta && gridMeta.max_range_cm) {
+      this.maxRangeCm = gridMeta.max_range_cm;
+    } else if (telemetry && telemetry.max_range_cm) {
+      this.maxRangeCm = telemetry.max_range_cm;
+    }
+
     if (telemetry) {
-      this.s1Ang = telemetry.s1_ang !== undefined ? telemetry.s1_ang : (telemetry.s_ang !== undefined ? telemetry.s_ang : 90.0);
-      this.s2Ang = telemetry.s2_ang !== undefined ? telemetry.s2_ang : this.s1Ang;
-      this.currentAngle = this.s1Ang;
-
-      this.d1Cm = telemetry.d1_cm !== undefined ? telemetry.d1_cm : (telemetry.d_cm !== undefined ? telemetry.d_cm : 400.0);
-      this.d2Cm = telemetry.d2_cm !== undefined ? telemetry.d2_cm : this.d1Cm;
-
-      this.valid1 = telemetry.valid1 !== undefined ? (telemetry.valid1 === 1 || telemetry.valid1 === true) : (telemetry.valid === 1 || telemetry.valid === true);
-      this.valid2 = telemetry.valid2 !== undefined ? (telemetry.valid2 === 1 || telemetry.valid2 === true) : this.valid1;
-
-      this.deltaD = telemetry.delta_d !== undefined ? telemetry.delta_d : (this.d2Cm - this.d1Cm);
-      this.class3d = telemetry.class_3d || "OPEN_CORRIDOR";
-
-      this.minAng = telemetry.min_ang !== undefined ? telemetry.min_ang : 45.0;
-      this.maxAng = telemetry.max_ang !== undefined ? telemetry.max_ang : 135.0;
-
-      if ((this.valid1 || (this.d1Cm > 2 && this.d1Cm < 390)) && this.d1Cm < 390) {
-        this.persistentObstacles.set(Math.round(this.s1Ang), {
-          d1: this.d1Cm,
-          d2: this.d2Cm,
-          angle: this.s1Ang
-        });
-      }
+      this.s1Ang = telemetry.s1_ang ?? telemetry.s_ang ?? 90.0;
+      this.s2Ang = telemetry.s2_ang ?? this.s1Ang;
+      this.d1Cm = telemetry.d1_cm ?? telemetry.d_cm ?? 400.0;
+      this.d2Cm = telemetry.d2_cm ?? this.d1Cm;
+      this.valid1 = (telemetry.valid1 === 1 || telemetry.valid1 === true || telemetry.valid === 1 || telemetry.valid === true);
+      this.valid2 = (telemetry.valid2 === 1 || telemetry.valid2 === true);
+      this.minAng = telemetry.min_ang ?? 45.0;
+      this.maxAng = telemetry.max_ang ?? 135.0;
     }
     if (history) this.history = history;
     if (portals) this.portals = portals;
     if (pinpointedObjects) this.pinpointedObjects = pinpointedObjects;
+    if (contourScan) this.contourScan = contourScan;
     this.render();
   }
 
   clear() {
-    this.persistentObstacles.clear();
     this.pinpointedObjects = [];
+    this.contourScan = [];
     this.history = [];
     this.portals = [];
     this.render();
+  }
+
+  drawContourZones(ctx, ox, oy, maxRadius) {
+    if (!this.contourScan || this.contourScan.length === 0) return;
+
+    // Group continuous angular readings into connected wall segments (gap <= 8 deg & jump <= 30cm)
+    const segments = [];
+    let seg = [];
+    for (const pt of this.contourScan) {
+      if (pt.d1_cm > this.maxRangeCm || pt.d1_cm < 3.0) {
+        if (seg.length > 0) { segments.push(seg); seg = []; }
+        continue;
+      }
+      if (seg.length === 0) {
+        seg.push(pt);
+      } else {
+        const prev = seg[seg.length - 1];
+        if (Math.abs(pt.angle_deg - prev.angle_deg) <= 8.5 && Math.abs(pt.d1_cm - prev.d1_cm) <= 30.0) {
+          seg.push(pt);
+        } else {
+          segments.push(seg);
+          seg = [pt];
+        }
+      }
+    }
+    if (seg.length > 0) segments.push(seg);
+
+    // 1. Shaded Safe Free Interior Polygon + Obstacle Backing Shadow
+    segments.forEach((s) => {
+      const toXY = (pt) => {
+        const rad = (pt.angle_deg * Math.PI) / 180.0;
+        const r = Math.min(pt.d1_cm / this.maxRangeCm, 1.0) * maxRadius;
+        return { x: ox + r * Math.cos(rad), y: oy - r * Math.sin(rad), rad };
+      };
+
+      // Safe corridor interior fill (#0d3b46)
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(ox, oy);
+      s.forEach((pt) => { const p = toXY(pt); ctx.lineTo(p.x, p.y); });
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(13, 59, 70, 0.42)';
+      ctx.fill();
+
+      // Obstacle backing warning zone from hit curve out to edge
+      if (s.length >= 2) {
+        ctx.beginPath();
+        s.forEach((pt, i) => {
+          const p = toXY(pt);
+          if (i === 0) ctx.moveTo(p.x, p.y);
+          else ctx.lineTo(p.x, p.y);
+        });
+        for (let i = s.length - 1; i >= 0; i--) {
+          const rad = (s[i].angle_deg * Math.PI) / 180.0;
+          ctx.lineTo(ox + maxRadius * Math.cos(rad), oy - maxRadius * Math.sin(rad));
+        }
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(255, 42, 84, 0.14)';
+        ctx.fill();
+      }
+      ctx.restore();
+
+      // 2. Connected Sonar Contour Polyline
+      ctx.save();
+      ctx.beginPath();
+      s.forEach((pt, idx) => {
+        const p = toXY(pt);
+        if (idx === 0) ctx.moveTo(p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
+      });
+      const isStep = s.some((pt) => pt.class_3d === 'LOW_STEP_RUBBLE');
+      const strokeCol = isStep ? this.palette.amber : this.palette.red;
+      ctx.strokeStyle = strokeCol;
+      ctx.lineWidth = 2.6;
+      ctx.shadowColor = strokeCol;
+      ctx.shadowBlur = 6;
+      ctx.stroke();
+
+      // Small vertices along single-point returns
+      if (s.length === 1) {
+        const p = toXY(s[0]);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = strokeCol;
+        ctx.fill();
+      }
+      ctx.restore();
+    });
   }
 
   render() {
@@ -122,250 +192,157 @@ export class PolarScope {
     const h = this.height;
     if (!w || !h) return;
 
+    const pal = this.palette;
     ctx.clearRect(0, 0, w, h);
 
     const ox = w / 2;
     const oy = h - 28;
     const maxRadius = Math.min(w * 0.48, h - 45);
 
-    // 1. Range Rings (100cm, 200cm, 300cm, 400cm)
-    const rings = [100, 200, 300, 400];
+    // 1. Dynamic Range Rings
     ctx.lineWidth = 1;
-    ctx.strokeStyle = '#21262d';
+    ctx.strokeStyle = pal.borderSubtle;
     ctx.font = '10px "JetBrains Mono", monospace';
-    ctx.fillStyle = '#545d68';
+    ctx.fillStyle = pal.textDim;
 
-    rings.forEach((rCm) => {
+    this.getRingSteps().forEach((rCm) => {
       const radius = (rCm / this.maxRangeCm) * maxRadius;
       ctx.beginPath();
       ctx.arc(ox, oy, radius, Math.PI, 0, false);
       ctx.stroke();
-      ctx.fillText(`${rCm}cm`, ox + radius - 18, oy - 4);
+      ctx.fillText(`${rCm}cm`, ox + radius - 22, oy - 4);
     });
 
-    // 2. Radial Spokes (0, 30, 45, 60, 90, 120, 135, 150, 180)
-    const angles = [0, 30, 45, 60, 90, 120, 135, 150, 180];
-    angles.forEach((deg) => {
+    // 2. Radial Spokes & Sector Wedge
+    [0, 30, 45, 60, 90, 120, 135, 150, 180].forEach((deg) => {
       const rad = (deg * Math.PI) / 180.0;
-      const ex = ox + maxRadius * Math.cos(rad);
-      const ey = oy - maxRadius * Math.sin(rad);
-
       ctx.beginPath();
       ctx.moveTo(ox, oy);
-      ctx.lineTo(ex, ey);
-      ctx.strokeStyle = deg === 90 ? '#30363d' : '#1b222c';
+      ctx.lineTo(ox + maxRadius * Math.cos(rad), oy - maxRadius * Math.sin(rad));
+      ctx.strokeStyle = deg === 90 ? pal.borderMedium : '#1b222c';
       ctx.stroke();
 
-      const lx = ox + (maxRadius + 14) * Math.cos(rad);
-      const ly = oy - (maxRadius + 14) * Math.sin(rad);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillStyle = '#8b949e';
-      ctx.fillText(`${deg}°`, lx, ly);
+      ctx.fillStyle = pal.textMuted;
+      ctx.fillText(`${deg}°`, ox + (maxRadius + 14) * Math.cos(rad), oy - (maxRadius + 14) * Math.sin(rad));
     });
 
-    // 2b. Sweep Sector Wedge
-    if (this.minAng !== undefined && this.maxAng !== undefined) {
-      const minRad = (this.minAng * Math.PI) / 180.0;
-      const maxRad = (this.maxAng * Math.PI) / 180.0;
-      ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(ox, oy);
-      ctx.arc(ox, oy, maxRadius, -maxRad, -minRad, false);
-      ctx.closePath();
-      ctx.fillStyle = 'rgba(0, 229, 255, 0.04)';
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(0, 229, 255, 0.40)';
-      ctx.setLineDash([4, 4]);
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      ctx.restore();
-    }
+    const minRad = (this.minAng * Math.PI) / 180.0;
+    const maxRad = (this.maxAng * Math.PI) / 180.0;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(ox, oy);
+    ctx.arc(ox, oy, maxRadius, -maxRad, -minRad, false);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(0, 229, 255, 0.03)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0, 229, 255, 0.35)';
+    ctx.setLineDash([4, 4]);
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+    ctx.restore();
 
-    // 3. Beam 1: Low Ground Plane (Cyan)
+    // 3. Connected Sonar Contour Polyline & Shaded Zones
+    this.drawContourZones(ctx, ox, oy, maxRadius);
+
+    // 4. Live Sweeping Cones (Timeout fades cleanly to 85% maxRangeCm)
     const rad1 = (this.s1Ang * Math.PI) / 180.0;
-    const r1 = Math.min(this.d1Cm / this.maxRangeCm, 1.0) * maxRadius;
     const coneHalf = (7.5 * Math.PI) / 180.0;
+    const dispD1 = (this.valid1 && this.d1Cm < 395) ? Math.min(this.d1Cm, this.maxRangeCm) : (0.85 * this.maxRangeCm);
+    const r1 = (dispD1 / this.maxRangeCm) * maxRadius;
 
     ctx.save();
     ctx.beginPath();
     ctx.moveTo(ox, oy);
     ctx.arc(ox, oy, r1, -rad1 - coneHalf, -rad1 + coneHalf, false);
     ctx.closePath();
-    ctx.fillStyle = 'rgba(0, 229, 255, 0.15)';
+    ctx.fillStyle = 'rgba(0, 229, 255, 0.16)';
     ctx.fill();
     ctx.restore();
 
-    // 4. Beam 2: High / Tilted Plane (Amber / Green)
     const rad2 = (this.s2Ang * Math.PI) / 180.0;
-    const r2 = Math.min(this.d2Cm / this.maxRangeCm, 1.0) * maxRadius;
+    const dispD2 = (this.valid2 && this.d2Cm < 395) ? Math.min(this.d2Cm, this.maxRangeCm) : (0.85 * this.maxRangeCm);
+    const r2 = (dispD2 / this.maxRangeCm) * maxRadius;
 
     ctx.save();
     ctx.beginPath();
     ctx.moveTo(ox, oy);
     ctx.arc(ox, oy, r2, -rad2 - coneHalf * 0.7, -rad2 + coneHalf * 0.7, false);
     ctx.closePath();
-    ctx.fillStyle = 'rgba(255, 179, 0, 0.12)';
+    ctx.fillStyle = 'rgba(255, 183, 3, 0.11)';
     ctx.fill();
     ctx.restore();
 
-    // 5. Differential Bridge (If Upper beam shoots past Low Step)
-    if (this.valid1 && this.valid2 && this.d2Cm > this.d1Cm + 25.0) {
-      ctx.save();
-      ctx.beginPath();
-      const p1x = ox + r1 * Math.cos(rad1);
-      const p1y = oy - r1 * Math.sin(rad1);
-      const p2x = ox + r2 * Math.cos(rad2);
-      const p2y = oy - r2 * Math.sin(rad2);
-      ctx.moveTo(p1x, p1y);
-      ctx.lineTo(p2x, p2y);
-      ctx.strokeStyle = '#00e5ff';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([2, 3]);
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    // 6. Needle Rays
-    // Beam 1 Needle
+    // Beam Needles
     ctx.beginPath();
     ctx.moveTo(ox, oy);
     ctx.lineTo(ox + maxRadius * Math.cos(rad1), oy - maxRadius * Math.sin(rad1));
-    ctx.strokeStyle = '#00e5ff';
+    ctx.strokeStyle = pal.primary;
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
-    // Beam 2 Needle (Dashed Amber)
-    ctx.save();
-    ctx.beginPath();
-    ctx.setLineDash([3, 3]);
-    ctx.moveTo(ox, oy);
-    ctx.lineTo(ox + maxRadius * Math.cos(rad2), oy - maxRadius * Math.sin(rad2));
-    ctx.strokeStyle = '#ffb300';
-    ctx.lineWidth = 1.2;
-    ctx.stroke();
-    ctx.restore();
+    // 5. Pinpointed Discrete Obstacle Reticles
+    this.pinpointedObjects.forEach((obj) => {
+      if (obj.distance_cm > this.maxRangeCm) return;
+      const rad = (obj.angle_deg * Math.PI) / 180.0;
+      const pr = (obj.distance_cm / this.maxRangeCm) * maxRadius;
+      const px = ox + pr * Math.cos(rad);
+      const py = oy - pr * Math.sin(rad);
+      const colHex = obj.color || pal.red;
 
-    // 7. Endpoints & History
-    this.history.forEach((pt, idx) => {
-      const age = idx / this.history.length;
-      if (pt.d1_cm && pt.d1_cm < 395) {
-        const pRad = (pt.angle_deg * Math.PI) / 180.0;
-        const pr = (pt.d1_cm / this.maxRangeCm) * maxRadius;
-        ctx.beginPath();
-        ctx.arc(ox + pr * Math.cos(pRad), oy - pr * Math.sin(pRad), pt.is_portal ? 4 : 2, 0, Math.PI * 2);
-        ctx.fillStyle = pt.is_portal ? `rgba(224, 64, 251, ${0.4 + age * 0.6})` : `rgba(0, 229, 255, ${0.3 + age * 0.7})`;
-        ctx.fill();
-      }
-      if (pt.d2_cm && pt.d2_cm < 395 && pt.d2_cm !== pt.d1_cm) {
-        const pRad2 = (pt.angle_deg * Math.PI) / 180.0;
-        const pr2 = (pt.d2_cm / this.maxRangeCm) * maxRadius;
-        ctx.beginPath();
-        ctx.arc(ox + pr2 * Math.cos(pRad2), oy - pr2 * Math.sin(pRad2), 2, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255, 179, 0, ${0.3 + age * 0.7})`;
-        ctx.fill();
-      }
-    });
-
-    // 7b. Persistent Obstacle Mapped Dots
-    this.persistentObstacles.forEach((pt) => {
-      if (pt.d1 && pt.d1 < 390) {
-        const rad = (pt.angle * Math.PI) / 180.0;
-        const pr = (pt.d1 / this.maxRangeCm) * maxRadius;
-        ctx.beginPath();
-        ctx.arc(ox + pr * Math.cos(rad), oy - pr * Math.sin(rad), 3.2, 0, Math.PI * 2);
-        ctx.fillStyle = '#ff3344';
-        ctx.shadowColor = '#ff3344';
-        ctx.shadowBlur = 4;
-        ctx.fill();
-        ctx.shadowBlur = 0;
-      }
-      if (pt.d2 && pt.d2 < 390 && Math.abs(pt.d2 - pt.d1) > 20) {
-        const rad2 = (pt.angle * Math.PI) / 180.0;
-        const pr2 = (pt.d2 / this.maxRangeCm) * maxRadius;
-        ctx.beginPath();
-        ctx.arc(ox + pr2 * Math.cos(rad2), oy - pr2 * Math.sin(rad2), 2.5, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffb300';
-        ctx.fill();
-      }
-    });
-
-    // 7c. Pinpointed Discrete Obstacles (Clustered & Position-Resolved)
-    if (this.pinpointedObjects && this.pinpointedObjects.length > 0) {
-      this.pinpointedObjects.forEach((obj) => {
-        const rad = (obj.angle_deg * Math.PI) / 180.0;
-        const pr = Math.min(obj.distance_cm / this.maxRangeCm, 1.0) * maxRadius;
-        const px = ox + pr * Math.cos(rad);
-        const py = oy - pr * Math.sin(rad);
-        const colHex = obj.color || '#ff3344';
-
-        ctx.save();
-        // Target Reticle
-        ctx.beginPath();
-        ctx.arc(px, py, 7, 0, Math.PI * 2);
-        ctx.strokeStyle = colHex;
-        ctx.lineWidth = 1.8;
-        ctx.stroke();
-
-        ctx.beginPath();
-        ctx.moveTo(px - 10, py);
-        ctx.lineTo(px + 10, py);
-        ctx.moveTo(px, py - 10);
-        ctx.lineTo(px, py + 10);
-        ctx.strokeStyle = colHex;
-        ctx.lineWidth = 1;
-        ctx.stroke();
-
-        // Tactical Label Tag
-        const tag = `${obj.id}: ${obj.distance_cm.toFixed(0)}cm @ ${obj.angle_deg.toFixed(0)}°`;
-        ctx.font = '10px "JetBrains Mono", monospace';
-        const tw = ctx.measureText(tag).width;
-        const lx = px >= ox ? px + 12 : px - tw - 16;
-        const ly = py - 8;
-
-        ctx.fillStyle = 'rgba(11, 15, 20, 0.88)';
-        ctx.fillRect(lx - 4, ly - 10, tw + 8, 15);
-        ctx.strokeStyle = colHex;
-        ctx.lineWidth = 1;
-        ctx.strokeRect(lx - 4, ly - 10, tw + 8, 15);
-
-        ctx.fillStyle = colHex;
-        ctx.fillText(tag, lx, ly + 2);
-        ctx.restore();
-      });
-    }
-
-    // 8. Live Hit Badges
-    const hasHit1 = (this.valid1 || (this.d1Cm > 2 && this.d1Cm < 395)) && this.d1Cm < 395;
-    if (hasHit1) {
-      const h1x = ox + r1 * Math.cos(rad1);
-      const h1y = oy - r1 * Math.sin(rad1);
+      ctx.save();
       ctx.beginPath();
-      ctx.arc(h1x, h1y, 5, 0, Math.PI * 2);
-      ctx.fillStyle = '#ff3344';
-      ctx.fill();
-      ctx.fillStyle = '#ffffff';
+      ctx.arc(px, py, 6.5, 0, Math.PI * 2);
+      ctx.strokeStyle = colHex;
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+
+      const tag = `${obj.id}: ${obj.distance_cm.toFixed(0)}cm @ ${obj.angle_deg.toFixed(0)}°`;
       ctx.font = '10px "JetBrains Mono", monospace';
-      ctx.fillText(`Low: ${this.d1Cm.toFixed(1)}cm`, h1x + 8, h1y - 6);
+      const tw = ctx.measureText(tag).width;
+      const lx = px >= ox ? px + 10 : px - tw - 14;
+      const ly = py - 8;
+
+      ctx.fillStyle = 'rgba(11, 16, 23, 0.90)';
+      ctx.fillRect(lx - 4, ly - 10, tw + 8, 15);
+      ctx.strokeStyle = colHex;
+      ctx.strokeRect(lx - 4, ly - 10, tw + 8, 15);
+      ctx.fillStyle = colHex;
+      ctx.textAlign = 'left';
+      ctx.fillText(tag, lx, ly + 1);
+      ctx.restore();
+    });
+
+    // 6. Live Hit Badges
+    if (this.valid1 && this.d1Cm >= 3.0 && this.d1Cm <= this.maxRangeCm) {
+      const hx = ox + r1 * Math.cos(rad1);
+      const hy = oy - r1 * Math.sin(rad1);
+      ctx.beginPath();
+      ctx.arc(hx, hy, 4.5, 0, Math.PI * 2);
+      ctx.fillStyle = pal.red;
+      ctx.fill();
+      ctx.fillStyle = pal.textBright;
+      ctx.textAlign = 'left';
+      ctx.fillText(`Low: ${this.d1Cm.toFixed(1)}cm`, hx + 8, hy - 6);
     }
 
-    const hasHit2 = (this.valid2 || (this.d2Cm > 2 && this.d2Cm < 395)) && this.d2Cm < 395 && this.d2Cm !== this.d1Cm;
-    if (hasHit2) {
+    if (this.valid2 && this.d2Cm >= 3.0 && this.d2Cm <= this.maxRangeCm && Math.abs(this.d2Cm - this.d1Cm) > 2.0) {
       const h2x = ox + r2 * Math.cos(rad2);
       const h2y = oy - r2 * Math.sin(rad2);
       ctx.beginPath();
       ctx.arc(h2x, h2y, 4, 0, Math.PI * 2);
-      ctx.fillStyle = '#ffb300';
+      ctx.fillStyle = pal.amber;
       ctx.fill();
-      ctx.fillStyle = '#ffb300';
-      ctx.font = '10px "JetBrains Mono", monospace';
+      ctx.fillStyle = pal.amber;
+      ctx.textAlign = 'left';
       ctx.fillText(`High: ${this.d2Cm.toFixed(1)}cm`, h2x + 8, h2y + 12);
     }
 
-    // 9. Sensor Origin
+    // 7. Robot Origin Marker
     ctx.beginPath();
     ctx.arc(ox, oy, 4, 0, Math.PI * 2);
-    ctx.fillStyle = '#00e676';
+    ctx.fillStyle = pal.green;
     ctx.fill();
   }
 }

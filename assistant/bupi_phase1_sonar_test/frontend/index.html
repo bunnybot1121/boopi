@@ -51,12 +51,24 @@
       </div>
 
       <div class="control-group">
-        <label for="scanModeSelect" class="field-label" style="color: var(--color-primary); font-weight: 600;">Scan Mode</label>
-        <select id="scanModeSelect" class="select-input" style="min-width: 175px;" aria-label="3D Scanning Mode">
-          <option value="STACKED_3D" selected>Stacked 2.5D/3D (d1 + d2)</option>
-          <option value="OPPOSED_360">360° Opposed Surround</option>
-          <option value="PITCH_TILT_3D">Multi-Pitch 3D Mesh</option>
-        </select>
+        <div class="control-pair">
+          <label for="scanModeSelect" class="field-label" style="color: var(--color-primary); font-weight: 600;">Scan Mode</label>
+          <select id="scanModeSelect" class="select-input" style="min-width: 175px;" aria-label="3D Scanning Mode">
+            <option value="STACKED_3D" selected>Stacked 2.5D/3D (d1 + d2)</option>
+            <option value="OPPOSED_360">360° Opposed Surround</option>
+            <option value="PITCH_TILT_3D">Multi-Pitch 3D Mesh</option>
+          </select>
+        </div>
+
+        <div class="control-pair">
+          <label for="maxRangeSelect" class="field-label" style="color: var(--color-primary); font-weight: 600;">Max Range</label>
+          <select id="maxRangeSelect" class="select-input" style="min-width: 155px;" aria-label="Max Sonar Display Range">
+            <option value="100">100cm (Desk)</option>
+            <option value="150">150cm (Bench)</option>
+            <option value="200" selected>200cm (Room Default)</option>
+            <option value="400">400cm (Hall)</option>
+          </select>
+        </div>
 
         <button id="btnLockBoth90" class="tactical-btn amber" type="button" title="Lock both servos at 90° to align hardware horns">
           🎯 Lock 90°
@@ -106,18 +118,24 @@
         <button id="btnSectorCone" class="tactical-btn primary" type="button" title="45 deg to 135 deg standard 90-degree vision cone">45°–135° (Standard Cone)</button>
         <button id="btnSectorFull" class="tactical-btn" type="button" title="0 deg to 180 deg full room scan">0°–180° (Full Room)</button>
 
-        <span class="field-label" style="margin-left: 12px;">Min: <strong id="servoMinValue" style="color: var(--color-primary);">45°</strong></span>
-        <input id="servoMinSlider" class="tactical-range" type="range" min="0" max="90" step="5" value="45" style="width: 80px;" aria-label="Servo min sweep angle">
+        <div class="control-pair" style="margin-left: 4px;">
+          <span class="field-label">Min: <strong id="servoMinValue" style="color: var(--color-primary);">45°</strong></span>
+          <input id="servoMinSlider" class="tactical-range" type="range" min="0" max="90" step="5" value="45" style="width: 80px;" aria-label="Servo min sweep angle">
+        </div>
 
-        <span class="field-label">Max: <strong id="servoMaxValue" style="color: var(--color-primary);">135°</strong></span>
-        <input id="servoMaxSlider" class="tactical-range" type="range" min="90" max="180" step="5" value="135" style="width: 80px;" aria-label="Servo max sweep angle">
+        <div class="control-pair">
+          <span class="field-label">Max: <strong id="servoMaxValue" style="color: var(--color-primary);">135°</strong></span>
+          <input id="servoMaxSlider" class="tactical-range" type="range" min="90" max="180" step="5" value="135" style="width: 80px;" aria-label="Servo max sweep angle">
+        </div>
 
-        <label for="servoStepSelect" class="field-label">Step</label>
-        <select id="servoStepSelect" class="select-input" style="min-width: 60px; height: 32px;" aria-label="Servo step degrees">
-          <option value="2" selected>2°</option>
-          <option value="3">3°</option>
-          <option value="5">5°</option>
-        </select>
+        <div class="control-pair">
+          <label for="servoStepSelect" class="field-label">Step</label>
+          <select id="servoStepSelect" class="select-input" style="min-width: 68px;" aria-label="Servo step degrees">
+            <option value="2" selected>2°</option>
+            <option value="3">3°</option>
+            <option value="5">5°</option>
+          </select>
+        </div>
 
         <button id="btnCenterServo" class="tactical-btn amber" type="button" title="Hold servo at 90 deg straight ahead">🎯 Center 90°</button>
         <button id="btnResumeSweep" class="tactical-btn primary" type="button" style="display: none;" title="Resume bidirectional servo sweep">▶ Resume Sweep</button>
@@ -137,7 +155,7 @@
         </div>
         <div class="viewport-body">
           <canvas id="polarScopeCanvas" class="viewport-canvas"></canvas>
-          <div id="polarCoords" class="canvas-overlay-coords">Sweep: 90.0° | Range: 400cm</div>
+          <div id="polarCoords" class="canvas-overlay-coords">Sweep: 90.0° | Range: 200cm</div>
         </div>
       </article>
 
@@ -152,7 +170,7 @@
         </div>
         <div class="viewport-body">
           <canvas id="dipCanvas" class="viewport-canvas"></canvas>
-          <div id="dipCoords" class="canvas-overlay-coords">X: 0.0 cm | Y: 0.0 cm | P: 0.50</div>
+          <div id="dipCoords" class="canvas-overlay-coords">Grid: 200x200 | Res: 2.0cm | Range: 200cm</div>
         </div>
       </article>
 
@@ -163,7 +181,7 @@
             <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
             Viewport 3: 3D Voxel Extrusion
           </h2>
-          <span class="viewport-tag">120x120 3D MATRIX</span>
+          <span class="viewport-tag" id="voxelMatrixTag">200x200 3D MATRIX</span>
         </div>
         <div id="voxelContainer" class="viewport-body">
           <canvas id="voxelCanvas" class="viewport-canvas"></canvas>

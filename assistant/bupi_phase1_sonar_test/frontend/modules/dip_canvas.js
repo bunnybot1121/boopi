@@ -1,28 +1,32 @@
 /**
  * Viewport 2: 2D DIP Occupancy Grid Canvas.
- * Displays the 120x120 Bayesian Log-Odds tensor, OpenCV safety dilation buffer,
- * and mouse hover coordinates.
+ * Dynamically scales across 100/150/200/400cm presets using gap-free colors
+ * and renders crisp rectangular tactical bounding boxes around objects.
  */
+
+import { getTacticalPalette } from './theme.js';
 
 export class DIPCanvas {
   constructor(canvasElement, coordsElement) {
     this.canvas = canvasElement;
     this.coordsEl = coordsElement;
     this.ctx = canvasElement.getContext('2d');
+    this.palette = getTacticalPalette();
 
-    this.gridWidth = 120;
-    this.gridHeight = 120;
-    this.resCm = 4.0;
-    this.originX = 60;
-    this.originY = 60;
+    this.gridWidth = 200;
+    this.gridHeight = 200;
+    this.resCm = 2.0;
+    this.originX = 100;
+    this.originY = 100;
+    this.maxRangeCm = 200.0;
 
     this.image = new Image();
     this.image.onload = () => this.render();
 
     this.astarPath = [];
-    this.points3d = [];
     this.telemetry = null;
     this.pinpointedObjects = [];
+    this.isHovering = false;
 
     this.setupMouseEvents();
     this.resize();
@@ -41,9 +45,26 @@ export class DIPCanvas {
     this.render();
   }
 
-  updateSnapshot(imageB64, astarPath, points3d, telemetry, pinpointedObjects = []) {
+  getRingSteps() {
+    if (this.maxRangeCm <= 105) return [25, 50, 75, 100];
+    if (this.maxRangeCm <= 155) return [50, 100, 150];
+    if (this.maxRangeCm <= 205) return [50, 100, 150, 200];
+    return [100, 200, 300, 400];
+  }
+
+  updateSnapshot(imageB64, astarPath, _points3d, telemetry, pinpointedObjects = [], gridMeta = null) {
+    if (gridMeta) {
+      this.gridWidth = gridMeta.width || 200;
+      this.gridHeight = gridMeta.height || 200;
+      this.resCm = gridMeta.res_cm || 2.0;
+      this.originX = gridMeta.origin_x || 100;
+      this.originY = gridMeta.origin_y || 100;
+      this.maxRangeCm = gridMeta.max_range_cm || 200.0;
+      if (this.coordsEl && !this.isHovering) {
+        this.coordsEl.textContent = `Grid: ${this.gridWidth}x${this.gridHeight} | Res: ${this.resCm.toFixed(1)}cm | Range: ${this.maxRangeCm.toFixed(0)}cm`;
+      }
+    }
     if (astarPath) this.astarPath = astarPath;
-    if (points3d) this.points3d = points3d;
     if (telemetry) this.telemetry = telemetry;
     if (pinpointedObjects) this.pinpointedObjects = pinpointedObjects;
 
@@ -54,20 +75,29 @@ export class DIPCanvas {
     }
   }
 
+  worldToCanvasPx(wxCm, wyCm, pxPerCell) {
+    return {
+      px: (this.originX + (wxCm / this.resCm)) * pxPerCell,
+      py: (this.originY - (wyCm / this.resCm)) * pxPerCell
+    };
+  }
+
   render() {
     const ctx = this.ctx;
     const s = this.size;
     if (!s) return;
 
+    const pal = this.palette;
     ctx.save();
-    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
     ctx.clearRect(0, 0, s, s);
 
-    // 1. Render OpenCV generated semantic image base
+    // 1. Gap-free OpenCV semantic matrix base (#0b1017 unknown canvas)
     if (this.image.complete && this.image.naturalWidth > 0) {
+      ctx.imageSmoothingEnabled = false;
       ctx.drawImage(this.image, 0, 0, s, s);
     } else {
-      ctx.fillStyle = '#0b0f14';
+      ctx.fillStyle = pal.mapUnknown;
       ctx.fillRect(0, 0, s, s);
     }
 
@@ -75,160 +105,113 @@ export class DIPCanvas {
     const oxPx = this.originX * pxPerCell;
     const oyPx = this.originY * pxPerCell;
 
-    // 2. Metric Coordinate Axes (X-axis & Y-axis in cm)
-    ctx.strokeStyle = 'rgba(0, 229, 255, 0.25)';
+    // 2. Metric Axes
+    ctx.strokeStyle = 'rgba(0, 229, 255, 0.22)';
     ctx.lineWidth = 1;
-    // X Axis (Horizontal line through origin)
     ctx.beginPath();
-    ctx.moveTo(0, oyPx);
-    ctx.lineTo(s, oyPx);
-    ctx.stroke();
-    // Y Axis (Vertical line through origin)
-    ctx.beginPath();
-    ctx.moveTo(oxPx, 0);
-    ctx.lineTo(oxPx, s);
+    ctx.moveTo(0, oyPx); ctx.lineTo(s, oyPx);
+    ctx.moveTo(oxPx, 0); ctx.lineTo(oxPx, s);
     ctx.stroke();
 
-    // 3. Concentric Metric Range Rings (100cm, 200cm, 300cm)
-    const rings = [100, 200, 300];
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.40)';
+    // 3. Scaled Metric Range Rings
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.09)';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
     ctx.font = '9px "JetBrains Mono", monospace';
-    rings.forEach((rCm) => {
+    this.getRingSteps().forEach((rCm) => {
       const rPx = (rCm / this.resCm) * pxPerCell;
       ctx.beginPath();
       ctx.arc(oxPx, oyPx, rPx, 0, Math.PI * 2);
       ctx.stroke();
-      ctx.fillText(`${rCm}cm`, oxPx + rPx - 14, oyPx - 4);
+      ctx.fillText(`${rCm}cm`, oxPx + rPx - 24, oyPx - 4);
     });
 
-    // 4. Exact 2D Obstacle Points from 3D Engine
-    if (this.points3d && this.points3d.length > 0) {
-      this.points3d.forEach((pt) => {
-        const wx = pt.x !== undefined ? pt.x : 0;
-        const wy = pt.y !== undefined ? pt.y : 0;
-        const px = (this.originX + (wx / this.resCm)) * pxPerCell;
-        const py = (this.originY - (wy / this.resCm)) * pxPerCell;
-        if (px >= 0 && px <= s && py >= 0 && py <= s) {
-          ctx.beginPath();
-          ctx.arc(px, py, pt.beam === 'high' ? 2.5 : 3.0, 0, Math.PI * 2);
-          ctx.fillStyle = pt.beam === 'high' ? '#ffb300' : '#ff3344';
-          ctx.shadowColor = pt.beam === 'high' ? '#ffb300' : '#ff3344';
-          ctx.shadowBlur = 4;
-          ctx.fill();
-          ctx.shadowBlur = 0;
-        }
-      });
-    }
-
-    // 5. Live Sweeping Radar Ray
+    // 4. Live Sweeping Radar Ray (Capped at 85% max_range on timeout)
     if (this.telemetry) {
-      const s1 = this.telemetry.s1_ang !== undefined ? this.telemetry.s1_ang : (this.telemetry.s_ang || 90.0);
+      const s1 = this.telemetry.s1_ang ?? this.telemetry.s_ang ?? 90.0;
       const rad = (s1 * Math.PI) / 180.0;
-      const rayLenPx = (380 / this.resCm) * pxPerCell;
-      const rx = oxPx + rayLenPx * Math.cos(rad);
-      const ry = oyPx - rayLenPx * Math.sin(rad);
+      const v1 = (this.telemetry.valid1 === 1 || this.telemetry.valid === 1);
+      const d1 = this.telemetry.d1_cm ?? this.telemetry.d_cm ?? 400.0;
+      const rayCm = (v1 && d1 < 395) ? Math.min(d1, this.maxRangeCm) : (0.85 * this.maxRangeCm);
+      const rayPx = (rayCm / this.resCm) * pxPerCell;
 
       ctx.save();
       ctx.beginPath();
       ctx.moveTo(oxPx, oyPx);
-      ctx.lineTo(rx, ry);
+      ctx.lineTo(oxPx + rayPx * Math.cos(rad), oyPx - rayPx * Math.sin(rad));
       ctx.strokeStyle = 'rgba(0, 229, 255, 0.65)';
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
-      // Live hit dot along current ray
-      const d1 = this.telemetry.d1_cm !== undefined ? this.telemetry.d1_cm : this.telemetry.d_cm;
-      if (d1 && d1 > 2 && d1 < 390) {
-        const hPx = (d1 / this.resCm) * pxPerCell;
-        const hx = oxPx + hPx * Math.cos(rad);
-        const hy = oyPx - hPx * Math.sin(rad);
+      if (v1 && d1 >= 3.0 && d1 <= this.maxRangeCm) {
+        const hp = this.worldToCanvasPx(d1 * Math.cos(rad), d1 * Math.sin(rad), pxPerCell);
         ctx.beginPath();
-        ctx.arc(hx, hy, 4.5, 0, Math.PI * 2);
-        ctx.fillStyle = '#00e5ff';
-        ctx.shadowColor = '#00e5ff';
-        ctx.shadowBlur = 8;
+        ctx.arc(hp.px, hp.py, 4, 0, Math.PI * 2);
+        ctx.fillStyle = pal.primary;
         ctx.fill();
       }
       ctx.restore();
     }
 
-    // 6. Draw A* Planned Path Line (Neon Green)
+    // 5. A* Planned Path Ribbon
     if (this.astarPath && this.astarPath.length >= 2) {
       ctx.save();
-      ctx.strokeStyle = '#00e676';
+      ctx.strokeStyle = pal.green;
       ctx.lineWidth = 2.0;
-      ctx.shadowColor = '#00e676';
-      ctx.shadowBlur = 6;
       ctx.beginPath();
-
       this.astarPath.forEach((wp, idx) => {
-        const wx = wp.x_cm !== undefined ? wp.x_cm : (wp.x || 0);
-        const wy = wp.y_cm !== undefined ? wp.y_cm : (wp.y || 0);
-        const col = this.originX + (wx / this.resCm);
-        const row = this.originY - (wy / this.resCm);
-        const px = col * pxPerCell;
-        const py = row * pxPerCell;
-        if (idx === 0) {
-          ctx.moveTo(px, py);
-        } else {
-          ctx.lineTo(px, py);
-        }
+        const pt = this.worldToCanvasPx(wp.x_cm ?? wp.x ?? 0, wp.y_cm ?? wp.y ?? 0, pxPerCell);
+        if (idx === 0) ctx.moveTo(pt.px, pt.py);
+        else ctx.lineTo(pt.px, pt.py);
       });
       ctx.stroke();
       ctx.restore();
     }
 
-    // 6b. Pinpointed Discrete Obstacles & Metric Tags
-    if (this.pinpointedObjects && this.pinpointedObjects.length > 0) {
-      this.pinpointedObjects.forEach((obj) => {
-        const col = this.originX + (obj.x_cm / this.resCm);
-        const row = this.originY - (obj.y_cm / this.resCm);
-        const px = col * pxPerCell;
-        const py = row * pxPerCell;
+    // 6. Clustered Object Bounding Boxes [OBJ-01: XXcm]
+    this.pinpointedObjects.forEach((obj) => {
+      const box = obj.bbox_world;
+      if (!box) return;
+      const p1 = this.worldToCanvasPx(box.x_min, box.y_max, pxPerCell);
+      const p2 = this.worldToCanvasPx(box.x_max, box.y_min, pxPerCell);
+      const bx = p1.px - 3;
+      const by = p1.py - 3;
+      const bw = Math.max(10, (p2.px - p1.px) + 6);
+      const bh = Math.max(10, (p2.py - p1.py) + 6);
+      const colHex = obj.color || pal.red;
 
-        if (px >= 0 && px <= s && py >= 0 && py <= s) {
-          const colHex = obj.color || '#ff3344';
-          const rPx = Math.max(8, (obj.width_cm / 2 / this.resCm) * pxPerCell);
+      ctx.save();
+      ctx.strokeStyle = colHex;
+      ctx.lineWidth = 1.4;
+      ctx.strokeRect(bx, by, bw, bh);
 
-          ctx.save();
-          // Obstacle bounding circle / zone
-          ctx.beginPath();
-          ctx.arc(px, py, rPx, 0, Math.PI * 2);
-          ctx.strokeStyle = colHex;
-          ctx.lineWidth = 1.5;
-          ctx.setLineDash([3, 2]);
-          ctx.stroke();
+      // Centroid marker
+      const cp = this.worldToCanvasPx(obj.x_cm, obj.y_cm, pxPerCell);
+      ctx.beginPath();
+      ctx.arc(cp.px, cp.py, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = colHex;
+      ctx.fill();
 
-          // Center target reticle
-          ctx.setLineDash([]);
-          ctx.beginPath();
-          ctx.arc(px, py, 4, 0, Math.PI * 2);
-          ctx.fillStyle = colHex;
-          ctx.fill();
+      // Label tag [OBJ-01: 48cm]
+      const tag = `[${obj.id}: ${obj.distance_cm.toFixed(0)}cm]`;
+      ctx.font = 'bold 9px "JetBrains Mono", monospace';
+      const tw = ctx.measureText(tag).width;
+      const lx = Math.min(s - tw - 10, Math.max(4, bx));
+      const ly = Math.max(15, by - 4);
 
-          // Tactical Coordinate Label
-          const tag = `${obj.id} [${obj.x_cm > 0 ? '+' : ''}${obj.x_cm}, ${obj.y_cm > 0 ? '+' : ''}${obj.y_cm}]`;
-          ctx.font = '9px "JetBrains Mono", monospace';
-          const tw = ctx.measureText(tag).width;
+      ctx.fillStyle = 'rgba(11, 16, 23, 0.90)';
+      ctx.fillRect(lx - 2, ly - 11, tw + 6, 13);
+      ctx.strokeStyle = colHex;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(lx - 2, ly - 11, tw + 6, 13);
+      ctx.fillStyle = colHex;
+      ctx.fillText(tag, lx + 1, ly - 1);
+      ctx.restore();
+    });
 
-          ctx.fillStyle = 'rgba(11, 15, 20, 0.85)';
-          ctx.fillRect(px + 6, py - 14, tw + 8, 14);
-          ctx.strokeStyle = colHex;
-          ctx.lineWidth = 1;
-          ctx.strokeRect(px + 6, py - 14, tw + 8, 14);
-
-          ctx.fillStyle = colHex;
-          ctx.fillText(tag, px + 10, py - 3);
-          ctx.restore();
-        }
-      });
-    }
-
-    // 7. Robot Origin Marker at Center (60, 60)
+    // 7. Robot Origin Marker
     ctx.beginPath();
     ctx.arc(oxPx, oyPx, 4, 0, Math.PI * 2);
-    ctx.fillStyle = '#00e676';
+    ctx.fillStyle = pal.green;
     ctx.fill();
 
     ctx.restore();
@@ -236,19 +219,16 @@ export class DIPCanvas {
 
   setupMouseEvents() {
     this.canvas.addEventListener('mousemove', (e) => {
+      this.isHovering = true;
       const rect = this.canvas.getBoundingClientRect();
-      const normX = (e.clientX - rect.left) / rect.width;
-      const normY = (e.clientY - rect.top) / rect.height;
-
-      const col = Math.floor(normX * this.gridWidth);
-      const row = Math.floor(normY * this.gridHeight);
+      const col = Math.floor(((e.clientX - rect.left) / rect.width) * this.gridWidth);
+      const row = Math.floor(((e.clientY - rect.top) / rect.height) * this.gridHeight);
 
       if (col >= 0 && col < this.gridWidth && row >= 0 && row < this.gridHeight) {
         const xCm = (col - this.originX) * this.resCm;
         const yCm = (this.originY - row) * this.resCm;
         const dist = Math.hypot(xCm, yCm);
         const angle = ((Math.atan2(yCm, xCm) * 180.0) / Math.PI + 360) % 360;
-
         if (this.coordsEl) {
           this.coordsEl.textContent = `X: ${xCm.toFixed(0)}cm | Y: ${yCm.toFixed(0)}cm | D: ${dist.toFixed(0)}cm @ ${angle.toFixed(0)}°`;
         }
@@ -256,10 +236,10 @@ export class DIPCanvas {
     });
 
     this.canvas.addEventListener('mouseleave', () => {
+      this.isHovering = false;
       if (this.coordsEl) {
-        this.coordsEl.textContent = `Grid: 120x120 | Res: 4.0cm | 4.8m x 4.8m`;
+        this.coordsEl.textContent = `Grid: ${this.gridWidth}x${this.gridHeight} | Res: ${this.resCm.toFixed(1)}cm | Range: ${this.maxRangeCm.toFixed(0)}cm`;
       }
     });
   }
 }
-

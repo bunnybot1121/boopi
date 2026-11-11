@@ -1,26 +1,28 @@
 /**
  * Viewport 3: True 3D Voxel & Elevation World (Three.js / WebGL).
- * Renders 120x120 multi-layer volumetric room:
- *   - TALL_SOLID_WALL (Red): Full-height 3D blocks (Z = 0 to 25cm).
- *   - LOW_STEP_RUBBLE (Yellow): Quarter-height blocks (Z = 0 to 6cm) showing open floor behind.
- *   - OVERHANG_HAZARD (Orange): Floating blocks (Z = 12 to 25cm) with open gap below.
- *   - DOORWAY_DEPTH_PORTAL (Magenta): Glowing floor boundary rings.
- *   - Robot Model + Dual 3D Ultrasonic Beams (Low Cyan + High Amber/Tilted).
- *   - A* Planned Path 3D Ribbon (Neon Green).
+ * Renders verified short-range floor (<150cm) without max-range timeout floods,
+ * extrudes clustered obstacle volumes with directional lighting, and outlines
+ * detected objects in 3D space.
  */
+
+import { getTacticalPalette } from './theme.js';
 
 export class VoxelWorld {
   constructor(canvasElement, containerElement) {
     this.canvas = canvasElement;
     this.container = containerElement;
+    this.palette = getTacticalPalette();
 
     this.voxels = [];
     this.portals = [];
     this.astarPath = [];
+    this.pinpointedObjects = [];
+    this.maxRangeCm = 200.0;
+    this.resCm = 2.0;
     this.s1Ang = 90.0;
     this.s2Ang = 90.0;
     this.lastRebuildTime = 0;
-    this.lastVoxelCount = -1;
+    this.lastVoxelHash = '';
 
     this.useThree = typeof window.THREE !== 'undefined';
     if (this.useThree) {
@@ -35,147 +37,157 @@ export class VoxelWorld {
   initThreeJS() {
     const THREE = window.THREE;
     const rect = this.container.getBoundingClientRect();
-    this.width = rect.width;
-    this.height = rect.height;
+    this.width = rect.width || 360;
+    this.height = rect.height || 360;
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x07090c);
+    this.scene.background = new THREE.Color(this.palette.bgBase);
 
-    this.camera = new THREE.PerspectiveCamera(45, this.width / this.height, 1, 2000);
-    this.camera.position.set(0, 320, 380);
-    this.camera.lookAt(0, 20, 100);
-
+    this.camera = new THREE.PerspectiveCamera(45, this.width / this.height, 1, 2200);
     this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true });
     this.renderer.setSize(this.width, this.height);
     this.renderer.setPixelRatio(window.devicePixelRatio);
 
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
-    this.scene.add(ambientLight);
-
-    const keyLight = new THREE.DirectionalLight(0x00e5ff, 0.7);
-    keyLight.position.set(120, 350, 200);
+    // Three-point tactical lighting for crisp 3D depth separation
+    this.scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+    const keyLight = new THREE.DirectionalLight(0x00e5ff, 0.95);
+    keyLight.position.set(140, 320, 180);
     this.scene.add(keyLight);
 
-    const fillLight = new THREE.DirectionalLight(0xffb300, 0.35);
-    fillLight.position.set(-150, 200, -100);
-    this.scene.add(fillLight);
+    const rimLight = new THREE.DirectionalLight(0xffb703, 0.45);
+    rimLight.position.set(-160, 220, -120);
+    this.scene.add(rimLight);
 
-    // Metric Room Floor Grid (4.8m x 4.8m)
-    const gridHelper = new THREE.GridHelper(480, 24, 0x00e5ff, 0x1b232e);
-    gridHelper.position.set(0, 0, 120);
-    this.scene.add(gridHelper);
+    this.gridHelper = null;
+    this.rebuildGridHelper(this.maxRangeCm);
 
-    // Groups
     this.voxelGroup = new THREE.Group();
     this.floorGroup = new THREE.Group();
+    this.bboxGroup = new THREE.Group();
     this.portalGroup = new THREE.Group();
     this.pathGroup = new THREE.Group();
-    this.beamsGroup = new THREE.Group();
-    this.scene.add(this.floorGroup);
-    this.scene.add(this.voxelGroup);
-    this.scene.add(this.portalGroup);
-    this.scene.add(this.pathGroup);
-    this.scene.add(this.beamsGroup);
+    this.scene.add(this.floorGroup, this.voxelGroup, this.bboxGroup, this.portalGroup, this.pathGroup);
 
-    // Robot Chassis
+    // Robot Chassis + Dual Beam Cones
     this.robotGroup = new THREE.Group();
-    const botGeo = new THREE.CylinderGeometry(14, 16, 8, 18);
-    const botMat = new THREE.MeshLambertMaterial({ color: 0x00e676 });
-    const botBody = new THREE.Mesh(botGeo, botMat);
-    botBody.position.set(0, 4, 0);
+    const botBody = new THREE.Mesh(
+      new THREE.CylinderGeometry(8, 10, 6, 18),
+      new THREE.MeshStandardMaterial({ color: this.palette.green, roughness: 0.4 })
+    );
+    botBody.position.set(0, 3, 0);
     this.robotGroup.add(botBody);
 
-    // Low Beam Projector (Cyan)
-    const b1Geo = new THREE.ConeGeometry(5, 20, 8);
-    const b1Mat = new THREE.MeshBasicMaterial({ color: 0x00e5ff });
-    this.beam1Mesh = new THREE.Mesh(b1Geo, b1Mat);
+    this.beam1Mesh = new THREE.Mesh(
+      new THREE.ConeGeometry(3.5, 16, 10),
+      new THREE.MeshBasicMaterial({ color: this.palette.primary })
+    );
     this.beam1Mesh.rotation.x = Math.PI / 2;
-    this.beam1Mesh.position.set(0, 6, 16);
+    this.beam1Mesh.position.set(0, 4, 12);
     this.robotGroup.add(this.beam1Mesh);
 
-    // High Tilted Beam Projector (Amber)
-    const b2Geo = new THREE.ConeGeometry(4, 18, 8);
-    const b2Mat = new THREE.MeshBasicMaterial({ color: 0xffb300 });
-    this.beam2Mesh = new THREE.Mesh(b2Geo, b2Mat);
-    this.beam2Mesh.rotation.x = (Math.PI / 2) - 0.25; // 14° upward pitch
-    this.beam2Mesh.position.set(0, 14, 14);
+    this.beam2Mesh = new THREE.Mesh(
+      new THREE.ConeGeometry(3, 14, 10),
+      new THREE.MeshBasicMaterial({ color: this.palette.amber })
+    );
+    this.beam2Mesh.rotation.x = (Math.PI / 2) - 0.25;
+    this.beam2Mesh.position.set(0, 10, 10);
     this.robotGroup.add(this.beam2Mesh);
 
     this.scene.add(this.robotGroup);
-
     this.setupThreeMouseControls();
     this.animateThree();
+  }
+
+  rebuildGridHelper(rangeCm) {
+    const THREE = window.THREE;
+    if (!this.scene) return;
+    if (this.gridHelper) {
+      this.scene.remove(this.gridHelper);
+      this.gridHelper.geometry.dispose();
+      this.gridHelper.material.dispose();
+    }
+    const span = rangeCm * 2;
+    this.gridHelper = new THREE.GridHelper(span, 20, this.palette.primary, '#1b232e');
+    this.gridHelper.position.set(0, 0, rangeCm * 0.4);
+    this.scene.add(this.gridHelper);
   }
 
   setupThreeMouseControls() {
     let isDragging = false;
     let prevMouse = { x: 0, y: 0 };
-    let rotY = 0;
-    let rotX = 0.65;
-    let camDist = 520;
+    let rotY = 0.0;
+    let rotX = 0.72;
+    this.camDist = this.maxRangeCm * 1.65;
 
-    const updateCamera = () => {
-      rotX = Math.max(0.12, Math.min(1.45, rotX));
-      this.camera.position.x = camDist * Math.sin(rotY) * Math.cos(rotX);
-      this.camera.position.y = camDist * Math.sin(rotX);
-      this.camera.position.z = camDist * Math.cos(rotY) * Math.cos(rotX) + 80;
-      this.camera.lookAt(0, 20, 100);
+    this.updateCamera = () => {
+      rotX = Math.max(0.15, Math.min(1.45, rotX));
+      const focusZ = this.maxRangeCm * 0.42;
+      this.camera.position.x = this.camDist * Math.sin(rotY) * Math.cos(rotX);
+      this.camera.position.y = this.camDist * Math.sin(rotX);
+      this.camera.position.z = this.camDist * Math.cos(rotY) * Math.cos(rotX) + focusZ;
+      this.camera.lookAt(0, 10, focusZ);
     };
 
     this.canvas.addEventListener('mousedown', (e) => {
       isDragging = true;
       prevMouse = { x: e.clientX, y: e.clientY };
     });
-
     window.addEventListener('mouseup', () => { isDragging = false; });
-
     this.canvas.addEventListener('mousemove', (e) => {
       if (!isDragging) return;
-      const dx = e.clientX - prevMouse.x;
-      const dy = e.clientY - prevMouse.y;
+      rotY -= (e.clientX - prevMouse.x) * 0.007;
+      rotX += (e.clientY - prevMouse.y) * 0.007;
       prevMouse = { x: e.clientX, y: e.clientY };
-
-      rotY -= dx * 0.007;
-      rotX += dy * 0.007;
-      updateCamera();
+      this.updateCamera();
     });
-
     this.canvas.addEventListener('wheel', (e) => {
-      camDist = Math.max(180, Math.min(1000, camDist + e.deltaY * 0.45));
-      updateCamera();
+      this.camDist = Math.max(90, Math.min(900, this.camDist + e.deltaY * 0.35));
+      this.updateCamera();
       e.preventDefault();
     }, { passive: false });
 
-    updateCamera();
+    this.updateCamera();
   }
 
   animateThree() {
     requestAnimationFrame(() => this.animateThree());
-    this.renderer.render(this.scene, this.camera);
+    if (this.renderer && this.scene && this.camera) {
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 
-  updateSnapshot(activeVoxels, portals, currentAngle, astarPath, telemetry) {
+  updateSnapshot(activeVoxels, portals, currentAngle, astarPath, telemetry, pinpointedObjects = [], gridMeta = null) {
     this.voxels = activeVoxels || [];
     this.portals = portals || [];
-    this.s1Ang = telemetry?.s1_ang !== undefined ? telemetry.s1_ang : (currentAngle || 90.0);
-    this.s2Ang = telemetry?.s2_ang !== undefined ? telemetry.s2_ang : this.s1Ang;
+    this.pinpointedObjects = pinpointedObjects || [];
     this.astarPath = astarPath || [];
+    this.s1Ang = telemetry?.s1_ang ?? currentAngle ?? 90.0;
+    this.s2Ang = telemetry?.s2_ang ?? this.s1Ang;
+
+    if (gridMeta) {
+      const rangeChanged = Math.abs(gridMeta.max_range_cm - this.maxRangeCm) > 0.5;
+      this.maxRangeCm = gridMeta.max_range_cm || 200.0;
+      this.resCm = gridMeta.res_cm || 2.0;
+      if (rangeChanged && this.useThree) {
+        this.rebuildGridHelper(this.maxRangeCm);
+        this.camDist = this.maxRangeCm * 1.65;
+        if (this.updateCamera) this.updateCamera();
+      }
+    }
 
     if (this.robotGroup) {
-      const rad1 = ((90.0 - this.s1Ang) * Math.PI) / 180.0;
-      this.robotGroup.rotation.y = rad1;
+      this.robotGroup.rotation.y = ((90.0 - this.s1Ang) * Math.PI) / 180.0;
       if (this.beam2Mesh) {
-        const radDiff = ((this.s1Ang - this.s2Ang) * Math.PI) / 180.0;
-        this.beam2Mesh.rotation.y = radDiff;
+        this.beam2Mesh.rotation.y = ((this.s1Ang - this.s2Ang) * Math.PI) / 180.0;
       }
     }
 
     if (this.useThree) {
       const now = performance.now();
-      const countChanged = this.voxels.length !== this.lastVoxelCount;
-      if (countChanged || (now - this.lastRebuildTime > 300)) {
+      const vHash = `${this.voxels.length}:${this.pinpointedObjects.length}:${this.maxRangeCm}`;
+      if (vHash !== this.lastVoxelHash || (now - this.lastRebuildTime > 300)) {
         this.lastRebuildTime = now;
-        this.lastVoxelCount = this.voxels.length;
+        this.lastVoxelHash = vHash;
         this.rebuildThreeScene();
       }
     } else {
@@ -194,75 +206,82 @@ export class VoxelWorld {
 
   rebuildThreeScene() {
     const THREE = window.THREE;
+    const pal = this.palette;
     this.clearGroup(this.voxelGroup);
     this.clearGroup(this.floorGroup);
+    this.clearGroup(this.bboxGroup);
     this.clearGroup(this.portalGroup);
     this.clearGroup(this.pathGroup);
 
-    const wallGeo = new THREE.BoxGeometry(8, 70, 8);
-    const wallMat = new THREE.MeshLambertMaterial({ color: 0xff3344 });
+    const cellSpan = Math.max(2.5, this.resCm * 1.35);
+    const wallGeo = new THREE.BoxGeometry(cellSpan, 36, cellSpan);
+    const wallMat = new THREE.MeshStandardMaterial({ color: pal.red, roughness: 0.45, metalness: 0.12 });
 
-    const stepGeo = new THREE.BoxGeometry(8, 18, 8);
-    const stepMat = new THREE.MeshLambertMaterial({ color: 0xffb300 });
+    const stepGeo = new THREE.BoxGeometry(cellSpan, 10, cellSpan);
+    const stepMat = new THREE.MeshStandardMaterial({ color: pal.amber, roughness: 0.5, metalness: 0.1 });
 
-    const overhangGeo = new THREE.BoxGeometry(8, 28, 8);
-    const overhangMat = new THREE.MeshLambertMaterial({ color: 0xff6d00 });
+    const overhangGeo = new THREE.BoxGeometry(cellSpan, 16, cellSpan);
+    const overhangMat = new THREE.MeshStandardMaterial({ color: pal.orange, roughness: 0.45, metalness: 0.1 });
 
-    const floorGeo = new THREE.PlaneGeometry(16, 16);
+    const floorGeo = new THREE.PlaneGeometry(8, 8);
     const floorMat = new THREE.MeshBasicMaterial({
-      color: 0x00e5ff,
+      color: pal.mapFree,
       transparent: true,
-      opacity: 0.22,
+      opacity: 0.52,
       side: THREE.DoubleSide
     });
 
     this.voxels.forEach((v) => {
-      if (v.type === "TALL_WALL") {
+      if (v.type === 'TALL_WALL') {
         const mesh = new THREE.Mesh(wallGeo, wallMat);
-        mesh.position.set(v.x, 35, v.y);
+        mesh.position.set(v.x, 18, v.y);
         this.voxelGroup.add(mesh);
-      } else if (v.type === "LOW_STEP") {
+      } else if (v.type === 'LOW_STEP') {
         const mesh = new THREE.Mesh(stepGeo, stepMat);
-        mesh.position.set(v.x, 9, v.y);
+        mesh.position.set(v.x, 5, v.y);
         this.voxelGroup.add(mesh);
-      } else if (v.type === "OVERHANG") {
+      } else if (v.type === 'OVERHANG') {
         const mesh = new THREE.Mesh(overhangGeo, overhangMat);
-        mesh.position.set(v.x, 50, v.y); // Floating upper block
+        mesh.position.set(v.x, 28, v.y);
         this.voxelGroup.add(mesh);
-      } else if (v.type === "FREE_FLOOR") {
+      } else if (v.type === 'FREE_FLOOR') {
         const mesh = new THREE.Mesh(floorGeo, floorMat);
         mesh.rotation.x = -Math.PI / 2;
-        mesh.position.set(v.x, 0.4, v.y);
+        mesh.position.set(v.x, 0.3, v.y);
         this.floorGroup.add(mesh);
       }
     });
 
-    // Doorway Portals (Glowing floor rings)
+    // 3D Clustered Object Wireframe Hulls
+    this.pinpointedObjects.forEach((obj) => {
+      const b = obj.bbox_world;
+      if (!b) return;
+      const bw = Math.max(8, b.x_max - b.x_min);
+      const bd = Math.max(8, b.y_max - b.y_min);
+      const bh = obj.class === 'LOW_STEP_RUBBLE' ? 12 : 40;
+      const hullGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(bw, bh, bd));
+      const hullMat = new THREE.LineBasicMaterial({ color: obj.color || pal.red });
+      const lines = new THREE.LineSegments(hullGeo, hullMat);
+      lines.position.set((b.x_min + b.x_max) / 2, bh / 2, (b.y_min + b.y_max) / 2);
+      this.bboxGroup.add(lines);
+    });
+
+    // Doorway Portals
     this.portals.forEach((p) => {
-      const archGeo = new THREE.RingGeometry(6, 12, 16);
-      const archMat = new THREE.MeshBasicMaterial({ color: 0xe040fb, side: THREE.DoubleSide });
-      const ringMesh = new THREE.Mesh(archGeo, archMat);
+      const ringMesh = new THREE.Mesh(
+        new THREE.RingGeometry(5, 9, 16),
+        new THREE.MeshBasicMaterial({ color: pal.magenta, side: THREE.DoubleSide })
+      );
       ringMesh.rotation.x = -Math.PI / 2;
       ringMesh.position.set(p.x_cm, 1.0, p.y_cm);
       this.portalGroup.add(ringMesh);
-
-      const pylonGeo = new THREE.CylinderGeometry(2, 2, 10, 8);
-      const pylonMat = new THREE.MeshLambertMaterial({ color: 0xe040fb });
-      const pylonMesh = new THREE.Mesh(pylonGeo, pylonMat);
-      pylonMesh.position.set(p.x_cm, 5.0, p.y_cm);
-      this.portalGroup.add(pylonMesh);
     });
 
     // A* Path Ribbon
     if (this.astarPath.length >= 2) {
-      const points = this.astarPath.map((wp) => {
-        const wx = wp.x_cm !== undefined ? wp.x_cm : (wp.x || 0);
-        const wy = wp.y_cm !== undefined ? wp.y_cm : (wp.y || 0);
-        return new THREE.Vector3(wx, 2.0, wy);
-      });
+      const points = this.astarPath.map((wp) => new THREE.Vector3(wp.x_cm ?? wp.x ?? 0, 2.0, wp.y_cm ?? wp.y ?? 0));
       const lineGeo = new THREE.BufferGeometry().setFromPoints(points);
-      const lineMat = new THREE.LineBasicMaterial({ color: 0x00e676, linewidth: 3 });
-      this.pathGroup.add(new THREE.Line(lineGeo, lineMat));
+      this.pathGroup.add(new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: pal.green })));
     }
   }
 
@@ -273,8 +292,8 @@ export class VoxelWorld {
 
   resize() {
     const rect = this.container.getBoundingClientRect();
-    this.width = rect.width;
-    this.height = rect.height;
+    this.width = rect.width || 360;
+    this.height = rect.height || 360;
 
     if (this.useThree && this.renderer) {
       this.camera.aspect = this.width / this.height;
@@ -283,7 +302,7 @@ export class VoxelWorld {
     } else if (this.ctx) {
       this.canvas.width = this.width * window.devicePixelRatio;
       this.canvas.height = this.height * window.devicePixelRatio;
-      this.ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+      this.ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
       this.renderIsometricFallback();
     }
   }
@@ -294,25 +313,7 @@ export class VoxelWorld {
     const w = this.width;
     const h = this.height;
     ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = '#07090c';
+    ctx.fillStyle = this.palette.bgBase;
     ctx.fillRect(0, 0, w, h);
-
-    const ox = w / 2;
-    const oy = h * 0.72;
-    const scale = Math.min(w, h) / 520;
-
-    const toIso = (x, y, z = 0) => ({
-      x: ox + (x - y) * Math.cos(Math.PI / 6) * scale,
-      y: oy + (x + y) * Math.sin(Math.PI / 6) * scale - z * scale
-    });
-
-    this.voxels.forEach((v) => {
-      const isWall = v.type === 'TALL_WALL';
-      const height = isWall ? 70 : (v.type === 'LOW_STEP' ? 18 : 28);
-      const base = toIso(v.x, v.y, v.type === 'OVERHANG' ? 35 : 0);
-      const top = toIso(v.x, v.y, (v.type === 'OVERHANG' ? 35 : 0) + height);
-      ctx.fillStyle = isWall ? '#ff3344' : (v.type === 'LOW_STEP' ? '#ffb300' : (v.type === 'OVERHANG' ? '#ff6d00' : 'rgba(0,229,255,0.2)'));
-      ctx.fillRect(base.x - 3, top.y, 6, Math.max(2, base.y - top.y));
-    });
   }
 }

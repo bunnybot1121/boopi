@@ -16,11 +16,14 @@
   --color-primary-dim: #007c8a;
   --color-primary-glow: rgba(0, 229, 255, 0.18);
 
-  --color-accent-amber: #ffb300;     /* Phosphor Amber / Step Obstacle */
-  --color-accent-amber-glow: rgba(255, 179, 0, 0.2);
+  --color-accent-amber: #ffb703;     /* Phosphor Amber / Low Step Obstacle */
+  --color-accent-amber-glow: rgba(255, 183, 3, 0.2);
 
-  --color-accent-red: #ff3344;       /* Tall Solid Wall / Critical Alert */
-  --color-accent-red-glow: rgba(255, 51, 68, 0.25);
+  --color-accent-red: #ff2a54;       /* Tall Solid Wall / Critical Alert */
+  --color-accent-red-glow: rgba(255, 42, 84, 0.25);
+
+  --color-map-unknown: #0b1017;      /* Gap-Free Occupancy Canvas Unknown */
+  --color-map-free: #0d3b46;         /* Verified Free Corridor Fill */
 
   --color-accent-green: #00e676;     /* Matrix Green / Online / Robot Origin */
   --color-accent-green-glow: rgba(0, 230, 118, 0.2);

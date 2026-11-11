@@ -69,6 +69,10 @@ class AngleRequest(BaseModel):
     angle_deg: float
 
 
+class RangeScaleRequest(BaseModel):
+    max_range_cm: float = 200.0
+
+
 class ServoConfigRequest(BaseModel):
     min_ang: int = 45
     max_ang: int = 135
@@ -190,6 +194,16 @@ def set_angle(req: AngleRequest):
     return {"status": "ok", "angle": req.angle_deg}
 
 
+@app.post("/api/range_scale")
+def set_range_scale(req: RangeScaleRequest):
+    engine.set_max_range(req.max_range_cm)
+    return {
+        "status": "ok",
+        "max_range_cm": engine.engine_3d.max_range_cm,
+        "res_cm": engine.engine_3d.res
+    }
+
+
 @app.post("/api/scan_cfg")
 def configure_scan(req: ScanConfigRequest):
     cmd = {
@@ -296,6 +310,8 @@ async def websocket_endpoint(websocket: WebSocket):
             cmd = msg.get("action")
             if cmd == "set_angle":
                 serial_mgr.update_pacer_angle(float(msg.get("angle", 90.0)))
+            elif cmd == "set_range":
+                engine.set_max_range(float(msg.get("max_range_cm", 200.0)))
             elif cmd == "set_pass":
                 engine.set_active_pass(msg.get("pass", "pass1"))
             elif cmd == "step_ping":

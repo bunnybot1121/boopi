@@ -24,35 +24,35 @@ class TestSonarPipeline(unittest.TestCase):
 
     def test_grid_coordinate_transforms(self):
         grid = LogOddsOccupancyGrid(CONFIG)
-        # Origin (0, 0) cm should map to (60, 60)
+        # Origin (0, 0) cm should map to (100, 100) on 200x200 @ 2.0cm Room grid
         c, r = grid.world_to_grid(0.0, 0.0)
-        self.assertEqual((c, r), (60, 60))
+        self.assertEqual((c, r), (100, 100))
 
-        # Forward 100cm (+Y) should decrease row index (60 - 25 = 35)
+        # Forward 100cm (+Y) should decrease row index (100 - 50 = 50)
         c, r = grid.world_to_grid(0.0, 100.0)
-        self.assertEqual(c, 60)
-        self.assertEqual(r, 35)
+        self.assertEqual(c, 100)
+        self.assertEqual(r, 50)
 
-        # Right 100cm (+X) should increase col index (60 + 25 = 85)
+        # Right 100cm (+X) should increase col index (100 + 50 = 150)
         c, r = grid.world_to_grid(100.0, 0.0)
-        self.assertEqual(c, 85)
-        self.assertEqual(r, 60)
+        self.assertEqual(c, 150)
+        self.assertEqual(r, 100)
 
     def test_bayesian_log_odds_integration(self):
         grid = LogOddsOccupancyGrid(CONFIG)
         initial_prob = grid.get_probability_grid()
         # Initial cells must be 0.5 (unknown)
-        np.testing.assert_allclose(initial_prob[60, 60], 0.5, atol=1e-3)
+        np.testing.assert_allclose(initial_prob[100, 100], 0.5, atol=1e-3)
 
         # Ping straight ahead (90 deg) at 120 cm
         grid.integrate_ping(angle_deg=90.0, distance_cm=120.0, is_valid=True)
         prob = grid.get_probability_grid()
 
-        # Free space along the ray (e.g. at Y = 60 cm, row = 60 - 15 = 45) must have P < 0.5
-        self.assertLess(prob[45, 60], 0.5)
+        # Free space along the ray (e.g. at Y = 60 cm, row = 100 - 30 = 70) must have P < 0.5
+        self.assertLess(prob[70, 100], 0.5)
 
-        # Obstacle endpoint (at Y = 120 cm, row = 60 - 30 = 30) must have P > 0.5
-        self.assertGreater(prob[30, 60], 0.5)
+        # Obstacle endpoint (at Y = 120 cm, row = 100 - 60 = 40) must have P > 0.5
+        self.assertGreater(prob[40, 100], 0.5)
 
     def test_depth_portal_discontinuity(self):
         profiler = DepthProfiler(CONFIG)
@@ -95,17 +95,17 @@ class TestSonarPipeline(unittest.TestCase):
 
         # Generate grayscale
         gray = cv_pipe.generate_grayscale_image(prob)
-        self.assertEqual(gray.shape, (120, 120))
+        self.assertEqual(gray.shape, (200, 200))
         self.assertEqual(gray.dtype, np.uint8)
 
         # Generate dilation mask
         dilated = cv_pipe.generate_dilation_mask(prob)
-        self.assertEqual(dilated.shape, (120, 120))
+        self.assertEqual(dilated.shape, (200, 200))
         self.assertGreater(np.sum(dilated > 0), 0)
 
         # Generate semantic RGB
-        semantic = cv_pipe.generate_semantic_image(prob, [], [], show_dilation=True)
-        self.assertEqual(semantic.shape, (120, 120, 3))
+        semantic = cv_pipe.generate_semantic_image(prob, [], vertical_features=[], show_dilation=True)
+        self.assertEqual(semantic.shape, (200, 200, 3))
         self.assertEqual(semantic.dtype, np.uint8)
 
         # Check PNG encoding
@@ -213,6 +213,12 @@ class TestSonarPipeline(unittest.TestCase):
         self.assertEqual(tel["d1_cm"], 120.0)
         self.assertEqual(tel["d2_cm"], 125.0)
         self.assertEqual(tel["class_3d"], "TALL_SOLID_WALL")
+
+        # 4. Dynamic Range Scale endpoint
+        res_range = client.post("/api/range_scale", json={"max_range_cm": 100.0})
+        self.assertEqual(res_range.status_code, 200)
+        self.assertEqual(res_range.json()["res_cm"], 1.0)
+        client.post("/api/range_scale", json={"max_range_cm": 200.0})
 
 
 if __name__ == "__main__":

@@ -1,48 +1,81 @@
 """
 Dual-Ultrasonic + Dual-Servo 2.5D/3D Volumetric Mapping Engine.
-Coordinates multi-layer 120x120 Log-Odds grid, differential depth classification,
-3D point cloud generation, and volumetric voxel extraction.
+Coordinates dense 200x200 polar wedge rasterization (zero radial spoke artifacts),
+Hit-Lock Hysteresis Log-Odds updates, morphological gap closing,
+cv2.connectedComponentsWithStats object pinpointing, and 3D voxel extraction.
 """
 
 import math
+from collections import deque
 from typing import Dict, List, Optional, Tuple, Any
 import numpy as np
 import cv2
 
 from .config import CONFIG, SonarGridConfig
 from .astar_2_5d import compute_astar_2_5d, analyze_5_sectors_3d, generate_ascii_20x20_3d
+from .sonar_clustering import (
+    get_closed_occupancy_mask,
+    extract_connected_objects,
+    extract_clustered_voxels
+)
 
 
 class Sonar3DEngine:
     def __init__(self, cfg: SonarGridConfig = CONFIG):
         self.cfg = cfg
-        self.gw = cfg.GRID_WIDTH       # 120
-        self.gh = cfg.GRID_HEIGHT      # 120
-        self.res = cfg.RESOLUTION_CM   # 4.0 cm
-        self.ox = cfg.ORIGIN_X         # 60
-        self.oy = cfg.ORIGIN_Y         # 60
+        self.gw = cfg.GRID_WIDTH       # 200
+        self.gh = cfg.GRID_HEIGHT      # 200
+        self.ox = cfg.ORIGIN_X         # 100
+        self.oy = cfg.ORIGIN_Y         # 100
 
-        # Layer 0: Dual Log-Odds Occupancy Grids (Low & High planes)
+        self.max_range_cm = float(cfg.MAX_RANGE_CM)  # Default 200.0 cm Room scale
+        self.res = self.max_range_cm / 100.0         # 2.0 cm/px at 200 cm
+
+        # Dual Log-Odds Occupancy Grids (Low & High planes) + Verified Floor Mask
         self.grid_low = np.full((self.gh, self.gw), cfg.L_0, dtype=np.float32)
         self.grid_high = np.full((self.gh, self.gw), cfg.L_0, dtype=np.float32)
+        self.verified_floor = np.zeros((self.gh, self.gw), dtype=bool)
 
-        # Layer 1: Semantic Classification Matrix (0=Unknown, 1=Floor, 2=Step, 3=Wall, 4=Overhang, 5=Portal)
+        # Semantic Classification Matrix (0=Unknown, 1=Floor, 2=Step, 3=Wall, 4=Overhang)
         self.semantic_matrix = np.zeros((self.gh, self.gw), dtype=np.uint8)
 
-        # 3D Point Cloud and Feature Buffers
+        # Point Cloud, Portals, and Angular Buffers
         self.points_3d: List[Dict[str, float]] = []
-        self.classified_features: List[Dict[str, Any]] = []
         self.portals: List[Dict[str, Any]] = []
         self.last_theta: Optional[float] = None
         self.last_d1: Optional[float] = None
 
-        # Angular buffers for fast sector queries (0..180 deg)
         self.d1_buffer: Dict[int, float] = {}
         self.d2_buffer: Dict[int, float] = {}
+        self.d1_miss_counts: Dict[int, int] = {}
         self.class_buffer: Dict[int, str] = {}
 
-        # Dilation structuring element (12 cm radius = 3 cells)
+        # Raw ping ring buffer so MAX RANGE toggles re-render live scans cleanly
+        self._ping_replay_buffer: deque = deque(maxlen=400)
+
+        # Dilation structuring element for A* collision buffer
         self.dil_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+        self._rebuild_geometry_caches()
+
+    def _rebuild_geometry_caches(self):
+        cols_arr, rows_arr = np.meshgrid(np.arange(self.gw), np.arange(self.gh))
+        wx = (cols_arr - self.ox) * self.res
+        wy = (self.oy - rows_arr) * self.res
+        self.dist_grid_cm = np.hypot(wx, wy).astype(np.float32)
+        self.ang_grid_deg = ((np.degrees(np.arctan2(wy, wx)) + 360.0) % 360.0).astype(np.float32)
+
+    def set_max_range(self, max_range_cm: float):
+        """Dynamically rescales resolution (e.g. 100cm->1.0, 200cm->2.0, 400cm->4.0) and replays scan."""
+        clamped = float(max(50.0, min(400.0, max_range_cm)))
+        if abs(clamped - self.max_range_cm) < 0.1:
+            return
+        saved_pings = list(self._ping_replay_buffer)
+        self.max_range_cm = clamped
+        self.res = self.max_range_cm / 100.0
+        self._rebuild_geometry_caches()
+        self._clear_grids_only()
+        for p_args in saved_pings:
+            self._integrate_dual_ping_internal(*p_args)
 
     def world_to_grid(self, x_cm: float, y_cm: float) -> Tuple[int, int]:
         return int(round(self.ox + (x_cm / self.res))), int(round(self.oy - (y_cm / self.res)))
@@ -83,20 +116,36 @@ class Sonar3DEngine:
         s2_ang: float,
         pitch_deg: float = 12.0
     ) -> Dict[str, Any]:
-        """
-        Processes single-pass dual-beam ultrasonic telemetry:
-        1. Classifies 2.5D feature (Wall, Low Step, Overhang, Portal, Corridor).
-        2. Carves free space and hits in Log-Odds grids.
-        3. Generates true 3D point cloud coordinates (X, Y, Z).
-        """
+        """Stores ping for dynamic range zoom replay and integrates into volumetric grids."""
+        self._ping_replay_buffer.append((
+            theta_deg, d1_cm, d2_cm, valid1, valid2, s1_ang, s2_ang, pitch_deg
+        ))
+        return self._integrate_dual_ping_internal(
+            theta_deg, d1_cm, d2_cm, valid1, valid2, s1_ang, s2_ang, pitch_deg
+        )
+
+    def _integrate_dual_ping_internal(
+        self,
+        theta_deg: float,
+        d1_cm: float,
+        d2_cm: float,
+        valid1: bool,
+        valid2: bool,
+        s1_ang: float,
+        s2_ang: float,
+        pitch_deg: float = 12.0
+    ) -> Dict[str, Any]:
         rad = math.radians(theta_deg)
         phi_rad = math.radians(pitch_deg)
         cos_t, sin_t = math.cos(rad), math.sin(rad)
         bin_idx = int(round(theta_deg))
 
+        eff_v1 = bool(valid1 and self.cfg.MIN_RANGE_CM <= d1_cm < 395.0)
+        eff_v2 = bool(valid2 and self.cfg.MIN_RANGE_CM <= d2_cm < 395.0)
+
         # 1. Doorway Portal Detection (Horizontal Discontinuity)
         is_portal = False
-        if valid1 and d1_cm < self.cfg.MAX_RANGE_CM:
+        if eff_v1:
             if self.last_theta is not None and self.last_d1 is not None:
                 if abs(theta_deg - self.last_theta) <= 15.0 and abs(d1_cm - self.last_d1) >= 40.0:
                     is_portal = True
@@ -116,52 +165,57 @@ class Sonar3DEngine:
             self.last_theta = theta_deg
             self.last_d1 = d1_cm
             self.d1_buffer[bin_idx] = d1_cm
+            self.d1_miss_counts[bin_idx] = 0
+        else:
+            # Allow 1 missed reading per angle before clearing cached contour point
+            misses = self.d1_miss_counts.get(bin_idx, 0) + 1
+            self.d1_miss_counts[bin_idx] = misses
+            if misses >= 2:
+                self.d1_buffer.pop(bin_idx, None)
 
-        if valid2 and d2_cm < self.cfg.MAX_RANGE_CM:
+        if eff_v2:
             self.d2_buffer[bin_idx] = d2_cm
+        else:
+            self.d2_buffer.pop(bin_idx, None)
 
         # 2. Single-Pass Differential Depth Classifier
-        f_class, f_color, f_z = "OPEN_CORRIDOR", "#00e5ff", 0.0
-        if valid1 and valid2 and d1_cm < 390.0 and d2_cm < 390.0:
+        f_class, f_color, f_z, sem_code = "OPEN_CORRIDOR", "#00e5ff", 0.0, 1
+        if eff_v1 and eff_v2:
             delta_v = d2_cm - d1_cm
-            if abs(delta_v) <= 25.0:
-                f_class, f_color, f_z = "TALL_SOLID_WALL", "#ff3344", 25.0
-            elif delta_v > 30.0:
-                f_class, f_color, f_z = "LOW_STEP_RUBBLE", "#ffb300", 6.0
-            elif delta_v < -30.0:
-                f_class, f_color, f_z = "OVERHANG_HAZARD", "#ff6d00", 18.0
-        elif valid1 and d1_cm < 390.0:
-            f_class, f_color, f_z = "TALL_SOLID_WALL", "#ff3344", 25.0
+            if delta_v > 25.0:
+                f_class, f_color, f_z, sem_code = "LOW_STEP_RUBBLE", "#ffb703", 6.0, 2
+            elif delta_v < -25.0:
+                f_class, f_color, f_z, sem_code = "OVERHANG_HAZARD", "#ff6d00", 18.0, 4
+            else:
+                f_class, f_color, f_z, sem_code = "TALL_SOLID_WALL", "#ff2a54", 25.0, 3
+        elif eff_v1:
+            f_class, f_color, f_z, sem_code = "TALL_SOLID_WALL", "#ff2a54", 25.0, 3
 
         self.class_buffer[bin_idx] = f_class
 
-        # 3. Raycast Log-Odds Grid & Carve Depth Behind Rubble
-        self._integrate_ray(self.grid_low, theta_deg, d1_cm, valid1)
-        self._integrate_ray(self.grid_high, theta_deg, d2_cm, valid2)
+        # 3. Dense Polar Wedge Rasterization with Hit-Lock Hysteresis
+        self._integrate_wedge(self.grid_low, theta_deg, d1_cm, eff_v1, beam_class=sem_code, is_primary=True)
+        self._integrate_wedge(self.grid_high, s2_ang, d2_cm, eff_v2, beam_class=sem_code, is_primary=False)
 
-        if valid1 and d1_cm < 390.0:
+        # Low-step over-look clearance behind rubble
+        if f_class == "LOW_STEP_RUBBLE" and eff_v1 and eff_v2 and d2_cm > d1_cm + 20.0:
             c1, r1 = self.world_to_grid(d1_cm * cos_t, d1_cm * sin_t)
-            if self.is_in_bounds(c1, r1):
-                if f_class == "LOW_STEP_RUBBLE":
-                    self.semantic_matrix[r1, c1] = 2
-                    if valid2 and d2_cm > d1_cm:
-                        c2, r2 = self.world_to_grid(d2_cm * cos_t, d2_cm * sin_t)
-                        for bc, br in self._bresenham(c1, r1, c2, r2)[1:]:
-                            if self.is_in_bounds(bc, br):
-                                self.grid_low[br, bc] = max(-2.5, self.grid_low[br, bc] - 0.40)
-                                self.semantic_matrix[br, bc] = 1
-                elif f_class == "TALL_SOLID_WALL":
-                    self.semantic_matrix[r1, c1] = 3
-                elif f_class == "OVERHANG_HAZARD":
-                    self.semantic_matrix[r1, c1] = 4
+            c2, r2 = self.world_to_grid(min(d2_cm, self.max_range_cm) * cos_t, min(d2_cm, self.max_range_cm) * sin_t)
+            for bc, br in self._bresenham(c1, r1, c2, r2)[2:]:
+                if self.is_in_bounds(bc, br) and self.grid_low[br, bc] <= self.cfg.L_LOCK_THRESH:
+                    self.grid_low[br, bc] = max(self.cfg.L_MIN, self.grid_low[br, bc] - 0.30)
+                    self.semantic_matrix[br, bc] = 1
 
         # 4. 3D Point Cloud Buffers (X, Y, Z in cm)
-        p1_3d = {"x": round(d1_cm * cos_t, 1), "y": round(d1_cm * sin_t, 1), "z": 4.0, "beam": "low", "class": f_class} if (valid1 and d1_cm < 390.0) else None
-        p2_3d = {"x": round(d2_cm * math.cos(phi_rad) * cos_t, 1), "y": round(d2_cm * math.cos(phi_rad) * sin_t, 1), "z": round(14.0 + (d2_cm * math.sin(phi_rad)), 1), "beam": "high", "class": f_class} if (valid2 and d2_cm < 390.0) else None
+        p1_3d = {"x": round(d1_cm * cos_t, 1), "y": round(d1_cm * sin_t, 1), "z": 4.0, "beam": "low", "class": f_class} if (eff_v1 and d1_cm <= self.max_range_cm) else None
+        p2_3d = {"x": round(d2_cm * math.cos(phi_rad) * cos_t, 1), "y": round(d2_cm * math.cos(phi_rad) * sin_t, 1), "z": round(14.0 + (d2_cm * math.sin(phi_rad)), 1), "beam": "high", "class": f_class} if (eff_v2 and d2_cm <= self.max_range_cm) else None
 
-        if p1_3d: self.points_3d.append(p1_3d)
-        if p2_3d: self.points_3d.append(p2_3d)
-        if len(self.points_3d) > 300: self.points_3d = self.points_3d[-300:]
+        if p1_3d:
+            self.points_3d.append(p1_3d)
+        if p2_3d:
+            self.points_3d.append(p2_3d)
+        if len(self.points_3d) > 300:
+            self.points_3d = self.points_3d[-300:]
 
         return {
             "theta_deg": round(theta_deg, 1), "s1_ang": round(s1_ang, 1), "s2_ang": round(s2_ang, 1),
@@ -170,27 +224,117 @@ class Sonar3DEngine:
             "p1_3d": p1_3d, "p2_3d": p2_3d
         }
 
-    def _integrate_ray(self, target_grid: np.ndarray, theta: float, dist_cm: float, is_valid: bool):
-        if dist_cm <= 0.0: return
-        eff_dist = min(max(dist_cm, self.cfg.MIN_RANGE_CM), self.cfg.MAX_RANGE_CM)
-        for off in [-6.0, 0.0, 6.0]:
-            rad = math.radians(theta + off)
-            gw = math.exp(-0.5 * ((off / 4.0) ** 2))
-            c_end, r_end = self.world_to_grid(eff_dist * math.cos(rad), eff_dist * math.sin(rad))
-            pts = self._bresenham(self.ox, self.oy, c_end, r_end)
-            for c, r in pts[:-2]:
-                if self.is_in_bounds(c, r):
-                    target_grid[r, c] = max(self.cfg.L_MIN, target_grid[r, c] + (self.cfg.L_FREE * gw))
-                    if self.semantic_matrix[r, c] == 0:
-                        self.semantic_matrix[r, c] = 1 # OPEN_CORRIDOR
-            if is_valid and eff_dist < (self.cfg.MAX_RANGE_CM - 8.0):
-                for c, r in pts[-2:]:
-                    if self.is_in_bounds(c, r):
-                        target_grid[r, c] = min(self.cfg.L_MAX, target_grid[r, c] + (self.cfg.L_HIT * gw))
+    def _integrate_wedge(
+        self,
+        target_grid: np.ndarray,
+        theta: float,
+        dist_cm: float,
+        is_valid: bool,
+        beam_class: int = 3,
+        is_primary: bool = True
+    ):
+        """
+        Dense polar wedge fill (eliminates black spoke streaks) + asymmetric Hit-Lock Hysteresis.
+        Timeout readings only fade free-space to 85% max_range and never stamp floor voxels.
+        """
+        if dist_cm < self.cfg.MIN_RANGE_CM:
+            is_valid = False
+
+        if is_valid and dist_cm <= (self.max_range_cm - 1.0):
+            eff_dist = dist_cm
+            free_dist = max(self.cfg.MIN_RANGE_CM, eff_dist - max(4.0, self.res * 2.0))
+            draw_hit = True
+        elif is_valid and dist_cm > (self.max_range_cm - 1.0):
+            # Valid echo beyond current zoomed range: clear up to viewport boundary cleanly
+            eff_dist = self.max_range_cm
+            free_dist = self.max_range_cm
+            draw_hit = False
+        else:
+            # Timeout / no echo: cap free-space fade at 85% max_range
+            eff_dist = 0.85 * self.max_range_cm
+            free_dist = eff_dist
+            draw_hit = False
+
+        # Rasterize dense free-space sector wedge across +-8.0 deg (seamless step overlap)
+        wedge_mask = np.zeros((self.gh, self.gw), dtype=np.uint8)
+        half_span = 8.0
+        poly_pts = [(self.ox, self.oy)]
+        free_r_px = free_dist / self.res
+        for step_a in np.linspace(theta - half_span, theta + half_span, 17):
+            rad = math.radians(float(step_a))
+            px = int(round(self.ox + free_r_px * math.cos(rad)))
+            py = int(round(self.oy - free_r_px * math.sin(rad)))
+            poly_pts.append((px, py))
+
+        poly_np = np.array(poly_pts, dtype=np.int32)
+        cv2.fillConvexPoly(wedge_mask, poly_np, 255)
+
+        ang_diff = np.abs((self.ang_grid_deg - theta + 180.0) % 360.0 - 180.0)
+        in_wedge = (wedge_mask > 0) & (self.dist_grid_cm >= self.cfg.MIN_RANGE_CM)
+
+        # Hit-Lock Hysteresis: protect locked walls (> +1.5) from outer-edge free carving
+        unprotected = target_grid <= self.cfg.L_LOCK_THRESH
+        direct_clear = (ang_diff <= 2.0) & (self.dist_grid_cm <= (eff_dist - 20.0))
+        clear_mask = in_wedge & (unprotected | direct_clear)
+
+        target_grid[clear_mask] = np.maximum(
+            self.cfg.L_MIN,
+            target_grid[clear_mask] + self.cfg.L_FREE
+        )
+
+        if is_primary:
+            # Keep semantic layer synced when free cells are cleared below 0.0
+            cleared_now = clear_mask & (target_grid < 0.0)
+            self.semantic_matrix[cleared_now] = 1
+            if is_valid:
+                # Verified short-range floor tracking only when a valid echo bounded the ray
+                short_floor = cleared_now & (self.dist_grid_cm < min(150.0, free_dist))
+                self.verified_floor[short_floor] = True
+
+        # Solid Thick Arc Hit Rendering (thickness=2 across +-7.5 deg around theta)
+        if draw_hit:
+            r_px = max(2, int(round(dist_cm / self.res)))
+            hit_mask = np.zeros((self.gh, self.gw), dtype=np.uint8)
+            cv2.ellipse(
+                hit_mask,
+                (self.ox, self.oy),
+                (r_px, r_px),
+                0.0,
+                -(theta + self.cfg.CONE_HALF_ANGLE_DEG),
+                -(theta - self.cfg.CONE_HALF_ANGLE_DEG),
+                255,
+                thickness=2
+            )
+            hit_cells = hit_mask > 0
+            target_grid[hit_cells] = np.minimum(self.cfg.L_MAX, target_grid[hit_cells] + self.cfg.L_HIT)
+            if is_primary:
+                self.semantic_matrix[hit_cells] = beam_class
+                self.verified_floor[hit_cells] = False
 
     def get_probability_grid(self) -> np.ndarray:
         odds = np.exp(self.grid_low)
         return odds / (1.0 + odds)
+
+    def get_closed_occupancy(self) -> np.ndarray:
+        return get_closed_occupancy_mask(
+            self.get_probability_grid(),
+            self.cfg.PROB_OCC_THRESH,
+            self.cfg.MORPH_CLOSE_SIZE
+        )
+
+    def get_contour_scan(self) -> List[Dict[str, Any]]:
+        """Sorted valid sonar contour points across 0..180 deg within active range."""
+        contour = []
+        for ang in sorted(self.d1_buffer.keys()):
+            d1 = self.d1_buffer[ang]
+            if self.cfg.MIN_RANGE_CM <= d1 <= self.max_range_cm:
+                contour.append({
+                    "angle_deg": float(ang),
+                    "d1_cm": round(d1, 1),
+                    "d2_cm": round(self.d2_buffer.get(ang, 400.0), 1),
+                    "class_3d": self.class_buffer.get(ang, "TALL_SOLID_WALL")
+                })
+        return contour
 
     def compute_astar_2_5d(self) -> Tuple[List[Dict[str, float]], str, float]:
         return compute_astar_2_5d(
@@ -209,133 +353,47 @@ class Sonar3DEngine:
         )
 
     def extract_pinpointed_objects(self) -> List[Dict[str, Any]]:
-        """
-        Clusters continuous obstacle returns across angular bins to pinpoint
-        exact (X, Y) obstacle centroids, physical widths, distances, and 3D classes.
-        Fuses Sensor 1 (Low) and Sensor 2 (High) to classify vertical boundaries.
-        """
-        objects = []
-        if not self.d1_buffer:
-            return objects
-
-        sorted_angles = sorted(self.d1_buffer.keys())
-        clusters: List[List[Tuple[int, float]]] = []
-        current_cluster: List[Tuple[int, float]] = []
-
-        for ang in sorted_angles:
-            d = self.d1_buffer[ang]
-            if d < (self.cfg.MAX_RANGE_CM - 15.0) and d > self.cfg.MIN_RANGE_CM:
-                if not current_cluster:
-                    current_cluster.append((ang, d))
-                else:
-                    prev_ang, prev_d = current_cluster[-1]
-                    if abs(ang - prev_ang) <= 6 and abs(d - prev_d) <= 25.0:
-                        current_cluster.append((ang, d))
-                    else:
-                        if len(current_cluster) >= 2:
-                            clusters.append(current_cluster)
-                        current_cluster = [(ang, d)]
-            else:
-                if len(current_cluster) >= 2:
-                    clusters.append(current_cluster)
-                current_cluster = []
-
-        if len(current_cluster) >= 2:
-            clusters.append(current_cluster)
-
-        obj_id = 1
-        for cluster in clusters:
-            min_entry = min(cluster, key=lambda pt: pt[1])
-            best_ang, min_dist = min_entry[0], min_entry[1]
-            rad = math.radians(best_ang)
-
-            exact_x = round(min_dist * math.cos(rad), 1)
-            exact_y = round(min_dist * math.sin(rad), 1)
-
-            ang_start, d_start = cluster[0]
-            ang_end, d_end = cluster[-1]
-            x_start = d_start * math.cos(math.radians(ang_start))
-            y_start = d_start * math.sin(math.radians(ang_start))
-            x_end = d_end * math.cos(math.radians(ang_end))
-            y_end = d_end * math.sin(math.radians(ang_end))
-            width_cm = round(math.hypot(x_end - x_start, y_end - y_start), 1)
-            width_cm = max(width_cm, 8.0)
-
-            high_dists = [self.d2_buffer[a] for a, _ in cluster if a in self.d2_buffer and self.d2_buffer[a] < 390.0]
-
-            if high_dists:
-                avg_high = sum(high_dists) / len(high_dists)
-                delta_h = avg_high - min_dist
-                if abs(delta_h) <= 20.0:
-                    cls_name = "TALL_SOLID_WALL"
-                    label = "Tall Solid Wall"
-                    color = "#ff3344"
-                    height_cm = 25.0
-                    traversable = False
-                elif delta_h > 20.0:
-                    cls_name = "LOW_STEP_RUBBLE"
-                    label = "Low Step / Rubble"
-                    color = "#ffb300"
-                    height_cm = 6.0
-                    traversable = True
-                else:
-                    cls_name = "OVERHANG_HAZARD"
-                    label = "Hanging Overhang"
-                    color = "#ff6d00"
-                    height_cm = 18.0
-                    traversable = False
-            else:
-                cls_name = "LOW_STEP_RUBBLE" if min_dist < 150.0 else "TALL_SOLID_WALL"
-                label = "Low Floor Obstacle" if min_dist < 150.0 else "Tall Barrier"
-                color = "#ffb300" if min_dist < 150.0 else "#ff3344"
-                height_cm = 6.0 if min_dist < 150.0 else 25.0
-                traversable = (min_dist < 150.0)
-
-            objects.append({
-                "id": f"OBJ-{obj_id}",
-                "class": cls_name,
-                "label": label,
-                "x_cm": exact_x,
-                "y_cm": exact_y,
-                "distance_cm": round(min_dist, 1),
-                "angle_deg": round(best_ang, 1),
-                "width_cm": width_cm,
-                "height_cm": height_cm,
-                "traversable": traversable,
-                "color": color,
-                "points_count": len(cluster)
-            })
-            obj_id += 1
-
-        return objects
+        return extract_connected_objects(
+            self.get_closed_occupancy(),
+            self.semantic_matrix,
+            self.d2_buffer,
+            self.ox,
+            self.oy,
+            self.res,
+            self.cfg.MIN_RANGE_CM,
+            self.max_range_cm
+        )
 
     def extract_3d_voxels(self) -> List[Dict[str, Any]]:
-        voxels = []
         prob_grid = self.get_probability_grid()
-        h, w = prob_grid.shape
-        step = 1 if np.sum(prob_grid >= self.cfg.PROB_OCC_THRESH) < 400 else 2
-        for r in range(0, h, step):
-            for c in range(0, w, step):
-                sem, p = self.semantic_matrix[r, c], prob_grid[r, c]
-                wx, wy = self.grid_to_world(c, r)
-                if sem == 2:
-                    voxels.append({"x": round(wx, 1), "y": round(wy, 1), "z_max": 6.0, "z_min": 0.0, "type": "LOW_STEP", "color": "#ffb300"})
-                elif sem == 4:
-                    voxels.append({"x": round(wx, 1), "y": round(wy, 1), "z_max": 25.0, "z_min": 12.0, "type": "OVERHANG", "color": "#ff6d00"})
-                elif sem == 3 or p >= self.cfg.PROB_OCC_THRESH:
-                    voxels.append({"x": round(wx, 1), "y": round(wy, 1), "z_max": 25.0, "z_min": 0.0, "type": "TALL_WALL", "color": "#ff3344"})
-                elif p <= self.cfg.PROB_FREE_THRESH and (r % 3 == 0 and c % 3 == 0):
-                    voxels.append({"x": round(wx, 1), "y": round(wy, 1), "z_max": 0.0, "z_min": 0.0, "type": "FREE_FLOOR", "color": "#00e5ff"})
-        return voxels
+        closed_occ = self.get_closed_occupancy()
+        return extract_clustered_voxels(
+            closed_occ,
+            prob_grid,
+            self.semantic_matrix,
+            self.verified_floor,
+            self.dist_grid_cm,
+            self.ox,
+            self.oy,
+            self.res,
+            self.max_range_cm,
+            self.cfg.PROB_OCC_THRESH
+        )
 
-    def reset(self):
+    def _clear_grids_only(self):
         self.grid_low.fill(self.cfg.L_0)
         self.grid_high.fill(self.cfg.L_0)
         self.semantic_matrix.fill(0)
+        self.verified_floor.fill(False)
         self.points_3d.clear()
         self.portals.clear()
         self.d1_buffer.clear()
         self.d2_buffer.clear()
+        self.d1_miss_counts.clear()
         self.class_buffer.clear()
         self.last_theta = None
         self.last_d1 = None
+
+    def reset(self):
+        self._ping_replay_buffer.clear()
+        self._clear_grids_only()

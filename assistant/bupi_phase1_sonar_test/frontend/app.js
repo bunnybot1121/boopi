@@ -66,6 +66,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const connectBtn = document.getElementById('connectBtn');
   const refreshPortsBtn = document.getElementById('refreshPortsBtn');
   const scanModeSelect = document.getElementById('scanModeSelect');
+  const maxRangeSelect = document.getElementById('maxRangeSelect');
   const btnLockBoth90 = document.getElementById('btnLockBoth90');
   const resetBtn = document.getElementById('resetBtn');
 
@@ -219,6 +220,20 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  let lastRangeChangeAt = 0;
+
+  if (maxRangeSelect) {
+    maxRangeSelect.addEventListener('change', async () => {
+      lastRangeChangeAt = performance.now();
+      const targetRange = parseFloat(maxRangeSelect.value);
+      polarScope.maxRangeCm = targetRange;
+      polarScope.render();
+      const pCoords = document.getElementById('polarCoords');
+      if (pCoords) pCoords.textContent = `Sweep: ${polarScope.s1Ang.toFixed(1)}° | Range: ${Math.round(targetRange)}cm`;
+      await api.setMaxRange(targetRange);
+    });
+  }
+
   if (btnLockBoth90) {
     btnLockBoth90.addEventListener('click', () => {
       sweepController.centerBothAt90();
@@ -287,8 +302,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const s1 = tel.s1_ang !== undefined ? tel.s1_ang : (tel.s_ang !== undefined ? tel.s_ang : 90.0);
       const s2 = tel.s2_ang !== undefined ? tel.s2_ang : s1;
 
-      const v1 = (tel.valid1 === 1 || tel.valid1 === true || tel.valid === 1 || tel.valid === true || (d1 > 2 && d1 < 395));
-      const v2 = (tel.valid2 === 1 || tel.valid2 === true || (d2 > 2 && d2 < 395 && d2 !== d1));
+      const v1 = ((tel.valid1 === 1 || tel.valid1 === true || tel.valid === 1 || tel.valid === true) && d1 >= 3.0 && d1 < 395);
+      const v2 = ((tel.valid2 === 1 || tel.valid2 === true) && d2 >= 3.0 && d2 < 395);
 
       if (badgeD1) badgeD1.textContent = v1 ? `${d1.toFixed(1)} cm` : '-- cm';
       if (badgeS1Ang) badgeS1Ang.textContent = `@ ${s1.toFixed(0)}°`;
@@ -304,17 +319,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const c3d = tel.class_3d || "OPEN_CORRIDOR";
         badge3DClass.textContent = c3d;
         badge3DClass.style.color = (
-          c3d === 'TALL_SOLID_WALL' ? '#ff3344' :
-          c3d === 'LOW_STEP_RUBBLE' ? '#ffb300' :
-          c3d === 'OVERHANG_HAZARD' ? '#ff6d00' :
-          c3d === 'DOORWAY_DEPTH_PORTAL' ? '#e040fb' : '#00e5ff'
+          c3d === 'TALL_SOLID_WALL' ? 'var(--color-accent-red)' :
+          c3d === 'LOW_STEP_RUBBLE' ? 'var(--color-accent-amber)' :
+          c3d === 'OVERHANG_HAZARD' ? 'var(--color-accent-orange)' :
+          c3d === 'DOORWAY_DEPTH_PORTAL' ? 'var(--color-accent-magenta)' : 'var(--color-primary)'
         );
       }
 
       if (badgeSafety) {
         const isStop = tel.safety_stop === 1;
         badgeSafety.textContent = isStop ? 'CRITICAL STOP (<18cm)' : 'CLEAR (>18cm)';
-        badgeSafety.style.color = isStop ? '#ff3344' : '#00e676';
+        badgeSafety.style.color = isStop ? 'var(--color-accent-red)' : 'var(--color-accent-green)';
       }
 
       // Telemetry Bar
@@ -355,7 +370,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (statSafetyStop) {
         const isStop = tel.safety_stop === 1;
-        statSafetyStop.textContent = isStop ? 'STOP (<15cm)' : 'CLEAR';
+        statSafetyStop.textContent = isStop ? 'STOP (<18cm)' : 'CLEAR';
         statSafetyStop.className = isStop ? 'stat-value red' : 'stat-value green';
       }
 
@@ -364,7 +379,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (ai) {
         if (ai.steering_command) {
           aiCommandText.textContent = ai.steering_command;
-          aiCommandText.style.color = ai.steering_command.includes('STOP') ? '#ff3344' : '#00e676';
+          aiCommandText.style.color = ai.steering_command.includes('STOP') ? 'var(--color-accent-red)' : 'var(--color-accent-green)';
         }
 
         if (ai.sectors) {
@@ -393,6 +408,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Update Pinpointed Detected Objects Table
       const pinObjs = snapshot.pinpointed_objects || [];
+      const gridMeta = snapshot.grid_meta || null;
+      const activeRange = (gridMeta && gridMeta.max_range_cm) ? gridMeta.max_range_cm : (tel.max_range_cm || 200);
+
+      if (maxRangeSelect && (performance.now() - lastRangeChangeAt > 1200) && String(Math.round(activeRange)) !== maxRangeSelect.value) {
+        if ([...maxRangeSelect.options].some((o) => o.value === String(Math.round(activeRange)))) {
+          maxRangeSelect.value = String(Math.round(activeRange));
+        }
+      }
+
+      const polarCoordsEl = document.getElementById('polarCoords');
+      if (polarCoordsEl) {
+        polarCoordsEl.textContent = `Sweep: ${s1.toFixed(1)}° | Range: ${Math.round(activeRange)}cm`;
+      }
+      const voxelTagEl = document.getElementById('voxelMatrixTag');
+      if (voxelTagEl && gridMeta) {
+        voxelTagEl.textContent = `${gridMeta.width}x${gridMeta.height} 3D MATRIX`;
+      }
+
       const tblBody = document.getElementById('detectedObjectsTableBody');
       const countTxt = document.getElementById('objectsCountText');
       if (countTxt) {
@@ -410,9 +443,10 @@ document.addEventListener('DOMContentLoaded', () => {
           tblBody.innerHTML = pinObjs.map((obj) => {
             const xSign = obj.x_cm >= 0 ? '+' : '';
             const ySign = obj.y_cm >= 0 ? '+' : '';
+            const dirText = obj.directive || (obj.traversable ? 'STEP OVER (LOW)' : 'STOP / AVOID');
             const dirBadge = obj.traversable
-              ? `<span class="obj-directive-badge traversable">STEP OVER (LOW)</span>`
-              : `<span class="obj-directive-badge stop">STOP / AVOID</span>`;
+              ? `<span class="obj-directive-badge traversable">${dirText}</span>`
+              : `<span class="obj-directive-badge stop">${dirText}</span>`;
 
             return `
               <tr>
@@ -422,7 +456,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td>${obj.angle_deg.toFixed(1)}°</td>
                 <td><code style="color: var(--color-primary);">${xSign}${obj.x_cm.toFixed(1)}, ${ySign}${obj.y_cm.toFixed(1)} cm</code></td>
                 <td>${obj.width_cm.toFixed(1)} cm</td>
-                <td>${obj.height_cm.toFixed(0)} cm (${obj.class === 'LOW_STEP_RUBBLE' ? 'Low Step' : 'Full Wall'})</td>
+                <td>${obj.height_cm.toFixed(0)} cm (${obj.class === 'LOW_STEP_RUBBLE' ? 'Low Step' : (obj.class === 'OVERHANG_HAZARD' ? 'Overhang' : 'Full Wall')})</td>
                 <td>${dirBadge}</td>
               </tr>
             `;
@@ -431,9 +465,9 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       // Update 3 Viewports
-      polarScope.updateState(tel, snapshot.polar_history, snapshot.portals, pinObjs);
-      dipCanvas.updateSnapshot(snapshot.semantic_image_b64, ai ? ai.astar_path : [], snapshot.points_3d, tel, pinObjs);
-      voxelWorld.updateSnapshot(snapshot.active_voxels, snapshot.portals, curServoAng, ai ? ai.astar_path : [], tel);
+      polarScope.updateState(tel, snapshot.polar_history, snapshot.portals, pinObjs, snapshot.contour_scan || [], gridMeta);
+      dipCanvas.updateSnapshot(snapshot.semantic_image_b64, ai ? ai.astar_path : [], snapshot.points_3d, tel, pinObjs, gridMeta);
+      voxelWorld.updateSnapshot(snapshot.active_voxels, snapshot.portals, curServoAng, ai ? ai.astar_path : [], tel, pinObjs, gridMeta);
     },
     (isConnected) => {
       if (!isConnected) {

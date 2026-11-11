@@ -90,7 +90,8 @@ class DepthProfiler:
         delta_d: Optional[float] = None
         new_portal: Optional[DepthPortal] = None
 
-        if not is_valid or distance_cm >= self.cfg.MAX_RANGE_CM:
+        max_hw_range = getattr(self.cfg, "MAX_HARDWARE_RANGE_CM", self.cfg.MAX_RANGE_CM)
+        if not is_valid or distance_cm >= max_hw_range:
             self.last_angle = None
             self.last_dist = None
             return None, None

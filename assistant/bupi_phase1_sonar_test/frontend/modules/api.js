@@ -52,6 +52,20 @@ export class SonarAPI {
     } catch (_) {}
   }
 
+  async setMaxRange(maxRangeCm) {
+    this.sendWs({ action: 'set_range', max_range_cm: parseFloat(maxRangeCm) });
+    try {
+      const res = await fetch('/api/range_scale', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ max_range_cm: parseFloat(maxRangeCm) })
+      });
+      return await res.json();
+    } catch (_) {
+      return null;
+    }
+  }
+
   async resetMap() {
     const res = await fetch('/api/reset', { method: 'POST' });
     return await res.json();

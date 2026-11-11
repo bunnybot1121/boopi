@@ -176,23 +176,25 @@ def generate_ascii_20x20_3d(
 
     for br in range(20):
         row_chars = []
+        r0, r1 = br * step_r, (br + 1) * step_r
         for bc in range(20):
-            r = br * step_r
-            c = bc * step_c
+            c0, c1 = bc * step_c, (bc + 1) * step_c
             if br == 10 and bc == 10:
                 row_chars.append("B")
                 continue
-            sem = semantic_matrix[r, c]
-            p = prob_grid[r, c]
-            if sem == 5:
+            sub_sem = semantic_matrix[r0:r1, c0:c1]
+            sub_p = prob_grid[r0:r1, c0:c1]
+            max_p = float(np.max(sub_p))
+            min_p = float(np.min(sub_p))
+            if np.any(sub_sem == 5):
                 row_chars.append("O")
-            elif sem == 4:
+            elif np.any(sub_sem == 4):
                 row_chars.append("~")
-            elif sem == 2:
+            elif np.any(sub_sem == 2) and max_p >= occ_thresh:
                 row_chars.append("^")
-            elif sem == 3 or p >= occ_thresh:
+            elif np.any(sub_sem == 3) or max_p >= occ_thresh:
                 row_chars.append("#")
-            elif p <= free_thresh:
+            elif min_p <= free_thresh:
                 row_chars.append(".")
             else:
                 row_chars.append(" ")

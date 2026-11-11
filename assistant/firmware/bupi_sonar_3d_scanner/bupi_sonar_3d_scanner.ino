@@ -17,7 +17,7 @@
  *   2. Quintic Smoothstep Hermite S-Curve Easing: S(t) = 6t^5 - 15t^4 + 10t^3.
  *   3. Soft Boundary Deceleration: Cosine easing when approaching min/max sector bounds.
  *   4. Anti-Brownout Staggered Micro-Slices (2ms gap between servo PWM writes).
- *   5. Anti-Crosstalk Acoustic Gap (12ms decay between dual ping bursts).
+ *   5. Anti-Crosstalk Acoustic Gap (15ms separation + 10ms single-retry fallback).
  * ==============================================================================
  */
 
@@ -29,7 +29,7 @@
 #define TRIG_1_PIN     5
 #define ECHO_1_PIN     18
 #define TRIG_2_PIN     19
-#define ECHO_2_PIN     23    // GPIO 23 (D23)
+#define ECHO_2_PIN     23    // GPIO 23 (D23) - confirmed wiring without pin 36
 #define SERVO_1_PIN    13
 #define SERVO_2_PIN    16
 #define I2C_SDA_PIN    21
@@ -53,7 +53,7 @@ struct ScanConfig {
   float min_ang        = 45.0f;
   float max_ang        = 135.0f;
   float step_deg       = 2.0f;
-  int settle_ms        = 25;  // 25ms mechanical servo horn stabilization
+  int settle_ms        = 35;  // Full 35ms mechanical stabilization before Sensor 1 triggers
   int move_ms          = 35;
   bool sweep_enabled   = true;
   bool center_locked   = false;
@@ -63,6 +63,8 @@ struct ScanConfig {
 } cfg;
 
 #define SERVO_HORN_OFFSET_CM 3.5f  // Distance from servo rotation pivot to transducer face
+#define MAX_ANGLE_BINS       181
+#define CACHE_MAX_MISSES     2
 
 // Turret runtime positions (float for sub-degree smooth motion)
 float cur_s1_ang = 90.0f;
@@ -78,10 +80,13 @@ float gyro_z_bias = 0.0f, gyro_y_bias = 0.0f;
 float est_yaw = 0.0f, est_pitch = 0.0f;
 unsigned long last_imu_us = 0;
 
-// Rolling buffers for 3-sample median filter
-float s1_hist[3] = {400.0f, 400.0f, 400.0f};
-float s2_hist[3] = {400.0f, 400.0f, 400.0f};
-uint8_t hist_idx = 0;
+// Rolling per-angle-bin last-valid cache to smooth single-frame acoustic dropouts
+float bin_cache_d1[MAX_ANGLE_BINS];
+float bin_cache_d2[MAX_ANGLE_BINS];
+uint8_t bin_miss1[MAX_ANGLE_BINS];
+uint8_t bin_miss2[MAX_ANGLE_BINS];
+bool bin_has1[MAX_ANGLE_BINS];
+bool bin_has2[MAX_ANGLE_BINS];
 
 // --- Sub-degree High-Resolution LEDC Servo Driver ---
 uint32_t angleToDuty(float angle_deg) {
@@ -159,34 +164,65 @@ void moveServosSmooth(float target_s1, float target_s2, int duration_ms) {
   delay(cfg.settle_ms);
 }
 
-// --- HC-SR04 Ultrasonic Transducer Driver (Calibrated at 24°C + Servo Pivot Offset) ---
-float fireSingleUltrasonic(uint8_t trig_pin, uint8_t echo_pin, bool &is_valid) {
-  for (int attempt = 0; attempt < 2; attempt++) {
-    digitalWrite(trig_pin, LOW);
-    delayMicroseconds(4);
-    digitalWrite(trig_pin, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(trig_pin, LOW);
+// --- HC-SR04 Ultrasonic Transducer Driver (Calibrated at 24°C + Smart Single Retry) ---
+float measureSinglePingCm(uint8_t trig_pin, uint8_t echo_pin, bool &is_valid) {
+  digitalWrite(trig_pin, LOW);
+  delayMicroseconds(4);
+  digitalWrite(trig_pin, HIGH);
+  delayMicroseconds(12);
+  digitalWrite(trig_pin, LOW);
 
-    unsigned long duration_us = pulseIn(echo_pin, HIGH, 25000UL);
-    if (duration_us > 115) { // Minimum ~2cm
-      // Speed of sound at 24°C: 345.8 m/s -> 0.03458 cm/us / 2 = 0.01729 cm/us
-      float dist_cm = ((float)duration_us * 0.01729f) + SERVO_HORN_OFFSET_CM;
-      if (dist_cm >= 2.0f && dist_cm <= 400.0f) {
-        is_valid = true;
-        return dist_cm;
-      }
+  unsigned long duration_us = pulseIn(echo_pin, HIGH, 24000UL);
+  // Speed of sound at 24°C: 345.8 m/s -> 0.01729 cm/us one-way
+  float raw_dist_cm = (float)duration_us * 0.01729f;
+  // Filter timeouts (0) and false origin ringing (< 3.0 cm raw echo)
+  if (duration_us > 0 && raw_dist_cm >= 3.0f) {
+    float dist_cm = raw_dist_cm + SERVO_HORN_OFFSET_CM;
+    if (dist_cm <= 400.0f) {
+      is_valid = true;
+      return dist_cm;
     }
-    delayMicroseconds(500);
   }
   is_valid = false;
   return 400.0f;
 }
 
-float median3(float a, float b, float c) {
-  if ((a <= b && b <= c) || (c <= b && b <= a)) return b;
-  if ((b <= a && a <= c) || (c <= a && a <= b)) return a;
-  return c;
+float fireSingleUltrasonic(uint8_t trig_pin, uint8_t echo_pin, bool &is_valid) {
+  // Primary clean ping
+  float d = measureSinglePingCm(trig_pin, echo_pin, is_valid);
+  if (is_valid) {
+    return d;
+  }
+  // Smart single retry ONLY on timeout/missed echo after 10ms acoustic clear delay
+  delay(10);
+  return measureSinglePingCm(trig_pin, echo_pin, is_valid);
+}
+
+float applyBinCache(
+  float angle_deg,
+  float raw_dist,
+  bool &is_valid,
+  float *cache_dist,
+  uint8_t *cache_miss,
+  bool *cache_valid
+) {
+  int bin_idx = constrain((int)roundf(angle_deg), 0, MAX_ANGLE_BINS - 1);
+  if (is_valid) {
+    cache_dist[bin_idx] = raw_dist;
+    cache_miss[bin_idx] = 0;
+    cache_valid[bin_idx] = true;
+    return raw_dist;
+  }
+
+  // Smooth brief acoustic dropouts (<= CACHE_MAX_MISSES) from rolling per-angle cache
+  if (cache_valid[bin_idx] && cache_miss[bin_idx] < CACHE_MAX_MISSES) {
+    cache_miss[bin_idx]++;
+    is_valid = true;
+    return cache_dist[bin_idx];
+  }
+
+  cache_valid[bin_idx] = false;
+  return 400.0f;
 }
 
 // --- MPU6050 Raw I2C Driver ---
@@ -305,6 +341,15 @@ void setup() {
   initServoPWM();
   initMPU6050();
 
+  for (int i = 0; i < MAX_ANGLE_BINS; i++) {
+    bin_cache_d1[i] = 400.0f;
+    bin_cache_d2[i] = 400.0f;
+    bin_miss1[i] = 0;
+    bin_miss2[i] = 0;
+    bin_has1[i] = false;
+    bin_has2[i] = false;
+  }
+
   // Smoothly center servos to 90 degrees on startup
   moveServosSmooth(90.0f, 90.0f, 200);
   delay(100);
@@ -322,6 +367,8 @@ void loop() {
   if (cfg.center_locked) {
     if (fabs(cur_s1_ang - 90.0f) > 0.5f || fabs(cur_s2_ang - 90.0f) > 0.5f) {
       moveServosSmooth(90.0f, 90.0f, 200);
+    } else {
+      delay(cfg.settle_ms);
     }
   } else if (cfg.sweep_enabled) {
     float dist_min = cur_s1_ang - cfg.min_ang;
@@ -384,17 +431,19 @@ void loop() {
     }
 
     moveServosSmooth(target_s1, target_s2, cfg.move_ms);
+  } else {
+    delay(cfg.settle_ms);
   }
 
-  // 3. Staggered Anti-Crosstalk Ultrasonic Transducer Pings
+  // 3. Staggered Anti-Crosstalk Ultrasonic Transducer Pings (15ms separation)
   bool valid1 = false, valid2 = false;
   float raw_d1 = fireSingleUltrasonic(TRIG_1_PIN, ECHO_1_PIN, valid1);
-  delay(28); // Generous 28ms acoustic reverberation decay gap to prevent crosstalk into Sensor 2
+  delay(15); // 15ms inter-sensor acoustic separation
   float raw_d2 = fireSingleUltrasonic(TRIG_2_PIN, ECHO_2_PIN, valid2);
 
-  // 4. Instant Angle-True Filter (Zero multi-angle smearing / zero angular lag)
-  float d1_filt = valid1 ? raw_d1 : 400.0f;
-  float d2_filt = valid2 ? raw_d2 : 400.0f;
+  // 4. Rolling Per-Angle-Bin Cache (smooths brief acoustic dropouts without UI flickering)
+  float d1_filt = applyBinCache(cur_s1_ang, raw_d1, valid1, bin_cache_d1, bin_miss1, bin_has1);
+  float d2_filt = applyBinCache(cur_s2_ang, raw_d2, valid2, bin_cache_d2, bin_miss2, bin_has2);
   float delta_d = d2_filt - d1_filt;
 
   // 5. Tier-1 Hardware Safety Stop (<18.0cm on either sensor)
