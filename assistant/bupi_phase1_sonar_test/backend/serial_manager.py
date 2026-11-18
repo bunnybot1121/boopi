@@ -171,6 +171,20 @@ class SerialManager:
     def update_pacer_angle(self, angle_deg: float):
         self.manual_pacer_angle = max(0.0, min(180.0, angle_deg))
 
+    def send_raw(self, text: str) -> bool:
+        """Send raw characters/string to the connected ESP32."""
+        with self._lock:
+            if not self.ser or not self.ser.is_open or not self.is_connected:
+                return False
+            try:
+                if not text.endswith("\n"):
+                    text += "\n"
+                self.ser.write(text.encode("utf-8"))
+                self.ser.flush()
+                return True
+            except Exception:
+                return False
+
     def send_command(self, cmd: dict) -> bool:
         """Send a JSON command line to the connected ESP32."""
         with self._lock:
@@ -231,18 +245,26 @@ class SerialManager:
                         continue
 
                     # Dual-Sensor or Single-Sensor packet extraction
-                    mode = packet.get("mode", "STACKED_3D")
+                    mode = packet.get("mode", "AUTO")
                     ts = packet.get("ts", int(time.time() * 1000))
-                    bot_id = packet.get("bot_id", "BUPI-01")
-                    imu_present = bool(packet.get("imu", False))
+                    bot_id = packet.get("node") or packet.get("bot_id", "BUPI-01")
+                    imu_present = bool(packet.get("imu_ok") if "imu_ok" in packet else packet.get("imu", False))
                     yaw = packet.get("yaw")
                     pitch = packet.get("pitch")
+                    roll = packet.get("roll")
                     safety_stop = int(packet.get("safety_stop", 0))
+                    pir = int(packet.get("pir", 0))
+                    path_state = str(packet.get("path_state", "CRUISE"))
+                    motor_cmd = str(packet.get("motor_cmd", "STOP"))
+                    target_path_angle = packet.get("target_path_angle")
+                    turn_delta_deg = packet.get("turn_delta_deg")
 
-                    # Distances: d1 (low) & d2 (high)
-                    if "d1_cm" in packet:
-                        d1_cm = float(packet.get("d1_cm", 400.0))
-                        d2_cm = float(packet.get("d2_cm", d1_cm))
+                    # Distances: d1/u1 (low) & d2/u2 (high)
+                    if "u1_cm" in packet or "d1_cm" in packet:
+                        raw_d1 = packet.get("u1_cm", packet.get("d1_cm", 400.0))
+                        raw_d2 = packet.get("u2_cm", packet.get("d2_cm", raw_d1))
+                        d1_cm = float(raw_d1)
+                        d2_cm = float(raw_d2)
                         valid1 = bool(packet.get("valid1", 0) == 1)
                         valid2 = bool(packet.get("valid2", 0) == 1)
                     else:
@@ -252,9 +274,11 @@ class SerialManager:
                         valid2 = valid1
 
                     # Angles: s1 & s2
-                    if "s1_ang" in packet:
-                        s1_ang = float(packet.get("s1_ang", 90.0))
-                        s2_ang = float(packet.get("s2_ang", s1_ang))
+                    if "s1_angle" in packet or "s1_ang" in packet:
+                        raw_s1 = packet.get("s1_angle", packet.get("s1_ang", 90.0))
+                        raw_s2 = packet.get("s2_angle", packet.get("s2_ang", raw_s1))
+                        s1_ang = float(raw_s1)
+                        s2_ang = float(raw_s2)
                     else:
                         raw_s = packet.get("s_ang")
                         s1_ang = float(raw_s) if raw_s is not None else self.manual_pacer_angle
@@ -295,7 +319,14 @@ class SerialManager:
                         min_ang=min_ang,
                         max_ang=max_ang,
                         sweep_dir=self.sweep_dir,
-                        bot_id=bot_id
+                        bot_id=bot_id,
+                        pir=pir,
+                        path_state=path_state,
+                        motor_cmd=motor_cmd,
+                        target_path_angle=float(target_path_angle) if target_path_angle is not None else None,
+                        turn_delta_deg=float(turn_delta_deg) if turn_delta_deg is not None else None,
+                        roll=float(roll) if roll is not None else None,
+                        node=bot_id
                     )
 
                     self.packet_count += 1

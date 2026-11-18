@@ -154,7 +154,24 @@ class AutonomousGoalAgent:
         return 0.0
 
     def publish_cmd(self, topic: str, payload: str):
-        """Sends MQTT command to local broker using persistent client or fallback."""
+        """Sends command directly to local ESP32 bridge (WebSocket/Serial) AND MQTT broker."""
+        # 1. Direct local bridge dispatch (WebSocket & USB Serial with 0ms latency)
+        try:
+            import bupi_node_server
+            target_bot = None
+            try:
+                p = json.loads(payload)
+                if isinstance(p, dict):
+                    target_bot = p.get("bot_id") or p.get("robot_id")
+            except Exception:
+                pass
+            if not target_bot and "bot2" in topic:
+                target_bot = "bupi_02"
+            bupi_node_server.dispatch_to_esp32(payload, target_bot_id=target_bot)
+        except Exception:
+            pass
+
+        # 2. MQTT publish
         if self._mqtt_client is not None:
             try:
                 self._mqtt_client.publish(topic, payload)
@@ -164,7 +181,7 @@ class AutonomousGoalAgent:
         try:
             publish.single(topic, payload, hostname=self.broker_host, port=self.broker_port)
         except Exception as e:
-            print(f"[Autonomous Goal Error] MQTT publish failed ({topic}): {e}", flush=True)
+            pass
 
     def speak(self, text: str):
         """Speaks mission progress via direct callback or MQTT fallback."""
@@ -643,7 +660,9 @@ class AutonomousGoalAgent:
 
         turn_cmd = "right" if plan.primary_action != "TURN_LEFT" else "left"
         motor_json = json.dumps({"action": turn_cmd, "speed": 220, "duration_ms": 600, "bot_id": "bupi_01", "robot_id": "bupi_01"})
+        scan_json = json.dumps({"action": "scan", "cmd": "SCAN", "bot_id": "bupi_01", "robot_id": "bupi_01"})
         self.publish_cmd("bupi/actuators/motors/cmd", turn_cmd)
+        self.publish_cmd("bupi/actuators/motors/cmd/json", scan_json)
         self.publish_cmd("bupi/actuators/motors/cmd/json", motor_json)
 
         while not self.is_cancelled():

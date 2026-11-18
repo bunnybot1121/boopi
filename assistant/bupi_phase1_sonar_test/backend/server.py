@@ -240,6 +240,38 @@ def configure_servo(req: ServoConfigRequest):
     return {"status": "ok" if success else "error", "config": cmd, "sent_to_serial": success}
 
 
+class RobotControlRequest(BaseModel):
+    action: Optional[str] = None  # 'W', 'A', 'S', 'D', 'X', 'R', 'M', 'P'
+    cmd: Optional[str] = None     # 'MOVE', 'STOP', 'SCAN', 'RESET_IMU', 'MODE'
+    dir: Optional[str] = None     # 'FWD', 'REV', 'LEFT', 'RIGHT'
+    speed: Optional[int] = 200
+    val: Optional[str] = None     # 'AUTO', 'MANUAL'
+
+
+@app.post("/api/robot/cmd")
+def control_robot(req: RobotControlRequest):
+    """Send locomotion and mode commands to BUPI-01 Scout over serial."""
+    if req.action and len(req.action) == 1:
+        success = serial_mgr.send_raw(req.action)
+        return {"status": "ok" if success else "error", "sent": req.action, "sent_to_serial": success}
+    
+    cmd_dict = {}
+    if req.cmd:
+        cmd_dict["cmd"] = req.cmd
+    if req.dir:
+        cmd_dict["dir"] = req.dir
+    if req.speed is not None:
+        cmd_dict["speed"] = req.speed
+    if req.val:
+        cmd_dict["val"] = req.val
+        
+    if cmd_dict:
+        success = serial_mgr.send_command(cmd_dict)
+        return {"status": "ok" if success else "error", "sent": cmd_dict, "sent_to_serial": success}
+
+    return {"status": "error", "message": "No valid action or cmd provided"}
+
+
 @app.post("/api/ping")
 def ingest_ping(req: IngestPingRequest):
     """Direct HTTP/MQTT ingest endpoint for live wireless ESP32 or MQTT bridge."""

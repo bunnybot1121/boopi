@@ -39,7 +39,8 @@ GROQ_STT_MODEL = getattr(config, "GROQ_STT_MODEL", "whisper-large-v3-turbo")
 AUDIO_GAIN_BOOST = float(os.environ.get("AUDIO_GAIN_BOOST", getattr(config, "AUDIO_GAIN_BOOST", 1.5)))
 SILENCE_FRAMES = int(os.environ.get("SILENCE_FRAMES", getattr(config, "SILENCE_FRAMES", 18))) # 540ms natural conversational pause
 
-PROMPT_CONTEXT = "Hey Boopi, how are you? Hello Bupi, what's up? Boopi, Bupi, move forward, stop."
+# Domain keywords for Whisper prompt guidance (NO full conversational sentences, which cause prompt hallucinations)
+PROMPT_CONTEXT = "Boopi, Bupi, robot, scout, scan the room, forward, backward, left, right, stop, ultrasonic, servo."
 
 class SimpleLogger:
     def info(self, msg):
@@ -636,9 +637,9 @@ class ListenerThread(QThread):
                 log.info(f"Discarded silent audio (peak: {orig_max:.1f} < {cutoff:.1f})")
                 return
 
-            # Soft peak normalization for quiet microphones (safe max 15x boost)
+            # Soft peak normalization for quiet microphones (safe max 6x boost to avoid boosting noise)
             if 0 < orig_max < 22000:
-                gain = min(22000.0 / orig_max, 15.0)
+                gain = min(22000.0 / orig_max, 6.0) if orig_max > 200.0 else min(22000.0 / max(orig_max, 50.0), 3.0)
                 log.info(f"Soft peak normalization: peak={orig_max:.1f}, gain boost={gain:.2f}x")
                 audio_boosted = audio.astype(np.float32) * gain
                 np.clip(audio_boosted, -32768.0, 32767.0, out=audio_boosted)
@@ -758,8 +759,10 @@ class ListenerThread(QThread):
                 model_name = os.environ.get("GROQ_STT_MODEL", getattr(config, "GROQ_STT_MODEL", "whisper-large-v3-turbo"))
                 data = {
                     "model": model_name,
-                    "prompt": "Hey Boopi, how are you? Hello Bupi, what's up? Move forward, stop.",
-                    "response_format": "json"
+                    "language": "en",
+                    "prompt": PROMPT_CONTEXT,
+                    "response_format": "json",
+                    "temperature": "0.0"
                 }
                 
                 response = requests.post(url, headers=headers, files=files, data=data, timeout=4.0)

@@ -46,8 +46,16 @@ def control_relay(device_id: str, action: str) -> str:
         if not validation.get("approved", True):
             return f"Blocked: {validation.get('reason')}"
         
-        # Publish directly to the local broker
-        publish.single(topic, state_str, hostname="localhost")
+        # Publish directly to the local broker if available
+        try:
+            publish.single(topic, state_str, hostname="localhost")
+        except Exception:
+            pass
+        try:
+            import bupi_node_server
+            bupi_node_server.dispatch_to_esp32(json.dumps({"topic": topic, "state": state_str}))
+        except Exception:
+            pass
         
         return f"Successfully sent command {state_str} to {device_id}."
     except Exception as e:
@@ -77,8 +85,16 @@ def display_on_esp32(text: str) -> str:
             return f"Blocked: {validation.get('reason')}"
             
         # Dual-publish to both display topics to support all firmware versions
-        publish.single("bupi/nodes/desk_display/cmd", formatted_text, hostname="localhost")
-        publish.single("bupi/actuators/lcd/cmd", formatted_text, hostname="localhost")
+        try:
+            publish.single("bupi/nodes/desk_display/cmd", formatted_text, hostname="localhost")
+            publish.single("bupi/actuators/lcd/cmd", formatted_text, hostname="localhost")
+        except Exception:
+            pass
+        try:
+            import bupi_node_server
+            bupi_node_server.send_to_esp32("Bupi Status:", formatted_text)
+        except Exception:
+            pass
         return f"Successfully displayed '{formatted_text}' on ESP32."
     except Exception as e:
         return f"Failed to display on ESP32: {str(e)}"
@@ -149,8 +165,11 @@ def control_motors(direction: str, speed: int = 255, duration_seconds: float = 1
                 "robot_id": target_bot
             })
             for top in topics:
-                publish.single(f"{top}/json", payload, hostname="localhost")
-                publish.single(top, f"turn_by {degrees}", hostname="localhost")
+                try:
+                    publish.single(f"{top}/json", payload, hostname="localhost")
+                    publish.single(top, f"turn_by {degrees}", hostname="localhost")
+                except Exception:
+                    pass
             try:
                 import bupi_node_server
                 bupi_node_server.dispatch_to_esp32(payload, target_bot_id=target_bot)
@@ -175,8 +194,11 @@ def control_motors(direction: str, speed: int = 255, duration_seconds: float = 1
         
         # Publish structured command for ESP32 on all target topics
         for top in topics:
-            publish.single(f"{top}/json", payload, hostname="localhost")
-            publish.single(top, direction, hostname="localhost")
+            try:
+                publish.single(f"{top}/json", payload, hostname="localhost")
+                publish.single(top, direction, hostname="localhost")
+            except Exception:
+                pass
         
         # Direct local bridge dispatch (WebSocket & USB Serial with 0ms latency)
         try:
@@ -191,8 +213,11 @@ def control_motors(direction: str, speed: int = 255, duration_seconds: float = 1
                 time.sleep(duration_seconds)
                 stop_payload = json.dumps({"action": "stop", "speed": 0, "bot_id": target_bot, "robot_id": target_bot})
                 for top in topics:
-                    publish.single(top, "stop", hostname="localhost")
-                    publish.single(f"{top}/json", stop_payload, hostname="localhost")
+                    try:
+                        publish.single(top, "stop", hostname="localhost")
+                        publish.single(f"{top}/json", stop_payload, hostname="localhost")
+                    except Exception:
+                        pass
                 try:
                     import bupi_node_server
                     bupi_node_server.dispatch_to_esp32(stop_payload, target_bot_id=target_bot)

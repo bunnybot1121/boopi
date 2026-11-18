@@ -1,4 +1,4 @@
-import sys
+   import sys
 import os
 import json
 import time
@@ -789,17 +789,13 @@ async def handle_connection(websocket):
     is_loopback = ip in ["127.0.0.1", "::1", "localhost"]
     
     connected_nodes.add(websocket)
-    if is_loopback:
-        ui_clients.add(websocket)
-        # Immediately push initial telemetry and arena snapshot to newly connected UI
-        try:
-            init_pkt = build_ui_telemetry_payload("bupi_01")
-            await websocket.send(init_pkt)
-        except Exception as e:
-            pass
-    else:
-        hardware_clients.add(websocket)
-        print(f"[Hardware Bridge] New Hardware WebSocket connection from {ip}", flush=True)
+    # Default newly connected sockets to UI clients until they announce as physical hardware
+    ui_clients.add(websocket)
+    try:
+        init_pkt = build_ui_telemetry_payload("bupi_01")
+        await websocket.send(init_pkt)
+    except Exception as e:
+        pass
 
     node_id = f"WS_{ip.replace('.', '_')}"
 
@@ -809,8 +805,12 @@ async def handle_connection(websocket):
                 data = json.loads(message)
                 msg_type = data.get("type", "")
 
-                # If this socket sends hardware telemetry or announces as a robot platform, mark as hardware
-                if msg_type == "announce" or "distance_cm" in data or "heading" in data or "pir" in data or "flame" in data or "gas_ppm" in data:
+                # Only classify as physical hardware client if it announces or streams telemetry
+                is_hw = (
+                    msg_type in ["announce", "telemetry", "heartbeat"] or
+                    any(k in data for k in ["u1_cm", "d1_cm", "s1_angle", "distance_cm", "heading", "yaw", "pir", "gas_ppm", "flame", "delta_cm"])
+                )
+                if is_hw:
                     if websocket in ui_clients:
                         ui_clients.discard(websocket)
                     hardware_clients.add(websocket)
