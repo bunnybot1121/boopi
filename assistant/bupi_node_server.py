@@ -1,4 +1,4 @@
-   import sys
+import sys
 import os
 import json
 import time
@@ -613,23 +613,17 @@ def dispatch_to_esp32(cmd_str: str, target_bot_id: Optional[str] = None) -> bool
     if _loop is not None and _loop.is_running():
         hw_list = list(hardware_clients)
         if len(hw_list) == 1:
-            # Smart single-bot routing: If exactly one ESP32 is online, ALWAYS dispatch command to it
-            ws = hw_list[0]
-            try:
-                single_bot_payload = cmd_payload
+            # If the command is explicitly targeted to another bot (e.g. bupi_02), do not send to bupi_01!
+            if norm_target in ["bupi_02", "bot2"]:
+                pass
+            else:
+                ws = hw_list[0]
                 try:
-                    p = json.loads(cmd_payload)
-                    if isinstance(p, dict) and p.get("bot_id") not in [None, "all"]:
-                        p["bot_id"] = "all"
-                        p["robot_id"] = "all"
-                        single_bot_payload = json.dumps(p)
-                except Exception:
-                    pass
-                asyncio.run_coroutine_threadsafe(ws.send(single_bot_payload), _loop)
-                print(f"[Hardware Bridge -> WS Single-Bot Dispatched]: {single_bot_payload}", flush=True)
-                success = True
-            except Exception as we:
-                print(f"[Hardware Bridge] WS write failed: {we}", flush=True)
+                    asyncio.run_coroutine_threadsafe(ws.send(cmd_payload), _loop)
+                    print(f"[Hardware Bridge -> WS Single-Bot Dispatched]: {cmd_payload}", flush=True)
+                    success = True
+                except Exception as we:
+                    print(f"[Hardware Bridge] WS write failed: {we}", flush=True)
         elif norm_target in ["all", "both", "fleet", "swarm", None]:
             # Broadcast to all connected hardware bots
             for ws in hw_list:

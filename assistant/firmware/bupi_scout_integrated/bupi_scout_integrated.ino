@@ -61,24 +61,67 @@ IPAddress subnet(255, 255, 255, 0);
 IPAddress dnsServer(192, 168, 137, 1);
 
 // ==============================================================================
-// 2. EXACT ESP32 GPIO PIN CONFIGURATION (STRICTLY LOCKED - DO NOT CHANGE)
+// 2. HARDWARE PINOUT SELECTION (CRITICAL FOR PHYSICAL WIRING)
 // ==============================================================================
-const int PIN_US1_TRIG      = 5;   // Ultrasonic 1 TRIG — Output
-const int PIN_US1_ECHO      = 23;  // Ultrasonic 1 ECHO — Input
-const int PIN_US2_TRIG      = 16;  // Ultrasonic 2 TRIG — Output
-const int PIN_US2_ECHO      = 4;   // Ultrasonic 2 ECHO — Input
-const int PIN_SERVO_1       = 13;  // Servo 1 paired with Ultrasonic 1 — PWM Output
-const int PIN_SERVO_2       = 17;  // Servo 2 paired with Ultrasonic 2 — PWM Output
-const int PIN_PIR           = 18;  // PIR Motion Sensor — Digital Input
-const int PIN_MPU_SDA       = 21;  // MPU6050 I2C SDA
-const int PIN_MPU_SCL       = 22;  // MPU6050 I2C SCL
-const int PIN_TB_PWMA       = 25;  // TB6612FNG Motor A Speed — PWM Output
-const int PIN_TB_AIN1       = 26;  // TB6612FNG Motor A Direction 1 — Output
-const int PIN_TB_AIN2       = 27;  // TB6612FNG Motor A Direction 2 — Output
-const int PIN_TB_PWMB       = 32;  // TB6612FNG Motor B Speed — PWM Output
-const int PIN_TB_BIN1       = 33;  // TB6612FNG Motor B Direction 1 — Output
-const int PIN_TB_BIN2       = 14;  // TB6612FNG Motor B Direction 2 — Output
-const int PIN_TB_STBY       = -1;  // Tied to 3.3V in hardware; if >= 0 driven HIGH
+// Set PINOUT_CONFIG to 0 for Bot 1 Verified Breadboard Hardware:
+//   - TB6612 Standby : STBY = 13 (Driven HIGH to enable driver)
+//   - Motor A (Left) : PWMA = 25, AIN1 = 26, AIN2 = 27
+//   - Motor B (Right): PWMB = 33, BIN1 = 14, BIN2 = 12
+//   - Ultrasonic     : TRIG = 5, ECHO = 18
+//   - PIR Motion     : PIR = 34 (or 19)
+//   - MPU6050 I2C    : SDA = 21, SCL = 22
+//
+// Set PINOUT_CONFIG to 1 for 15-Pin Canonical Dual-Servo Turret Pinout:
+//   - TB6612 Standby : STBY tied to 3.3V (-1)
+//   - Motor A (Left) : PWMA = 25, AIN1 = 26, AIN2 = 27
+//   - Motor B (Right): PWMB = 32, BIN1 = 33, BIN2 = 14
+//   - Dual Ultrasonic: U1 (5, 23), U2 (16, 4)
+//   - Dual Servos    : S1 (13), S2 (17)
+#define PINOUT_CONFIG       0
+
+// Optional Servo Pin Overrides for PINOUT_CONFIG 0:
+// - If TB6612 STBY is on GPIO 13: wire Servo 1 to GPIO 15 (avoids STBY conflict)
+// - If TB6612 STBY is tied to 3.3V: wire Servo 1 to GPIO 13 (change below to 13)
+#define SERVO_1_PIN_CFG0    15
+#define SERVO_2_PIN_CFG0    17
+
+#if PINOUT_CONFIG == 0
+  // Verified Breadboard Hardware Pinout (Default - Works with physical breadboard)
+  const int PIN_US1_TRIG      = 5;   // Ultrasonic 1 TRIG — Output
+  const int PIN_US1_ECHO      = 18;  // Ultrasonic 1 ECHO — Input
+  const int PIN_US2_TRIG      = -1;  // Unused on single-sensor breadboard
+  const int PIN_US2_ECHO      = -1;
+  const int PIN_SERVO_1       = SERVO_1_PIN_CFG0;  // Active Servo 1 (e.g. GPIO 15, or 13 if STBY on 3.3V)
+  const int PIN_SERVO_2       = SERVO_2_PIN_CFG0;  // Active Servo 2 (GPIO 17, or -1 if single servo)
+  const int PIN_PIR           = 34;  // PIR Motion Sensor (GPIO 34 or 19)
+  const int PIN_MPU_SDA       = 21;  // MPU6050 I2C SDA
+  const int PIN_MPU_SCL       = 22;  // MPU6050 I2C SCL
+  const int PIN_TB_PWMA       = 25;  // TB6612FNG Motor A Speed — Output
+  const int PIN_TB_AIN1       = 26;  // TB6612FNG Motor A Direction 1 — Output
+  const int PIN_TB_AIN2       = 27;  // TB6612FNG Motor A Direction 2 — Output
+  const int PIN_TB_PWMB       = 33;  // TB6612FNG Motor B Speed — Output
+  const int PIN_TB_BIN1       = 14;  // TB6612FNG Motor B Direction 1 — Output
+  const int PIN_TB_BIN2       = 12;  // TB6612FNG Motor B Direction 2 — Output
+  const int PIN_TB_STBY       = 13;  // TB6612 Standby Pin (Driven HIGH to enable driver!)
+#else
+  // 15-Pin Canonical Dual-Servo Turret Pinout
+  const int PIN_US1_TRIG      = 5;   // Ultrasonic 1 TRIG — Output
+  const int PIN_US1_ECHO      = 23;  // Ultrasonic 1 ECHO — Input
+  const int PIN_US2_TRIG      = 16;  // Ultrasonic 2 TRIG — Output
+  const int PIN_US2_ECHO      = 4;   // Ultrasonic 2 ECHO — Input
+  const int PIN_SERVO_1       = 13;  // Servo 1 paired with Ultrasonic 1 — PWM Output
+  const int PIN_SERVO_2       = 17;  // Servo 2 paired with Ultrasonic 2 — PWM Output
+  const int PIN_PIR           = 18;  // PIR Motion Sensor — Digital Input
+  const int PIN_MPU_SDA       = 21;  // MPU6050 I2C SDA
+  const int PIN_MPU_SCL       = 22;  // MPU6050 I2C SCL
+  const int PIN_TB_PWMA       = 25;  // TB6612FNG Motor A Speed — PWM Output
+  const int PIN_TB_AIN1       = 26;  // TB6612FNG Motor A Direction 1 — Output
+  const int PIN_TB_AIN2       = 27;  // TB6612FNG Motor A Direction 2 — Output
+  const int PIN_TB_PWMB       = 32;  // TB6612FNG Motor B Speed — PWM Output
+  const int PIN_TB_BIN1       = 33;  // TB6612FNG Motor B Direction 1 — Output
+  const int PIN_TB_BIN2       = 14;  // TB6612FNG Motor B Direction 2 — Output
+  const int PIN_TB_STBY       = -1;  // Tied to 3.3V in hardware; if >= 0 driven HIGH
+#endif
 
 // Wheel direction inversion flags for quick chassis bench calibration
 bool MOTOR_A_INVERT         = false;
@@ -96,9 +139,9 @@ bool MOTOR_B_INVERT         = false;
 #define LEDC_CH_MOT_B       5        // Dedicated high LEDC Channel 5 (Timer 2)
 
 // Motor Speed Profiles (0 to 255)
-#define CRUISE_SPEED        190
-#define TURN_SPEED          205
-#define ESCAPE_SPEED        185
+#define CRUISE_SPEED        235
+#define TURN_SPEED          250
+#define ESCAPE_SPEED        235
 
 // ==============================================================================
 // 4. SENSOR & PATHFINDING PARAMETERS
@@ -211,6 +254,7 @@ unsigned long reverse_end_ms = 0;
 // Motor tracking
 String current_motor_cmd = "STOP";
 bool motorActive = false;
+volatile bool trigger_connection_spin = false;
 
 // PIR Sensor state with 800ms pulse stretcher
 int pir_state = 0;
@@ -265,24 +309,19 @@ String buildTelemetryJson();
 void initMotors() {
   pinMode(PIN_TB_AIN1, OUTPUT);
   pinMode(PIN_TB_AIN2, OUTPUT);
+  pinMode(PIN_TB_PWMA, OUTPUT);
+
   pinMode(PIN_TB_BIN1, OUTPUT);
   pinMode(PIN_TB_BIN2, OUTPUT);
+  pinMode(PIN_TB_PWMB, OUTPUT);
 
   if (PIN_TB_STBY >= 0) {
     pinMode(PIN_TB_STBY, OUTPUT);
     digitalWrite(PIN_TB_STBY, HIGH);
+    Serial.printf("[MOTORS] TB6612 STBY on GPIO %d driven HIGH (Driver Active).\n", PIN_TB_STBY);
+  } else {
+    Serial.println(F("[MOTORS] TB6612 STBY tied to 3.3V in hardware."));
   }
-
-  // Configure Motor PWM on dedicated LEDC Timer 2 (Channels 4 & 5, 1000 Hz, 8-bit)
-#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
-  ledcAttachChannel(PIN_TB_PWMA, MOTOR_PWM_FREQ, MOTOR_PWM_RES, LEDC_CH_MOT_A);
-  ledcAttachChannel(PIN_TB_PWMB, MOTOR_PWM_FREQ, MOTOR_PWM_RES, LEDC_CH_MOT_B);
-#else
-  ledcSetup(LEDC_CH_MOT_A, MOTOR_PWM_FREQ, MOTOR_PWM_RES);
-  ledcAttachPin(PIN_TB_PWMA, LEDC_CH_MOT_A);
-  ledcSetup(LEDC_CH_MOT_B, MOTOR_PWM_FREQ, MOTOR_PWM_RES);
-  ledcAttachPin(PIN_TB_PWMB, LEDC_CH_MOT_B);
-#endif
 
   stopMotors();
 }
@@ -294,32 +333,31 @@ void setMotorOutputs(int speedA, bool fwdA, int speedB, bool fwdB) {
   speedA = constrain(speedA, 0, 255);
   speedB = constrain(speedB, 0, 255);
 
-  // Motor A (Left) Direction
+  if (PIN_TB_STBY >= 0) {
+    digitalWrite(PIN_TB_STBY, HIGH);
+  }
+
+  // Motor A (Left) Direction & Power
   if (speedA > 0) {
     digitalWrite(PIN_TB_AIN1, fwdA ? HIGH : LOW);
     digitalWrite(PIN_TB_AIN2, fwdA ? LOW : HIGH);
+    digitalWrite(PIN_TB_PWMA, HIGH); // Direct 100% full battery voltage (no PWM stall)
   } else {
-    digitalWrite(PIN_TB_AIN1, HIGH);
-    digitalWrite(PIN_TB_AIN2, HIGH);
+    digitalWrite(PIN_TB_AIN1, LOW);
+    digitalWrite(PIN_TB_AIN2, LOW);
+    digitalWrite(PIN_TB_PWMA, LOW);
   }
 
-  // Motor B (Right) Direction
+  // Motor B (Right) Direction & Power
   if (speedB > 0) {
     digitalWrite(PIN_TB_BIN1, fwdB ? HIGH : LOW);
     digitalWrite(PIN_TB_BIN2, fwdB ? LOW : HIGH);
+    digitalWrite(PIN_TB_PWMB, HIGH); // Direct 100% full battery voltage (no PWM stall)
   } else {
-    digitalWrite(PIN_TB_BIN1, HIGH);
-    digitalWrite(PIN_TB_BIN2, HIGH);
+    digitalWrite(PIN_TB_BIN1, LOW);
+    digitalWrite(PIN_TB_BIN2, LOW);
+    digitalWrite(PIN_TB_PWMB, LOW);
   }
-
-  // Motor Speeds
-#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
-  ledcWrite(PIN_TB_PWMA, (uint32_t)speedA);
-  ledcWrite(PIN_TB_PWMB, (uint32_t)speedB);
-#else
-  ledcWrite(LEDC_CH_MOT_A, (uint32_t)speedA);
-  ledcWrite(LEDC_CH_MOT_B, (uint32_t)speedB);
-#endif
 
   motorActive = (speedA > 0 || speedB > 0);
 }
@@ -354,37 +392,68 @@ void stopMotors() {
   setMotorOutputs(0, false, 0, false);
   current_motor_cmd = "STOP";
   motor_end_time_ms = 0;
+  // Positive electrical cutoff: force all driver gate pins dead LOW
+  digitalWrite(PIN_TB_PWMA, LOW);
+  digitalWrite(PIN_TB_PWMB, LOW);
+  digitalWrite(PIN_TB_AIN1, LOW);
+  digitalWrite(PIN_TB_AIN2, LOW);
+  digitalWrite(PIN_TB_BIN1, LOW);
+  digitalWrite(PIN_TB_BIN2, LOW);
 }
 
 // ==============================================================================
 // 8. SERVO TURRET CONTROLLER (LEDC TIMERS 0 & 1 @ 50 Hz)
 // ==============================================================================
 void initServos() {
+  if (PIN_SERVO_1 < 0 && PIN_SERVO_2 < 0) {
+    Serial.println(F("[SERVOS] No servos defined in current pinout (Single-turret / breadboard mode)."));
+    return;
+  }
+
   ESP32PWM::allocateTimer(0);
   ESP32PWM::allocateTimer(1);
 
-  servo1.setPeriodHertz(50);
-  servo2.setPeriodHertz(50);
-
-  servo1.attach(PIN_SERVO_1, SERVO_MIN_US, SERVO_MAX_US);
-  servo2.attach(PIN_SERVO_2, SERVO_MIN_US, SERVO_MAX_US);
+  if (PIN_SERVO_1 >= 0) {
+    servo1.setPeriodHertz(50);
+    servo1.attach(PIN_SERVO_1, SERVO_MIN_US, SERVO_MAX_US);
+  }
+  if (PIN_SERVO_2 >= 0) {
+    servo2.setPeriodHertz(50);
+    servo2.attach(PIN_SERVO_2, SERVO_MIN_US, SERVO_MAX_US);
+  }
 
   writeServos(90.0f, 90.0f);
 }
 
 void writeServos(float ang1, float ang2) {
+  if (PIN_SERVO_1 < 0 && PIN_SERVO_2 < 0) return;
   ang1 = constrain(ang1, 0.0f, 180.0f);
   ang2 = constrain(ang2, 0.0f, 180.0f);
-  cur_s1_ang = ang1;
-  cur_s2_ang = ang2;
-  servo1.write((int)roundf(ang1));
-  servo2.write((int)roundf(ang2));
+  int i_ang1 = (int)roundf(ang1);
+  int i_ang2 = (int)roundf(ang2);
+  static int last_written_s1 = -1;
+  static int last_written_s2 = -1;
+  if (PIN_SERVO_1 >= 0 && i_ang1 != last_written_s1) {
+    servo1.write(i_ang1);
+    last_written_s1 = i_ang1;
+    cur_s1_ang = ang1;
+  }
+  if (PIN_SERVO_2 >= 0 && i_ang2 != last_written_s2) {
+    servo2.write(i_ang2);
+    last_written_s2 = i_ang2;
+    cur_s2_ang = ang2;
+  }
 }
 
 // ==============================================================================
 // 9. HC-SR04 ULTRASONIC ACQUISITION (SAFE, NON-BLOCKING, 15ms STAGGER)
 // ==============================================================================
 float measureEchoCm(int trig_pin, int echo_pin, bool &is_valid) {
+  if (trig_pin < 0 || echo_pin < 0) {
+    is_valid = false;
+    return MAX_SENSOR_RANGE_CM;
+  }
+
   digitalWrite(trig_pin, LOW);
   delayMicroseconds(4);
   digitalWrite(trig_pin, HIGH);
@@ -520,22 +589,24 @@ void runUltrasonicRadarTask() {
       if (now_ms - last_servo_step_ms >= SERVO_STEP_INTERVAL_MS) {
         last_servo_step_ms = now_ms;
 
-        if (path_state == STATE_CRUISE_FORWARD) {
-          cur_s1_ang += ((float)cruise_sweep_dir * CRUISE_STEP_DEG);
-          if (cur_s1_ang >= CRUISE_SWEEP_MAX) {
-            cur_s1_ang = CRUISE_SWEEP_MAX;
-            cruise_sweep_dir = -1;
-          } else if (cur_s1_ang <= CRUISE_SWEEP_MIN) {
-            cur_s1_ang = CRUISE_SWEEP_MIN;
-            cruise_sweep_dir = 1;
-          }
-          cur_s2_ang = cur_s1_ang;
-          writeServos(cur_s1_ang, cur_s2_ang);
-        } else if (path_state == STATE_RADAR_PATH_SCAN) {
-          if (scan_sector_idx < NUM_SCAN_SECTORS) {
-            cur_s1_ang = SCAN_SECTORS[scan_sector_idx];
+        if (PIN_SERVO_1 >= 0 || PIN_SERVO_2 >= 0) {
+          if (path_state == STATE_CRUISE_FORWARD || path_state == STATE_MANUAL_HOLD) {
+            cur_s1_ang += ((float)cruise_sweep_dir * CRUISE_STEP_DEG);
+            if (cur_s1_ang >= CRUISE_SWEEP_MAX) {
+              cur_s1_ang = CRUISE_SWEEP_MAX;
+              cruise_sweep_dir = -1;
+            } else if (cur_s1_ang <= CRUISE_SWEEP_MIN) {
+              cur_s1_ang = CRUISE_SWEEP_MIN;
+              cruise_sweep_dir = 1;
+            }
             cur_s2_ang = cur_s1_ang;
             writeServos(cur_s1_ang, cur_s2_ang);
+          } else if (path_state == STATE_RADAR_PATH_SCAN) {
+            if (scan_sector_idx < NUM_SCAN_SECTORS) {
+              cur_s1_ang = SCAN_SECTORS[scan_sector_idx];
+              cur_s2_ang = cur_s1_ang;
+              writeServos(cur_s1_ang, cur_s2_ang);
+            }
           }
         }
 
@@ -556,7 +627,12 @@ void runUltrasonicRadarTask() {
       break;
 
     case US_ACQ_PULSE_TRIG2:
-      latest_u2_cm = measureEchoCm(PIN_US2_TRIG, PIN_US2_ECHO, valid2);
+      if (PIN_US2_TRIG >= 0 && PIN_US2_ECHO >= 0) {
+        latest_u2_cm = measureEchoCm(PIN_US2_TRIG, PIN_US2_ECHO, valid2);
+      } else {
+        latest_u2_cm = latest_u1_cm;
+        valid2 = valid1;
+      }
       delta_cm = latest_u1_cm - latest_u2_cm;
       us_state = US_ACQ_COMPLETE;
       break;
@@ -897,8 +973,9 @@ void processCommandString(String cmd_str) {
         turnRight(TURN_SPEED);
         break;
       case 'X': case 'x':
+        node_mode = MODE_MANUAL;
+        path_state = STATE_MANUAL_HOLD;
         stopMotors();
-        path_state = (node_mode == MODE_AUTO) ? STATE_CRUISE_FORWARD : STATE_MANUAL_HOLD;
         break;
       case 'R': case 'r':
         stopMotors();
@@ -926,11 +1003,24 @@ void processCommandString(String cmd_str) {
   }
 
   // Plain word commands
-  if (cmd_str.equalsIgnoreCase("forward") || cmd_str.equalsIgnoreCase("move_forward")) { node_mode = MODE_MANUAL; path_state = STATE_MANUAL_HOLD; moveForward(CRUISE_SPEED); return; }
-  if (cmd_str.equalsIgnoreCase("backward") || cmd_str.equalsIgnoreCase("reverse")) { node_mode = MODE_MANUAL; path_state = STATE_MANUAL_HOLD; moveBackward(ESCAPE_SPEED); return; }
+  if (cmd_str.equalsIgnoreCase("forward") || cmd_str.equalsIgnoreCase("move_forward") || cmd_str.equalsIgnoreCase("ahead")) { node_mode = MODE_MANUAL; path_state = STATE_MANUAL_HOLD; moveForward(CRUISE_SPEED); return; }
+  if (cmd_str.equalsIgnoreCase("backward") || cmd_str.equalsIgnoreCase("reverse") || cmd_str.equalsIgnoreCase("back")) { node_mode = MODE_MANUAL; path_state = STATE_MANUAL_HOLD; moveBackward(ESCAPE_SPEED); return; }
   if (cmd_str.equalsIgnoreCase("left") || cmd_str.equalsIgnoreCase("turn_left")) { node_mode = MODE_MANUAL; path_state = STATE_MANUAL_HOLD; turnLeft(TURN_SPEED); return; }
   if (cmd_str.equalsIgnoreCase("right") || cmd_str.equalsIgnoreCase("turn_right")) { node_mode = MODE_MANUAL; path_state = STATE_MANUAL_HOLD; turnRight(TURN_SPEED); return; }
-  if (cmd_str.equalsIgnoreCase("stop")) { stopMotors(); return; }
+  if (cmd_str.equalsIgnoreCase("stop") || cmd_str.equalsIgnoreCase("halt") || cmd_str.equalsIgnoreCase("brake")) {
+    node_mode = MODE_MANUAL;
+    path_state = STATE_MANUAL_HOLD;
+    stopMotors();
+    return;
+  }
+  if (cmd_str.equalsIgnoreCase("scan") || cmd_str.equalsIgnoreCase("scan_room") || cmd_str.equalsIgnoreCase("explore")) {
+    node_mode = MODE_AUTO;
+    stationary_radar_test = false;
+    path_state = STATE_CRUISE_FORWARD;
+    writeServos(90.0f, 90.0f);
+    moveForward(CRUISE_SPEED);
+    return;
+  }
 
   // JSON formatted commands
   if (cmd_str.startsWith("{") && cmd_str.endsWith("}")) {
@@ -946,13 +1036,18 @@ void processCommandString(String cmd_str) {
         path_state = STATE_MANUAL_HOLD;
         stopMotors();
       }
-    } else if (cmd_str.indexOf("\"STOP\"") != -1 || cmd_str.indexOf("\"stop\"") != -1) {
+    } else if (cmd_str.indexOf("\"STOP\"") != -1 || cmd_str.indexOf("\"stop\"") != -1 || cmd_str.indexOf("\"halt\"") != -1 || cmd_str.indexOf("\"brake\"") != -1) {
+      node_mode = MODE_MANUAL;
+      path_state = STATE_MANUAL_HOLD;
       stopMotors();
-    } else if (cmd_str.indexOf("\"SCAN\"") != -1 || cmd_str.indexOf("\"scan\"") != -1) {
-      stopMotors();
-      stationary_radar_test = true;
-      scan_sector_idx = 0;
-      path_state = STATE_RADAR_PATH_SCAN;
+      Serial.println(F("[CMD] Emergency Stop executed. Standby mode active."));
+    } else if (cmd_str.indexOf("\"SCAN\"") != -1 || cmd_str.indexOf("\"scan\"") != -1 || cmd_str.indexOf("\"explore\"") != -1) {
+      node_mode = MODE_AUTO;
+      stationary_radar_test = false;
+      path_state = STATE_CRUISE_FORWARD;
+      writeServos(90.0f, 90.0f);
+      moveForward(CRUISE_SPEED);
+      Serial.println(F("[CMD] Started CONTINUOUS AUTONOMOUS ROOM SCANNING & EXPLORATION."));
     } else if (cmd_str.indexOf("\"RESET_IMU\"") != -1) {
       yaw_deg = 0.0f;
     } else if (cmd_str.indexOf("\"action\"") != -1 || cmd_str.indexOf("\"cmd\"") != -1) {
@@ -964,10 +1059,10 @@ void processCommandString(String cmd_str) {
       int dur_idx = cmd_str.indexOf("\"duration_ms\":");
       if (dur_idx != -1) dur = cmd_str.substring(dur_idx + 14).toInt();
 
-      if (cmd_str.indexOf("\"FWD\"") != -1 || cmd_str.indexOf("\"forward\"") != -1) {
+      if (cmd_str.indexOf("\"FWD\"") != -1 || cmd_str.indexOf("\"forward\"") != -1 || cmd_str.indexOf("\"ahead\"") != -1) {
         node_mode = MODE_MANUAL; path_state = STATE_MANUAL_HOLD; moveForward(spd);
         if (dur > 0) motor_end_time_ms = now_ms + dur;
-      } else if (cmd_str.indexOf("\"REV\"") != -1 || cmd_str.indexOf("\"backward\"") != -1) {
+      } else if (cmd_str.indexOf("\"REV\"") != -1 || cmd_str.indexOf("\"reverse\"") != -1 || cmd_str.indexOf("\"backward\"") != -1 || cmd_str.indexOf("\"back\"") != -1) {
         node_mode = MODE_MANUAL; path_state = STATE_MANUAL_HOLD; moveBackward(spd);
         if (dur > 0) motor_end_time_ms = now_ms + dur;
       } else if (cmd_str.indexOf("\"LEFT\"") != -1 || cmd_str.indexOf("\"left\"") != -1) {
@@ -1053,9 +1148,13 @@ void onWiFiEvent(WiFiEvent_t event) {
   switch (event) {
     case ARDUINO_EVENT_WIFI_STA_GOT_IP:
       wifiConnected = true;
-      Serial.println("\n[WiFi] Connected! IP: " + WiFi.localIP().toString());
+      Serial.println("\n[WiFi] Connected to Hotspot! IP: " + WiFi.localIP().toString());
       dynamic_gateway_ip = WiFi.gatewayIP().toString();
       Serial.printf("[WiFi] Gateway IP: %s | RSSI: %d dBm\n", dynamic_gateway_ip.c_str(), WiFi.RSSI());
+
+      // Physical hotspot confirmation: Set flag to execute circular spin in super-loop
+      trigger_connection_spin = true;
+      Serial.println(F("[HOTSPOT CONNECTED] Armed circular confirmation spin!"));
 
       // If gateway IP is valid, use it as candidate 0 since on Windows Hotspot the host laptop IS the gateway
       if (WiFi.gatewayIP()[0] != 0) {
@@ -1093,32 +1192,49 @@ void setup() {
 
   Serial.println(F("\n========================================================"));
   Serial.printf("     🤖 %s (ID: %s)\n", BOT_NAME, BOT_ID);
+#if PINOUT_CONFIG == 0
+  Serial.println(F("     PINOUT: VERIFIED BREADBOARD (STBY 13, PWMB 33, U1: 5/18)"));
+#else
+  Serial.println(F("     PINOUT: 15-PIN DUAL-SERVO TURRET (PWMB 32, U1: 5/23, U2: 16/4)"));
+#endif
   Serial.println(F("     UNIFIED HARDWARE, WI-FI & RADAR PATHFINDING"));
   Serial.println(F("========================================================"));
 
   // 2. Configure Ultrasonic GPIO Pins
-  pinMode(PIN_US1_TRIG, OUTPUT);
-  pinMode(PIN_US1_ECHO, INPUT);
-  digitalWrite(PIN_US1_TRIG, LOW);
+  if (PIN_US1_TRIG >= 0) {
+    pinMode(PIN_US1_TRIG, OUTPUT);
+    digitalWrite(PIN_US1_TRIG, LOW);
+  }
+  if (PIN_US1_ECHO >= 0) pinMode(PIN_US1_ECHO, INPUT);
 
-  pinMode(PIN_US2_TRIG, OUTPUT);
-  pinMode(PIN_US2_ECHO, INPUT);
-  digitalWrite(PIN_US2_TRIG, LOW);
+  if (PIN_US2_TRIG >= 0) {
+    pinMode(PIN_US2_TRIG, OUTPUT);
+    digitalWrite(PIN_US2_TRIG, LOW);
+  }
+  if (PIN_US2_ECHO >= 0) pinMode(PIN_US2_ECHO, INPUT);
 
   // 3. Configure PIR Sensor Pin
-  pinMode(PIN_PIR, INPUT);
+  if (PIN_PIR >= 0) pinMode(PIN_PIR, INPUT);
 
   // 4. Initialize Actuators & Sensors
   initMotors();
   initServos();
   initMPU6050();
 
-  // 5. Initialize Radar Scan Map Array
+  // 5. Immediate Power-On Self-Test (POST)
+  // Provides unmistakable immediate physical confirmation upon power-up!
+  Serial.println(F("[POST] Power-On Self-Test: Testing drive motors..."));
+  moveForward(255);
+  delay(350);
+  stopMotors();
+  Serial.println(F("[POST] Hardware self-test complete! Motors operational."));
+
+  // 6. Initialize Radar Scan Map Array
   for (int i = 0; i < NUM_SCAN_SECTORS; i++) {
     scan_map[i] = MAX_SENSOR_RANGE_CM;
   }
 
-  // 6. Configure Wi-Fi Radio for maximum stability and anti-lag
+  // 7. Configure Wi-Fi Radio for maximum stability and anti-lag
   WiFi.onEvent(onWiFiEvent);
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
@@ -1133,7 +1249,7 @@ void setup() {
   WiFi.config(staticIP, gateway, subnet, dnsServer);
 #endif
 
-  Serial.printf("[WiFi] Connecting to '%s'...\n", wifi_ssid);
+  Serial.printf("[WiFi] Connecting to '%s' (Hotspot must be 2.4 GHz)...\n", wifi_ssid);
   WiFi.begin(wifi_ssid, wifi_password);
 
   // Non-blocking connection poll (up to 3 seconds initial wait)
@@ -1146,21 +1262,24 @@ void setup() {
 
   if (WiFi.status() == WL_CONNECTED) {
     wifiConnected = true;
+    Serial.println("\n[WiFi] Connected to Hotspot! IP: " + WiFi.localIP().toString());
   } else {
     wifiConnected = false;
     Serial.printf("\n[WiFi] Initial association in progress (Status: %d). Continuing in background.\n", WiFi.status());
-    Serial.println(F("[WiFi] USB Serial stream active. Automatic Wi-Fi guardian engaged."));
+    Serial.println(F("[WiFi] USB Serial control active. Use Serial Monitor (115200) to send commands: W, S, A, D, X"));
   }
 
   delay(100);
 
-  // 7. Start in Safe Standby Mode (Motors stopped, servos centered at 90 deg)
+  // 8. Start in Safe Standby Mode (Motors standby, servos centered at 90 deg)
   node_mode = MODE_MANUAL;
   path_state = STATE_MANUAL_HOLD;
   writeServos(90.0f, 90.0f);
-  stopMotors();
+  if (!trigger_connection_spin) {
+    stopMotors();
+  }
 
-  Serial.println(F("[SYSTEM] Initialization Complete. Motors Standby. Continuous Super-Loop Running."));
+  Serial.println(F("[SYSTEM] Initialization Complete. Motors Standby. Super-Loop Running."));
   Serial.println(F("========================================================\n"));
 }
 
@@ -1182,6 +1301,21 @@ void loop() {
 
   if (wifiConnected) {
     webSocket.loop();
+  }
+
+  // Hotspot Connection Confirmation: Full-torque circular spin indication (Runs EXACTLY ONCE on boot/WiFi connection)
+  static bool hotspot_spin_completed = false;
+  if (trigger_connection_spin && !hotspot_spin_completed) {
+    trigger_connection_spin = false;
+    hotspot_spin_completed = true;
+    node_mode = MODE_MANUAL;
+    path_state = STATE_MANUAL_HOLD;
+    Serial.println(F("\n========================================================"));
+    Serial.println(F("[HOTSPOT CONNECTED] EXECUTING CIRCULAR CONFIRMATION SPIN!"));
+    Serial.println(F("========================================================"));
+    turnRight(220); // 220 PWM torque
+    motor_end_time_ms = millis() + 750; // 750ms brief circular spin
+    writeServos(60.0f, 120.0f);
   }
 
   // Task 1: Non-Blocking Staggered Dual-Ultrasonic & Dual-Servo Radar Loop
@@ -1206,9 +1340,11 @@ void loop() {
     runNavigationTask();
   }
 
-  // Timed motor duration cutoff for manual burst actions
+  // Timed motor duration cutoff for manual burst actions & connection indication
   if (motor_end_time_ms > 0 && now_ms >= motor_end_time_ms) {
     stopMotors();
+    motor_end_time_ms = 0;
+    writeServos(90.0f, 90.0f);
   }
 
   // Task 4: Dual-Channel Telemetry (USB Serial + WebSockets at 16 Hz) & Commands

@@ -191,19 +191,24 @@ class ListenerThread(QThread):
                             if p not in os.environ.get("PATH", ""):
                                 os.environ["PATH"] = p + os.pathsep + os.environ.get("PATH", "")
 
-                from faster_whisper import WhisperModel
-                cuda_avail = False
                 try:
-                    import ctranslate2
-                    cuda_avail = (ctranslate2.get_cuda_device_count() > 0)
-                except Exception:
-                    pass
-                if not cuda_avail:
+                    from faster_whisper import WhisperModel
+                    cuda_avail = False
                     try:
-                        import torch
-                        cuda_avail = torch.cuda.is_available()
+                        import ctranslate2
+                        cuda_avail = (ctranslate2.get_cuda_device_count() > 0)
                     except Exception:
                         pass
+                    if not cuda_avail:
+                        try:
+                            import torch
+                            cuda_avail = torch.cuda.is_available()
+                        except Exception:
+                            pass
+                except Exception as import_err:
+                    log.warning(f"Faster-Whisper / CTranslate2 library unavailable ({import_err}). Using Cloud STT.")
+                    self.whisper_model = None
+                    return
                     
             device = "cuda" if cuda_avail else "cpu"
             compute_type = "float16" if device == "cuda" else "int8"
@@ -392,12 +397,12 @@ class ListenerThread(QThread):
                     vad = webrtcvad.Vad(vad_mode)
 
                     # Initialize reliable baseline noise parameters immediately so mic is never deaf
-                    noise_floor = 2.5
+                    noise_floor = 1.5
                     noise_std = 0.5
-                    self._energy_threshold = float(os.environ.get("INITIAL_ENERGY_THRESHOLD", 5.0))
-                    self._snr_gate = 14.0
-                    self._min_speech_peak = 35.0
-                    peak_ambient = 6.0
+                    self._energy_threshold = float(os.environ.get("INITIAL_ENERGY_THRESHOLD", 6.0))
+                    self._snr_gate = 20.0
+                    self._min_speech_peak = 45.0
+                    peak_ambient = 5.0
 
                     # If assistant is not currently speaking at startup, run a swift 0.3s background calibration.
                     # If assistant IS speaking (welcome greeting), DO NOT block! The robust baseline is instantly live.
@@ -424,12 +429,13 @@ class ListenerThread(QThread):
                         if ambient_rms:
                             avg_ambient = float(np.mean(ambient_rms))
                             std_ambient = float(np.std(ambient_rms))
-                            peak_ambient = float(np.percentile(ambient_peaks, 95)) if ambient_peaks else 6.0
-                            noise_floor = min(6.0, max(1.5, avg_ambient))
-                            noise_std = min(2.5, max(0.4, std_ambient))
-                            self._energy_threshold = max(4.0, min(9.0, noise_floor + max(2.5, 1.8 * noise_std)))
-                            self._snr_gate = max(self._energy_threshold * 1.2, max(peak_ambient * 1.15, 14.0))
-                            self._min_speech_peak = max(35.0, self._snr_gate * 2.0)
+                            peak_ambient = float(np.percentile(ambient_peaks, 95)) if ambient_peaks else 8.0
+                            noise_floor = max(1.5, avg_ambient)
+                            noise_std = max(0.5, std_ambient)
+                            # Responsive thresholds: clearly catches vocal commands without triggering on fan hiss
+                            self._energy_threshold = max(6.0, noise_floor + max(3.0, 1.8 * noise_std))
+                            self._snr_gate = max(25.0, max(self._energy_threshold * 1.6, peak_ambient * 1.2))
+                            self._min_speech_peak = max(60.0, self._snr_gate * 1.8)
 
                     log.info(f"Listener online: Noise Floor={noise_floor:.1f}, Threshold={self._energy_threshold:.1f}, SNR Gate={self._snr_gate:.1f}, Min Speech Peak={self._min_speech_peak:.1f}, VAD Level={vad_mode}")
                     self.calibration_finished.emit(noise_floor, self._energy_threshold)
@@ -519,19 +525,19 @@ class ListenerThread(QThread):
                                     is_vad = vad.is_speech(frame, SAMPLE_RATE)
                                 except Exception:
                                     is_vad = False
-                                # Fast, reliable dual-trigger: WebRTC VAD detects speech OR frame energy is clearly vocal
-                                if is_vad or (rms > current_threshold * 1.35 and rms > 6.0):
+                                # Reliable vocal trigger: WebRTC VAD confirms vocal formant AND frame energy exceeds noise floor
+                                if (is_vad and max_val >= snr_gate) or (rms > current_threshold * 2.0 and max_val >= snr_gate * 1.8):
                                     is_speech = True
                             else:
                                 is_vad = False
                                 is_speech = False
 
-                            # Continuous ambient noise tracking when idle (dynamically adapts ONLY to genuine quiet ambient)
-                            if not is_speech and not triggered and not getattr(self, "is_speaking", False) and rms < 5.0 and rms <= current_threshold:
+                            # Continuous ambient noise tracking when idle (adapts smoothly to ambient room floor)
+                            if not is_speech and not triggered and not getattr(self, "is_speaking", False) and rms <= current_threshold * 1.2:
                                 noise_floor = 0.95 * noise_floor + 0.05 * rms
-                                self._energy_threshold = max(4.0, min(9.0, noise_floor + max(2.5, 1.8 * noise_std)))
-                                self._snr_gate = max(self._energy_threshold * 1.2, max(peak_ambient * 1.15, 14.0))
-                                self._min_speech_peak = max(35.0, self._snr_gate * 2.0)
+                                self._energy_threshold = max(6.0, min(30.0, noise_floor + max(3.0, 1.8 * noise_std)))
+                                self._snr_gate = max(25.0, max(self._energy_threshold * 1.6, peak_ambient * 1.2))
+                                self._min_speech_peak = max(60.0, self._snr_gate * 1.8)
 
                             if not triggered:
                                 # Standard VAD trigger when VAD thresholds met
@@ -546,8 +552,8 @@ class ListenerThread(QThread):
                                     except Exception:
                                         pass
 
-                                # 5 out of 20 frames = ~150ms of sustained speech initiates listening mode!
-                                if num_voiced >= 5:
+                                # 8 out of 20 frames = ~240ms of sustained speech initiates listening mode (avoids click/hiss juggling)
+                                if num_voiced >= 8:
                                     triggered = True
                                     voiced_frames.extend([f for f, _ in ring_buffer])
                                     ring_buffer.clear()
@@ -559,9 +565,8 @@ class ListenerThread(QThread):
                                 voiced_frames.append(data.flatten().tobytes())
                                 
                                 # Silence detection:
-                                # Determine if frame has genuine active vocal presence.
-                                # WebRTC Vad(3) + energy gate ensures room fan/ambient hiss is NOT counted as active speech.
-                                is_active_speech = (is_vad and max_val >= snr_gate and rms > current_threshold * 1.05) or (rms > current_threshold * 1.35 and rms > 6.0)
+                                # WebRTC VAD + SNR gate detects true vocal pauses (~540ms) without hanging on fan noise
+                                is_active_speech = (is_vad and max_val >= snr_gate and rms > current_threshold * 1.1) or (rms > current_threshold * 2.0 and max_val >= snr_gate * 1.5)
                                 if is_active_speech:
                                     silence_count = 0
                                 else:
@@ -582,23 +587,35 @@ class ListenerThread(QThread):
 
                         # Process transcription if VAD triggered speech window
                         if speech_detected:
-                            # 1. Discard brief blips, clicks, or speaker echo without flashing Thinking or muting mic
+                            # 1. Discard brief blips, clicks, or speaker echo and immediately return mascot to idle
                             if len(voiced_frames) < MIN_SPEECH_FRAMES:
-                                log.info(f"Discarded short noise blip ({len(voiced_frames)} frames < {MIN_SPEECH_FRAMES}). Staying in idle.")
+                                log.info(f"Discarded short noise blip ({len(voiced_frames)} frames < {MIN_SPEECH_FRAMES}). Returning to idle.")
                                 ring_buffer.clear()
                                 voiced_frames.clear()
-                                print(json.dumps({"type": "state", "value": "idle"}), flush=True)
+                                if triggered:
+                                    self.listening_stopped.emit()
+                                    self.transcription_ready.emit("")
+                                while not self.audio_queue.empty():
+                                    try: self.audio_queue.get_nowait()
+                                    except queue.Empty: break
+                                time.sleep(0.2)
                                 continue
 
                             audio = np.frombuffer(b''.join(voiced_frames), dtype=np.int16)
                             orig_max = float(np.percentile(np.abs(audio), 98)) if len(audio) > 0 else 0.0
-                            min_speech_peak = max(35.0, getattr(self, "_min_speech_peak", 35.0))
+                            min_speech_peak = max(60.0, getattr(self, "_min_speech_peak", 60.0))
 
                             if orig_max < min_speech_peak:
-                                log.info(f"Discarded low-energy blip without thinking (peak: {orig_max:.1f} < {min_speech_peak:.1f})")
+                                log.info(f"Discarded low-energy blip (peak: {orig_max:.1f} < {min_speech_peak:.1f}). Returning to idle.")
                                 ring_buffer.clear()
                                 voiced_frames.clear()
-                                print(json.dumps({"type": "state", "value": "idle"}), flush=True)
+                                if triggered:
+                                    self.listening_stopped.emit()
+                                    self.transcription_ready.emit("")
+                                while not self.audio_queue.empty():
+                                    try: self.audio_queue.get_nowait()
+                                    except queue.Empty: break
+                                time.sleep(0.2)
                                 continue
 
                             # 2. Genuine speech confirmed: Now transition to thinking and process
@@ -620,6 +637,7 @@ class ListenerThread(QThread):
                                         self.audio_queue.get_nowait()
                                     except queue.Empty:
                                         break
+                                time.sleep(0.3)
 
             except Exception as stream_err:
                 if not self._running:

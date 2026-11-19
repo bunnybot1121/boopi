@@ -659,10 +659,7 @@ class AutonomousGoalAgent:
         min_sweep_time = 3.5  # Ensure physical DC motors have time to complete a full 360 turn
 
         turn_cmd = "right" if plan.primary_action != "TURN_LEFT" else "left"
-        motor_json = json.dumps({"action": turn_cmd, "speed": 220, "duration_ms": 600, "bot_id": "bupi_01", "robot_id": "bupi_01"})
-        scan_json = json.dumps({"action": "scan", "cmd": "SCAN", "bot_id": "bupi_01", "robot_id": "bupi_01"})
-        self.publish_cmd("bupi/actuators/motors/cmd", turn_cmd)
-        self.publish_cmd("bupi/actuators/motors/cmd/json", scan_json)
+        motor_json = json.dumps({"action": turn_cmd, "speed": 245, "duration_ms": 600, "bot_id": "bupi_01", "robot_id": "bupi_01"})
         self.publish_cmd("bupi/actuators/motors/cmd/json", motor_json)
 
         while not self.is_cancelled():

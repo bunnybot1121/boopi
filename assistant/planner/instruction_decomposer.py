@@ -696,6 +696,29 @@ class InstructionDecomposer:
                 report_fields=["people_count", "targets", "target_detected", "distance_m", "heading_deg", "confidence", "direction_description"]
             )
 
+        # Autonomous Room Scan & Spatial Mapping (Forward navigation + radar sweeping)
+        if re.search(r"\b(scan the room|scan room|map the room|scan and map|explore the room|explore room)\b", lower) and not re.search(r"\b(human|humans|person|people|someone|anyone|anybody)\b", lower):
+            return DynamicMissionPlan(
+                raw_instruction=text,
+                goal_name="AUTONOMOUS_ROOM_SCAN_MAPPING",
+                goal_description="Advance forward, sweep servo ultrasonic radar, map obstacles, and explore room",
+                policy_type=PolicyType.EXPLORE_SAFE,
+                primary_action="MOVE_FORWARD",
+                speed_percent=55,
+                target_bot=target_bot,
+                swarm_mode=swarm_mode,
+                suppress_bot=suppress_bot,
+                stop_condition=DynamicStopCondition(
+                    sensor="odometry_distance",
+                    operator=">=",
+                    threshold=5.0,
+                    description="Autonomous room scan and corridor exploration completed"
+                ),
+                timeout_seconds=45.0,
+                sample_sensors=["ultrasonic", "imu", "pir", "gas"],
+                report_fields=["obstacles_avoided", "distance_m", "steps_taken", "summary"]
+            )
+
         # Presence / Human / Room Search Commands
         # e.g. "are there any humans in the room?", "is anyone here?", "find person", "search room for people", "scan the room", "scan"
         if not re.search(r"\b(what did you find|show findings|last mission|mission report|tell me what you found)\b", lower) and (

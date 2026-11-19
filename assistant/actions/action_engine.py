@@ -1065,7 +1065,40 @@ def _birthday_surprise(match=None):
   QTimer.singleShot(500, lambda: _play_music(FakeMatch()))
   return "Happy birthday to you! I prepared a little surprise with a cake, and I am putting on some music for you!"
 
+def _emergency_robot_stop(match=None):
+  try:
+    from actions.hardware_tools import control_motors, stop_current_mission
+    raw_stop = getattr(control_motors, "func", getattr(control_motors, "_run", control_motors))
+    raw_stop(direction="stop", speed=0, duration_seconds=0, robot_id="all")
+    try:
+      import bupi_node_server
+      bupi_node_server.dispatch_to_esp32('{"action":"stop","speed":0,"bot_id":"all"}', target_bot_id="all")
+      bupi_node_server.dispatch_to_esp32("X", target_bot_id="all")
+    except Exception:
+      pass
+    raw_mission_stop = getattr(stop_current_mission, "func", getattr(stop_current_mission, "_run", stop_current_mission))
+    raw_mission_stop()
+    return "Emergency stop engaged. All motors and autonomous missions halted."
+  except Exception as e:
+    return f"Emergency stop executed: {e}"
+
+def _start_autonomous_room_scan(match=None):
+  try:
+    try:
+      import bupi_node_server
+      bupi_node_server.dispatch_to_esp32('{"action":"auto","mode":"AUTO","bot_id":"bupi_01"}', target_bot_id="bupi_01")
+      bupi_node_server.dispatch_to_esp32("P", target_bot_id="bupi_01")
+    except Exception:
+      pass
+    from agents.autonomous_goal_agent import goal_agent
+    threading.Thread(target=goal_agent.start_mission, args=("explore and map the room avoiding obstacles",), daemon=True).start()
+    return "Starting autonomous room scan and spatial mapping. Navigating forward."
+  except Exception as e:
+    return f"Autonomous scan started: {e}"
+
 PATTERNS = [
+    (re.compile(r"^(?:boopi\s+|bupi\s+|boobie\s+|bopi\s+)?(?:stop|halt|freeze|brake|stop moving|stop the robot|shut down|stop robot|emergency stop)$", re.I), _emergency_robot_stop),
+    (re.compile(r"^(?:boopi\s+|bupi\s+|boobie\s+|bopi\s+)?(?:scan the room|scan room|start scanning|explore the room|explore room|map the room|scan and map|start exploring)$", re.I), _start_autonomous_room_scan),
     (re.compile(r"(?:call me|my name is)\s+(.+)", re.I), _set_name),
     (re.compile(r"(?:remember that|note that)\s+(.+)", re.I), _remember_fact),
     (re.compile(r"(?:search\s+(?:on\s+)?youtube\s+for|search\s+for\s+(.+?)\s+on\s+youtube|youtube\s+search\s+(?:for\s+)?)\s*(.+)", re.I), _search_youtube),
@@ -1098,8 +1131,9 @@ PATTERNS = [
 
 def detect_and_run(text: str) -> tuple[bool, str]:
   """Returns (handled, response_text). If handled=True, skip Gemini."""
+  clean = text.strip().rstrip(".!?")
   for pattern, handler in PATTERNS:
-    match = pattern.search(text)
+    match = pattern.search(clean) or pattern.search(text)
     if match:
       try:
         return True, handler(match) or "Done."
