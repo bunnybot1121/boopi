@@ -603,7 +603,7 @@ class ListenerThread(QThread):
 
                             audio = np.frombuffer(b''.join(voiced_frames), dtype=np.int16)
                             orig_max = float(np.percentile(np.abs(audio), 98)) if len(audio) > 0 else 0.0
-                            min_speech_peak = max(60.0, getattr(self, "_min_speech_peak", 60.0))
+                            min_speech_peak = max(120.0, getattr(self, "_min_speech_peak", 120.0))
 
                             if orig_max < min_speech_peak:
                                 log.info(f"Discarded low-energy blip (peak: {orig_max:.1f} < {min_speech_peak:.1f}). Returning to idle.")
@@ -655,9 +655,9 @@ class ListenerThread(QThread):
                 log.info(f"Discarded silent audio (peak: {orig_max:.1f} < {cutoff:.1f})")
                 return
 
-            # Soft peak normalization for quiet microphones (safe max 6x boost to avoid boosting noise)
+            # Soft peak normalization for quiet microphones (safe max 3.5x boost to avoid boosting noise)
             if 0 < orig_max < 22000:
-                gain = min(22000.0 / orig_max, 6.0) if orig_max > 200.0 else min(22000.0 / max(orig_max, 50.0), 3.0)
+                gain = min(22000.0 / orig_max, 3.5) if orig_max > 250.0 else min(22000.0 / max(orig_max, 100.0), 2.0)
                 log.info(f"Soft peak normalization: peak={orig_max:.1f}, gain boost={gain:.2f}x")
                 audio_boosted = audio.astype(np.float32) * gain
                 np.clip(audio_boosted, -32768.0, 32767.0, out=audio_boosted)
@@ -743,13 +743,35 @@ class ListenerThread(QThread):
                     hallucinations = [
                         "thank you for watching", "thanks for watching", "please subscribe", 
                         "like and subscribe", "screencast", "see you next time", "see you in the next video",
-                        "bupi is an autonomous robot assistant", "hvað er hann", "hva er hann"
+                        "bupi is an autonomous robot assistant", "hvað er hann", "hva er hann",
+                        "bored in a coma", "got a head"
                     ]
                     if any(h in clean_text for h in hallucinations) or (clean_text in ["...", "thank you", "thanks", "bye", "bye bye", "goodbye", "you", "hva er hann", "hvað er hann"]):
                         log.info(f"Filtered stock Whisper hallucination: '{text}'")
                         text = ""
                     elif len(clean_text) <= 1:
                         text = ""
+                    else:
+                        # Acoustic Phonetic Normalizer: Correct Whisper errors for Indian accent and robot commands
+                        norm_text = text.strip()
+                        # 1. Assistant name normalization
+                        norm_text = re.sub(r"(?i)\b(boobie|whoopi|boopie|bopi|boby|bobby|boop|poopi|poopy)\b", "Bupi", norm_text)
+                        # 2. Scanning / Radar commands misheard by Whisper
+                        norm_text = re.sub(r"(?i)\b(?:scale|scam|skin|skull|scat|span|scout)\s+(?:the\s+)?room\b", "scan the room", norm_text)
+                        norm_text = re.sub(r"(?i)\b(?:scale|scam|skin|skull|scat|span)\s+area\b", "scan the room", norm_text)
+                        norm_text = re.sub(r"(?i)\b(?:scale|scam|skin|skull|scat|span)\s+surroundings?\b", "scan the room", norm_text)
+                        norm_text = re.sub(r"(?i)\b(?:scale|scam|skin)\s+room\b", "scan the room", norm_text)
+                        norm_text = re.sub(r"(?i)\bscale\s+the\s+room\b", "scan the room", norm_text)
+                        # If user simply says "scale" or "Bupi scale"
+                        norm_text = re.sub(r"(?i)\bBupi[,\s]+scale\b", "Bupi, scan the room", norm_text)
+                        if norm_text.lower().strip() in ["scale", "scale room", "scam room", "skin room"]:
+                            norm_text = "scan the room"
+                        # 3. Pathfinding / Obstacle dissection phonetic normalization
+                        norm_text = re.sub(r"(?i)\b(?:fast\s*finding|pass\s*finding|path\s*binding|past\s*finding)\b", "pathfinding", norm_text)
+                        norm_text = re.sub(r"(?i)\b(?:path|route)\s+for\s+(?:the\s+)?(?:second|2nd|sensing)\s+bot\b", "path for second bot", norm_text)
+                        if norm_text != text:
+                            log.info(f"Acoustic normalization applied: '{text}' -> '{norm_text}'")
+                            text = norm_text
         except Exception as ex:
             log.error(f"Unhandled error in _transcribe_and_emit: {ex}")
         finally:

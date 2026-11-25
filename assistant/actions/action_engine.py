@@ -1086,19 +1086,19 @@ def _start_autonomous_room_scan(match=None):
   try:
     try:
       import bupi_node_server
-      bupi_node_server.dispatch_to_esp32('{"action":"auto","mode":"AUTO","bot_id":"bupi_01"}', target_bot_id="bupi_01")
-      bupi_node_server.dispatch_to_esp32("P", target_bot_id="bupi_01")
+      bupi_node_server.dispatch_to_esp32("R", target_bot_id="bupi_01")
+      bupi_node_server.dispatch_to_esp32('{"action":"radar_scan","bot_id":"bupi_01"}', target_bot_id="bupi_01")
     except Exception:
       pass
     from agents.autonomous_goal_agent import goal_agent
-    threading.Thread(target=goal_agent.start_mission, args=("explore and map the room avoiding obstacles",), daemon=True).start()
-    return "Starting autonomous room scan and spatial mapping. Navigating forward."
+    threading.Thread(target=goal_agent.start_mission, args=("ultrasonic radar scan for obstacle dissection and pathfinding for second bot",), daemon=True).start()
+    return "Initiating ultrasonic radar scan and obstacle pathfinding for Bot 2."
   except Exception as e:
     return f"Autonomous scan started: {e}"
 
 PATTERNS = [
     (re.compile(r"^(?:boopi\s+|bupi\s+|boobie\s+|bopi\s+)?(?:stop|halt|freeze|brake|stop moving|stop the robot|shut down|stop robot|emergency stop)$", re.I), _emergency_robot_stop),
-    (re.compile(r"^(?:boopi\s+|bupi\s+|boobie\s+|bopi\s+)?(?:scan the room|scan room|start scanning|explore the room|explore room|map the room|scan and map|start exploring)$", re.I), _start_autonomous_room_scan),
+    (re.compile(r"^(?:boopi\s+|bupi\s+|boobie\s+|bopi\s+)?(?:scan the room|scan room|start scanning|scan area|scan surrounding|scan surroundings|obstacle dissection|dissect obstacles|pathfinding|find path|find the path|path for second bot|path for bot 2|find path for bot 2|find path for second bot|map the room|scan and map|start exploring)$", re.I), _start_autonomous_room_scan),
     (re.compile(r"(?:call me|my name is)\s+(.+)", re.I), _set_name),
     (re.compile(r"(?:remember that|note that)\s+(.+)", re.I), _remember_fact),
     (re.compile(r"(?:search\s+(?:on\s+)?youtube\s+for|search\s+for\s+(.+?)\s+on\s+youtube|youtube\s+search\s+(?:for\s+)?)\s*(.+)", re.I), _search_youtube),

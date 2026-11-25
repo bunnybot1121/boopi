@@ -33,6 +33,7 @@ class PolicyType(str, Enum):
     SWARM_COOPERATIVE = "SWARM_COOPERATIVE"     # Synchronized dual-robot mission (Scout + Specialist in tandem)
     ODOMETRY_REPORT = "ODOMETRY_REPORT"         # Instant status report of steps, distance from laptop/boopi, and Cartesian pose
     RETURN_TO_ORIGIN = "RETURN_TO_ORIGIN"       # Closed-loop return to starting point using odometry & gyro
+    RADAR_PATHFINDING = "RADAR_PATHFINDING"     # Stationary ultrasonic servo radar sweep, obstacle dissection & pathfinding for Bot 2
 
 @dataclass
 class DynamicStopCondition:
@@ -696,27 +697,27 @@ class InstructionDecomposer:
                 report_fields=["people_count", "targets", "target_detected", "distance_m", "heading_deg", "confidence", "direction_description"]
             )
 
-        # Autonomous Room Scan & Spatial Mapping (Forward navigation + radar sweeping)
-        if re.search(r"\b(scan the room|scan room|map the room|scan and map|explore the room|explore room)\b", lower) and not re.search(r"\b(human|humans|person|people|someone|anyone|anybody)\b", lower):
+        # Ultrasonic Radar Obstacle Dissection & Second-Bot Pathfinding
+        if re.search(r"\b(scan the room|scan room|scan area|scan surrounding|scan surroundings|obstacle dissection|dissect obstacles|pathfinding|find path|find the path|path for second bot|path for bot 2|find path for bot 2|find path for second bot|scan|radar scan)\b", lower) and not re.search(r"\b(human|humans|person|people|someone|anyone|anybody)\b", lower):
             return DynamicMissionPlan(
                 raw_instruction=text,
-                goal_name="AUTONOMOUS_ROOM_SCAN_MAPPING",
-                goal_description="Advance forward, sweep servo ultrasonic radar, map obstacles, and explore room",
-                policy_type=PolicyType.EXPLORE_SAFE,
-                primary_action="MOVE_FORWARD",
-                speed_percent=55,
-                target_bot=target_bot,
-                swarm_mode=swarm_mode,
-                suppress_bot=suppress_bot,
+                goal_name="RADAR_PATHFINDING_SCAN",
+                goal_description="Ultrasonic servo radar sweep, obstacle dissection, and navigable path planning for Bot 2",
+                policy_type=PolicyType.RADAR_PATHFINDING,
+                primary_action="RADAR_SWEEP",
+                speed_percent=0,
+                target_bot="bupi_01",
+                swarm_mode=False,
+                suppress_bot=None,
                 stop_condition=DynamicStopCondition(
-                    sensor="odometry_distance",
-                    operator=">=",
-                    threshold=5.0,
-                    description="Autonomous room scan and corridor exploration completed"
+                    sensor="timer",
+                    operator="timeout",
+                    threshold=8.0,
+                    description="Ultrasonic radar sweep and obstacle path calculation completed"
                 ),
-                timeout_seconds=45.0,
-                sample_sensors=["ultrasonic", "imu", "pir", "gas"],
-                report_fields=["obstacles_avoided", "distance_m", "steps_taken", "summary"]
+                timeout_seconds=15.0,
+                sample_sensors=["ultrasonic", "imu"],
+                report_fields=["target_path_angle", "clearance_cm", "obstacles_dissected", "path_for_bot2", "summary"]
             )
 
         # Presence / Human / Room Search Commands

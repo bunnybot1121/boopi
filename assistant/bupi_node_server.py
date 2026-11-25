@@ -238,7 +238,7 @@ def handle_incoming_telemetry(data: dict, source: str = "serial", ws=None):
         hardware_clients_by_bot[bot_id] = ws
 
     # Extract raw readings
-    dist = float(data.get("d_cm", data.get("distance_cm", data.get("distance", 150.0))))
+    dist = float(data.get("distance_cm", data.get("d_cm", data.get("d1_cm", data.get("u1_cm", data.get("distance", 150.0))))))
     pir = int(data.get("pir", data.get("motion", 0)))
     pitch = float(data.get("pitch", 0.0))
     roll = float(data.get("roll", 0.0))

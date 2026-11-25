@@ -4,52 +4,32 @@
 <head>
     <meta charset="UTF-8">
     <title>Bupi Hub</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="bwe_simulator.css">
     <link rel="stylesheet" href="missions.css">
     <link rel="stylesheet" href="bupi_autonomous.css">
+    <link rel="stylesheet" href="e_ink_theme.css">
 
     <style>
         :root {
-            --bg-color: rgba(248, 249, 254, 0.6);
-            --sidebar-bg: rgba(255, 255, 255, 0.7);
-            --primary: #8e94f2;
-            --primary-hover: #7b81ea;
-            --text-dark: #2d3748;
-            --text-light: #718096;
-            --border-color: rgba(226, 232, 240, 0.6);
-            --glass-border: 1px solid rgba(255, 255, 255, 0.5);
-            --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
-            --font-family: 'Inter', sans-serif;
-            --accent-green: #48bb78;
-        }
-
-        @keyframes pulse-anim {
-            0% {
-                transform: scale(0.95);
-                box-shadow: 0 0 0 0 rgba(72, 187, 120, 0.7);
-            }
-
-            70% {
-                transform: scale(1);
-                box-shadow: 0 0 0 6px rgba(72, 187, 120, 0);
-            }
-
-            100% {
-                transform: scale(0.95);
-                box-shadow: 0 0 0 0 rgba(72, 187, 120, 0);
-            }
-        }
-
-        .pulse-active {
-            animation: pulse-anim 2s infinite;
+            --bg-color: var(--eink-bg);
+            --sidebar-bg: var(--eink-panel);
+            --primary: var(--eink-ink);
+            --primary-hover: #000000;
+            --text-dark: var(--eink-ink);
+            --text-light: var(--eink-ink-secondary);
+            --border-color: var(--eink-border-subtle);
+            --glass-border: 1.5px solid var(--eink-border);
+            --glass-shadow: var(--eink-shadow-sm);
+            --font-family: var(--eink-font-sans);
+            --accent-green: var(--eink-ink);
         }
 
         body {
             margin: 0;
             padding: 0;
             font-family: var(--font-family);
-            background: linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%);
+            background: var(--eink-bg);
             display: flex;
             height: 100vh;
             overflow: hidden;

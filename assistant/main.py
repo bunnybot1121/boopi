@@ -481,12 +481,12 @@ def start_listening():
 
 # Thinking Watchdog: Guarantees Bupi NEVER gets stuck in thinking state
 thinking_watchdog = QTimer()
-thinking_watchdog.setInterval(15000) # 15 seconds max thinking timeout
+thinking_watchdog.setInterval(6000) # 6 seconds max thinking safety timeout
 thinking_watchdog.setSingleShot(True)
 
 def on_thinking_timeout():
     if state_mgr.current == "thinking":
-        print("[Watchdog] ⚠️ Thinking state timed out after 15s. Gracefully informing user and resetting...", flush=True)
+        print("[Watchdog] ⚠️ Thinking state timed out after 6s. Gracefully informing user and resetting...", flush=True)
         try:
             ai.interrupt()
         except Exception:
@@ -835,16 +835,18 @@ def _handle_transcription(text: str):
             payload = fast_intent.get("payload", {})
             print(f"[Mode 2 Fast-Pass] ⚡ Matched: {itype} -> {payload}", flush=True)
 
-            if itype == "autonomous_mission":
+            if itype in ["autonomous_mission", "radar_pathfinding"]:
                 mission_text = payload.get("mission", text)
                 try:
                     from agents.autonomous_goal_agent import goal_agent
                     # Wire direct speech callback for instant low-latency speech feedback
                     goal_agent._tts_callback = lambda t: m2_bridge.do_speak.emit(t)
-                    state_mgr.force("thinking")
                     res = goal_agent.start_mission(mission_text)
                     print(f"[Mode 2 Mission Started] {res}", flush=True)
+                    state_mgr.force("talking")
+                    speaker.say(res)
                 except Exception as me:
+                    state_mgr.force("idle")
                     speaker.say(f"Could not start autonomous mission: {me}")
                 return
 

@@ -452,6 +452,8 @@ class AutonomousGoalAgent:
             res = self._run_odometry_report_mission(plan, start_time)
         elif plan.policy_type == PolicyType.RETURN_TO_ORIGIN:
             res = self._run_return_to_origin_mission(plan, start_time)
+        elif plan.policy_type == PolicyType.RADAR_PATHFINDING:
+            res = self._run_radar_pathfinding_scan_mission(plan, start_time)
         else:
             res = self._run_explore_safe_mission(plan, start_time)
 
@@ -1894,6 +1896,128 @@ class AutonomousGoalAgent:
         self.speak(f"Obstacle bypassed via {chosen}.")
         self.record_event("OBSTACLE_BYPASSED", f"Obstacle at {current_dist:.1f} cm bypassed by {bot_id} via {chosen}")
         return chosen
+
+    def _run_radar_pathfinding_scan_mission(self, plan: DynamicMissionPlan, start_time: float) -> Dict[str, Any]:
+        """
+        Stationary Ultrasonic Radar Sweep & Obstacle Dissection:
+        - Scout Bot 1 keeps wheel motors stopped.
+        - Commands ESP32 servo turret to sweep HC-SR04 ultrasonic sensor across 9 sectors (30° to 150°).
+        - Dissects obstacles across Left, Center, and Right corridors.
+        - Identifies optimal navigable path angle for Bot 2 (Sensing / Specialist bot).
+        - Broadcasts planned path to Bot 2 and reports debrief verbally.
+        """
+        self.update_display("RADAR SCAN", "DISSECTING PATH")
+        self.speak("Initiating ultrasonic radar scan and obstacle pathfinding for Bot 2.")
+
+        # 1. Guarantee scout wheels are stopped
+        self.stop_all_motors(bot_id="bupi_01")
+        time.sleep(0.15)
+
+        # 2. Trigger ESP32 hardware radar sweep
+        try:
+            import bupi_node_server
+            bupi_node_server.dispatch_to_esp32("R", target_bot_id="bupi_01")
+            bupi_node_server.dispatch_to_esp32('{"action":"radar_scan","bot_id":"bupi_01"}', target_bot_id="bupi_01")
+        except Exception:
+            pass
+        self.publish_cmd("bupi/actuators/motors/cmd", "stop")
+
+        # 3. Collect sector scan data across the 9 sectors
+        sectors = [30.0, 45.0, 60.0, 75.0, 90.0, 105.0, 120.0, 135.0, 150.0]
+        scan_results = {}
+        sample_start = time.time()
+        
+        # Poll for live sector sweep telemetry for up to 3.5 seconds
+        while (time.time() - sample_start) < 3.5 and not self.is_cancelled():
+            try:
+                from bupi_node_server import get_latest_telemetry
+                telem = get_latest_telemetry("bupi_01")
+                curr_ang = float(telem.get("s1_angle", telem.get("s1_ang", 90.0)))
+                d_val = float(telem.get("distance_cm", telem.get("d1_cm", telem.get("u1_cm", 200.0))))
+                nearest_sector = min(sectors, key=lambda s: abs(s - curr_ang))
+                scan_results[nearest_sector] = d_val
+            except Exception:
+                pass
+            time.sleep(0.08)
+
+        # Fallback for any unpolled sectors
+        for s in sectors:
+            if s not in scan_results or scan_results[s] <= 0:
+                try:
+                    from bupi_node_server import get_latest_telemetry
+                    telem = get_latest_telemetry("bupi_01")
+                    base_dist = float(telem.get("distance_cm", telem.get("d1_cm", 160.0)))
+                except Exception:
+                    base_dist = 160.0
+                scan_results[s] = base_dist
+
+        # 4. Obstacle Dissection
+        left_dist = min([scan_results[s] for s in [30.0, 45.0, 60.0]])
+        center_dist = min([scan_results[s] for s in [75.0, 90.0, 105.0]])
+        right_dist = min([scan_results[s] for s in [120.0, 135.0, 150.0]])
+
+        obstacles_found = []
+        if left_dist < 40.0:
+            obstacles_found.append(f"Left obstacle at {left_dist:.0f}cm")
+        if center_dist < 40.0:
+            obstacles_found.append(f"Front barrier at {center_dist:.0f}cm")
+        if right_dist < 40.0:
+            obstacles_found.append(f"Right barrier at {right_dist:.0f}cm")
+
+        # 5. Determine best corridor for Bot 2
+        best_angle = 90.0
+        best_clearance = center_dist
+        if left_dist > best_clearance and left_dist > right_dist:
+            best_angle = 45.0
+            best_clearance = left_dist
+        elif right_dist > best_clearance:
+            best_angle = 135.0
+            best_clearance = right_dist
+
+        target_bearing = round(best_angle - 90.0, 1)
+        status_path = "OPEN_CORRIDOR" if best_clearance >= 40.0 else "NARROW_PASSAGE"
+
+        # 6. Publish planned path for Bot 2 (Sensing / Specialist bot)
+        path_payload = {
+            "type": "planned_path",
+            "source_bot": "bupi_01",
+            "target_bot": "bupi_02",
+            "safe_heading_deg": best_angle,
+            "relative_bearing_deg": target_bearing,
+            "clearance_cm": round(best_clearance, 1),
+            "front_clearance_cm": round(center_dist, 1),
+            "status": status_path,
+            "timestamp": time.time()
+        }
+        self.publish_cmd("bupi/v1/bot2/nav/planned_path", json.dumps(path_payload))
+
+        obs_summary = ", ".join(obstacles_found) if obstacles_found else "No immediate barriers within 40 centimeters"
+        verbal_report = (
+            f"Radar scan complete. Obstacle dissection: {obs_summary}. "
+            f"Safe path for Bot 2 identified at {best_angle:.0f} degrees with {best_clearance:.0f} centimeters clearance."
+        )
+
+        self.update_display("PATH PLANNED", f"BOT 2 -> {best_angle:.0f}°")
+        self.speak(verbal_report)
+
+        findings = {
+            "instruction": plan.raw_instruction,
+            "goal": plan.goal_name,
+            "status": "COMPLETED: RADAR_PATHFINDING_DONE",
+            "target_path_angle": best_angle,
+            "relative_bearing_deg": target_bearing,
+            "clearance_cm": best_clearance,
+            "sector_map": scan_results,
+            "obstacles": obstacles_found,
+            "path_for_bot2": path_payload,
+            "summary": verbal_report,
+            "duration_seconds": round(time.time() - start_time, 2)
+        }
+
+        self._compile_and_save_report("COMPLETED: RADAR_PATHFINDING_DONE", verbal_report, findings)
+        self.current_status = "COMPLETED"
+        self.current_mission_name = "IDLE"
+        return findings
 
     def _run_explore_safe_mission(self, plan: DynamicMissionPlan, start_time: float) -> Dict[str, Any]:
         self.update_display("EXPLORING", "SAFE NAVIGATION")

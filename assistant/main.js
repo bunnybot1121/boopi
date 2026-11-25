@@ -199,6 +199,8 @@ function createWindow() {
   }, 1200);
 }
 
+let userInitiatedQuit = false;
+
 function spawnEngine() {
   const venvPython = path.join(__dirname, 'venv312', 'Scripts', 'python.exe');
   if (!fs.existsSync(venvPython)) {
@@ -369,6 +371,10 @@ function spawnEngine() {
 
   pyEngine.on('close', (code) => {
     console.log(`Python engine exited with code ${code}`);
+    try { fs.appendFileSync('debug_log.txt', `Python engine exited with code ${code}\n`); } catch(e) {}
+    if (!userInitiatedQuit && code !== 0) {
+      console.error(`[Main Engine Critical] Python backend exited unexpectedly with code ${code}`);
+    }
     app.quit();
   });
 }

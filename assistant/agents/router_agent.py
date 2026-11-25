@@ -141,6 +141,14 @@ class RouterAgent:
                 "payload": {}
             }
 
+        # 3b. Ultrasonic Radar Obstacle Dissection & Second-Bot Pathfinding (<1ms fast-pass)
+        if re.search(r"\b(scan the room|scan room|scale room|scale the room|scam room|skin room|start scanning|scan area|scan surrounding|scan surroundings|scan for obstacles|obstacle dissection|dissect obstacles|dissect the obstacles|pathfinding|find path|find the path|path for second bot|path for bot 2|find path for bot 2|find path for second bot|find path for sensing bot)\b", clean) or \
+           clean in ["scan", "scale", "radar scan", "pathfind", "pathfinding", "find path", "scan path"]:
+            return {
+                "type": "radar_pathfinding",
+                "payload": {"mission": "ultrasonic radar scan for obstacle dissection and pathfinding for second bot"}
+            }
+
         # 4. Quick Sensor Telemetry Queries (<1ms bypass)
         # Evaluated before multi-step missions so quick readings ("check the temperature", "gas level") return instant telemetry
         is_explicit_mission = bool(

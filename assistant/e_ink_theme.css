@@ -1,0 +1,523 @@
+/* ==========================================================================
+   BUPI E-INK DESIGN SYSTEM (ELECTRONIC PAPER / MONOCHROME TACTILE INTERFACE)
+   Target: Bupi Hub, Missions, Telemetry, and Auxiliary Companion Windows
+   Aesthetic: High-contrast E-paper, Kindle/reMarkable minimalism, stark ink lines,
+              tactile state inversions, and technical monospace data displays.
+   ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+:root {
+  /* Paper Surfaces */
+  --eink-bg: #f5f4ef;
+  --eink-bg-paper: #f9f8f4;
+  --eink-panel: #ebe8df;
+  --eink-panel-alt: #e3dfd4;
+  --eink-card: #ffffff;
+  
+  /* Carbon Inks */
+  --eink-ink: #111111;
+  --eink-ink-secondary: #3c3c3c;
+  --eink-ink-muted: #6b6b6b;
+  --eink-ink-faint: #9c9a92;
+  
+  /* Borders & Rules */
+  --eink-border: #1a1a1a;
+  --eink-border-heavy: #000000;
+  --eink-border-subtle: #d0cdc1;
+  --eink-border-dither: dashed 1px #888888;
+  
+  /* High-Contrast Inversion */
+  --eink-invert-bg: #111111;
+  --eink-invert-text: #f5f4ef;
+  --eink-invert-border: #000000;
+
+  /* Shadows (Hard-edged physical offsets, 0 blur) */
+  --eink-shadow-sm: 2px 2px 0px #111111;
+  --eink-shadow-md: 3px 3px 0px #111111;
+  --eink-shadow-lg: 5px 5px 0px #111111;
+  --eink-shadow-pressed: 1px 1px 0px #111111;
+  
+  /* Geometry */
+  --eink-radius-sm: 2px;
+  --eink-radius-md: 4px;
+  --eink-radius-lg: 6px;
+  
+  /* Typography */
+  --eink-font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --eink-font-mono: 'JetBrains Mono', 'IBM Plex Mono', Menlo, Consolas, monospace;
+
+  /* Legacy Variable Overrides (Cleanly neutralizes old glassmorphic gradients) */
+  --bg-color: var(--eink-bg);
+  --sidebar-bg: var(--eink-panel);
+  --primary: var(--eink-ink);
+  --primary-hover: #000000;
+  --text-dark: var(--eink-ink);
+  --text-light: var(--eink-ink-secondary);
+  --border-color: var(--eink-border-subtle);
+  --glass-border: 1px solid var(--eink-border);
+  --glass-shadow: var(--eink-shadow-sm);
+  --font-family: var(--eink-font-sans);
+  --accent-green: var(--eink-ink);
+}
+
+/* ==========================================================================
+   GLOBAL DOCUMENT RESETS & E-PAPER TEXTURE
+   ========================================================================== */
+html, body {
+  background-color: var(--eink-bg) !important;
+  background-image: radial-gradient(#d3cfc2 0.75px, transparent 0.75px) !important;
+  background-size: 12px 12px !important;
+  color: var(--eink-ink) !important;
+  font-family: var(--eink-font-sans) !important;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: subpixel-antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Eliminate All Blurry Glassmorphism & Purple Gradients */
+.glass-panel,
+.app-container,
+.main-content,
+.sidebar,
+.content-panel,
+.auto-cmd-banner,
+.mission-status-banner,
+.missions-card,
+.card {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: var(--eink-panel) !important;
+  border-radius: var(--eink-radius-md) !important;
+  box-shadow: none !important;
+}
+
+.app-container {
+  background: var(--eink-bg) !important;
+  border: 1.5px solid var(--eink-border) !important;
+  box-shadow: var(--eink-shadow-lg) !important;
+}
+
+/* ==========================================================================
+   SIDEBAR & NAVIGATION (CLASSIC E-READER TACTILE MENU)
+   ========================================================================== */
+.sidebar {
+  background: var(--eink-panel) !important;
+  border-right: 1.5px solid var(--eink-border) !important;
+  padding: 16px 0 !important;
+}
+
+.header-logo {
+  border-bottom: 1.5px solid var(--eink-border);
+  padding: 0 16px 16px 16px !important;
+  margin-bottom: 16px !important;
+}
+
+.header-logo .logo-icon {
+  background: none !important;
+  -webkit-background-clip: unset !important;
+  -webkit-text-fill-color: var(--eink-ink) !important;
+  color: var(--eink-ink) !important;
+  font-family: var(--eink-font-mono) !important;
+  font-weight: 700 !important;
+}
+
+.header-text h1 {
+  font-family: var(--eink-font-sans) !important;
+  font-size: 17px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.3px !important;
+  color: var(--eink-ink) !important;
+  text-transform: uppercase !important;
+}
+
+.header-text p {
+  font-family: var(--eink-font-mono) !important;
+  font-size: 10.5px !important;
+  color: var(--eink-ink-muted) !important;
+  letter-spacing: 0.5px !important;
+  text-transform: uppercase !important;
+}
+
+.nav-menu {
+  gap: 4px !important;
+  padding: 0 8px !important;
+}
+
+.nav-item {
+  border-radius: var(--eink-radius-sm) !important;
+  border: 1px solid transparent !important;
+  color: var(--eink-ink-secondary) !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  padding: 10px 14px !important;
+  transition: none !important; /* Authentic E-ink instant state switch */
+}
+
+.nav-item:hover {
+  background: var(--eink-card) !important;
+  color: var(--eink-ink) !important;
+  border: 1px solid var(--eink-border) !important;
+}
+
+/* E-Ink High-Contrast Inversion for Active Nav Tab */
+.nav-item.active {
+  background: var(--eink-invert-bg) !important;
+  color: var(--eink-invert-text) !important;
+  border: 1.5px solid var(--eink-invert-border) !important;
+  box-shadow: var(--eink-shadow-sm) !important;
+}
+
+.nav-item.active i,
+.nav-item.active span {
+  color: var(--eink-invert-text) !important;
+}
+
+.nav-item:focus-visible {
+  outline: 2px solid var(--eink-ink) !important;
+  outline-offset: 2px !important;
+}
+
+/* ==========================================================================
+   MAIN CONTENT PANELS
+   ========================================================================== */
+.main-content {
+  background: var(--eink-bg) !important;
+  padding: 16px !important;
+}
+
+.content-panel {
+  background: var(--eink-bg-paper) !important;
+  border: 1.5px solid var(--eink-border) !important;
+  border-radius: var(--eink-radius-md) !important;
+  box-shadow: var(--eink-shadow-md) !important;
+  padding: 20px !important;
+  margin-top: 14px !important;
+}
+
+/* Window Control Buttons (Crisp Minimalist E-Ink Buttons) */
+.window-controls {
+  gap: 8px !important;
+}
+
+.win-btn {
+  width: 18px !important;
+  height: 18px !important;
+  border-radius: var(--eink-radius-sm) !important;
+  border: 1.5px solid var(--eink-border) !important;
+  background: var(--eink-card) !important;
+  font-family: var(--eink-font-mono) !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  color: var(--eink-ink) !important;
+  box-shadow: 1px 1px 0px var(--eink-border) !important;
+  transition: none !important;
+}
+
+.win-btn:hover {
+  background: var(--eink-ink) !important;
+  color: var(--eink-bg) !important;
+  transform: translate(1px, 1px) !important;
+  box-shadow: none !important;
+}
+
+.win-btn.close:before { content: "×"; line-height: 14px; }
+.win-btn.min:before { content: "−"; line-height: 14px; }
+.win-btn.max:before { content: "+"; line-height: 14px; }
+
+/* ==========================================================================
+   BUTTONS & TACTILE INTERACTIVE CONTROLS
+   ========================================================================== */
+button,
+.auto-send-btn,
+.action-btn,
+.btn-primary,
+.preset-btn,
+.sensor-btn,
+.voice-trigger-btn {
+  background: var(--eink-card) !important;
+  color: var(--eink-ink) !important;
+  border: 1.5px solid var(--eink-border) !important;
+  border-radius: var(--eink-radius-sm) !important;
+  box-shadow: var(--eink-shadow-sm) !important;
+  font-family: var(--eink-font-mono) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  padding: 8px 14px !important;
+  cursor: pointer !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.3px !important;
+  transition: none !important;
+}
+
+/* Hover: Invert to solid ink */
+button:hover,
+.auto-send-btn:hover,
+.action-btn:hover,
+.btn-primary:hover,
+.preset-btn:hover {
+  background: var(--eink-invert-bg) !important;
+  color: var(--eink-invert-text) !important;
+  border-color: var(--eink-border-heavy) !important;
+  transform: translate(1px, 1px) !important;
+  box-shadow: var(--eink-shadow-pressed) !important;
+}
+
+/* Active / Pressed: Flush to paper */
+button:active,
+.auto-send-btn:active,
+.action-btn:active,
+.preset-btn:active {
+  transform: translate(2px, 2px) !important;
+  box-shadow: none !important;
+}
+
+/* Focus Visible for Accessibility Baseline */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--eink-ink) !important;
+  outline-offset: 2px !important;
+}
+
+/* Disabled State */
+button:disabled,
+.btn:disabled {
+  background: var(--eink-panel) !important;
+  color: var(--eink-ink-faint) !important;
+  border-color: var(--eink-border-subtle) !important;
+  box-shadow: none !important;
+  cursor: not-allowed !important;
+}
+
+/* ==========================================================================
+   INPUTS, FORMS & TEXTAREAS
+   ========================================================================== */
+input[type="text"],
+input[type="number"],
+input[type="password"],
+textarea,
+select,
+.title-input,
+.editor-area {
+  background: var(--eink-card) !important;
+  color: var(--eink-ink) !important;
+  border: 1.5px solid var(--eink-border) !important;
+  border-radius: var(--eink-radius-sm) !important;
+  padding: 8px 12px !important;
+  font-family: var(--eink-font-mono) !important;
+  font-size: 13px !important;
+  box-shadow: inset 1px 1px 0px rgba(0, 0, 0, 0.05) !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--eink-ink-faint) !important;
+  font-style: italic !important;
+}
+
+.title-input {
+  border: none !important;
+  border-bottom: 2px solid var(--eink-border) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  padding: 6px 0 !important;
+  margin-bottom: 14px !important;
+}
+
+.editor-area {
+  border: 1.5px solid var(--eink-border) !important;
+  font-family: var(--eink-font-mono) !important;
+  font-size: 13.5px !important;
+  line-height: 1.6 !important;
+}
+
+/* ==========================================================================
+   CARDS, METRICS & TELEMETRY SENSOR GRID
+   ========================================================================== */
+.card,
+.missions-card,
+.sensor-card,
+.metric-box,
+.telemetry-card,
+.radar-hud-card {
+  background: var(--eink-card) !important;
+  border: 1.5px solid var(--eink-border) !important;
+  border-radius: var(--eink-radius-sm) !important;
+  box-shadow: var(--eink-shadow-sm) !important;
+  padding: 12px 14px !important;
+  color: var(--eink-ink) !important;
+}
+
+.card-title,
+.sensor-label,
+.metric-title {
+  font-family: var(--eink-font-mono) !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  color: var(--eink-ink-secondary) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.5px !important;
+  border-bottom: 1px dashed var(--eink-border-subtle) !important;
+  padding-bottom: 4px !important;
+  margin-bottom: 8px !important;
+}
+
+.sensor-val,
+.sensor-value,
+.metric-value,
+.telemetry-val {
+  font-family: var(--eink-font-mono) !important;
+  font-size: 20px !important;
+  font-weight: 700 !important;
+  color: var(--eink-ink) !important;
+}
+
+/* ==========================================================================
+   STATUS BADGES & E-INK DITHERED CHIPS
+   ========================================================================== */
+.badge,
+.status-badge,
+.mission-badge-type,
+.mission-badge-status,
+.auto-chip,
+.tag {
+  background: var(--eink-bg-paper) !important;
+  color: var(--eink-ink) !important;
+  border: 1.5px solid var(--eink-border) !important;
+  border-radius: var(--eink-radius-sm) !important;
+  font-family: var(--eink-font-mono) !important;
+  font-size: 10.5px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.5px !important;
+  padding: 3px 8px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+}
+
+/* Inverted / High-Priority Badges */
+.status-running,
+.badge-active,
+.status-danger,
+.badge-critical {
+  background: var(--eink-invert-bg) !important;
+  color: var(--eink-invert-text) !important;
+  border-color: var(--eink-border-heavy) !important;
+}
+
+.status-idle,
+.badge-standby {
+  background: var(--eink-card) !important;
+  color: var(--eink-ink-secondary) !important;
+  border: 1px solid var(--eink-border) !important;
+}
+
+/* Pulse animation replacement: High-contrast blink (E-ink style) */
+@keyframes eink-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.pulse-active {
+  animation: eink-pulse 1.2s steps(2, start) infinite !important;
+}
+
+/* ==========================================================================
+   RADAR, CANVAS & SPATIAL HUDS
+   ========================================================================== */
+canvas,
+#radarCanvas,
+#sonarCanvas,
+#spatialCanvas {
+  background: var(--eink-card) !important;
+  border: 2px solid var(--eink-border) !important;
+  border-radius: var(--eink-radius-sm) !important;
+  box-shadow: var(--eink-shadow-sm) !important;
+  image-rendering: pixelated;
+}
+
+/* Banners, Alerts & Notifications (High-contrast E-paper cards) */
+#flashSuccessBanner,
+#flashProgressBanner,
+.alert-banner,
+.notification-banner {
+  background: var(--eink-card) !important;
+  color: var(--eink-ink) !important;
+  border: 2px solid var(--eink-border-heavy) !important;
+  border-radius: var(--eink-radius-sm) !important;
+  box-shadow: var(--eink-shadow-md) !important;
+}
+
+#flashSuccessBanner {
+  background: var(--eink-invert-bg) !important;
+  color: var(--eink-invert-text) !important;
+}
+
+/* Linear-gradient exterminator: ensures all badges and inline colored pills flatten to monochrome */
+[style*="linear-gradient"] {
+  background-image: none !important;
+}
+
+/* ==========================================================================
+   CUSTOM E-INK MONOCHROME SCROLLBARS
+   ========================================================================== */
+::-webkit-scrollbar {
+  width: 9px !important;
+  height: 9px !important;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--eink-panel) !important;
+  border-left: 1px solid var(--eink-border-subtle) !important;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--eink-ink) !important;
+  border: 2px solid var(--eink-panel) !important;
+  border-radius: 0 !important;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #000000 !important;
+}
+
+/* ==========================================================================
+   SEPARATORS & DITHER DIVIDERS
+   ========================================================================== */
+hr, .divider {
+  border: none !important;
+  border-top: 1.5px dashed var(--eink-border-subtle) !important;
+  margin: 14px 0 !important;
+}
+
+/* ==========================================================================
+   RESPONSIVE DESIGN BREAKPOINTS (MOBILE-FIRST)
+   ========================================================================== */
+@media (max-width: 768px) {
+  .app-container {
+    flex-direction: column !important;
+  }
+  .sidebar {
+    width: 100% !important;
+    height: auto !important;
+    border-right: none !important;
+    border-bottom: 2px solid var(--eink-border) !important;
+    padding: 10px 0 !important;
+  }
+  .nav-menu {
+    flex-direction: row !important;
+    flex-wrap: wrap !important;
+  }
+  .nav-item {
+    padding: 8px 10px !important;
+    font-size: 12px !important;
+  }
+  .content-panel {
+    padding: 12px !important;
+  }
+}

@@ -77,7 +77,12 @@ IPAddress dnsServer(192, 168, 137, 1);
 //   - Motor B (Right): PWMB = 32, BIN1 = 33, BIN2 = 14
 //   - Dual Ultrasonic: U1 (5, 23), U2 (16, 4)
 //   - Dual Servos    : S1 (13), S2 (17)
-#define PINOUT_CONFIG       0
+// Set PINOUT_CONFIG to 1 for 15-Pin Canonical Dual-Servo Turret Pinout (Production Hardware)
+// Set PINOUT_CONFIG to 0 for Legacy Breadboard Pinout (STBY on 13, Motor B on 33/14/12)
+#define PINOUT_CONFIG       1
+
+// Optional TB6612 STBY Override: Set to a GPIO pin if STBY is wired to a pin (e.g. 4 or 13); keep -1 if tied to 3.3V
+#define PIN_STBY_OVERRIDE   -1
 
 // Optional Servo Pin Overrides for PINOUT_CONFIG 0:
 // - If TB6612 STBY is on GPIO 13: wire Servo 1 to GPIO 15 (avoids STBY conflict)
@@ -120,7 +125,7 @@ IPAddress dnsServer(192, 168, 137, 1);
   const int PIN_TB_PWMB       = 32;  // TB6612FNG Motor B Speed — PWM Output
   const int PIN_TB_BIN1       = 33;  // TB6612FNG Motor B Direction 1 — Output
   const int PIN_TB_BIN2       = 14;  // TB6612FNG Motor B Direction 2 — Output
-  const int PIN_TB_STBY       = -1;  // Tied to 3.3V in hardware; if >= 0 driven HIGH
+  const int PIN_TB_STBY       = PIN_STBY_OVERRIDE;  // Tied to 3.3V in hardware (-1); if >= 0 driven HIGH
 #endif
 
 // Wheel direction inversion flags for quick chassis bench calibration
@@ -203,8 +208,8 @@ bool wifiConnected = false;
 Servo servo1;
 Servo servo2;
 
-NodeMode node_mode = MODE_AUTO;
-PathState path_state = STATE_CRUISE_FORWARD;
+NodeMode node_mode = MODE_MANUAL;
+PathState path_state = STATE_MANUAL_HOLD;
 
 // Servos & Radar state
 float cur_s1_ang = 90.0f;
@@ -737,7 +742,8 @@ void evaluateBestCorridor() {
     if (stationary_radar_test) {
       Serial.println(F("[RADAR TEST] No open corridor found (Dead-End detected). Stationary test complete."));
       stationary_radar_test = false;
-      path_state = (node_mode == MODE_AUTO) ? STATE_CRUISE_FORWARD : STATE_MANUAL_HOLD;
+      stopMotors();
+      path_state = STATE_MANUAL_HOLD;
       writeServos(90.0f, 90.0f);
       return;
     }
@@ -759,8 +765,9 @@ void evaluateBestCorridor() {
   if (stationary_radar_test) {
     Serial.printf("[RADAR TEST COMPLETE] Target Path Angle: %.1f° (Turn Delta: %.1f°). Wheels not moved.\n", target_path_angle, turn_delta_deg);
     stationary_radar_test = false;
+    stopMotors();
     writeServos(90.0f, 90.0f);
-    path_state = (node_mode == MODE_AUTO) ? STATE_CRUISE_FORWARD : STATE_MANUAL_HOLD;
+    path_state = STATE_MANUAL_HOLD;
     return;
   }
 
@@ -886,7 +893,7 @@ String buildTelemetryJson() {
   snprintf(buf, sizeof(buf),
     "{\"type\":\"telemetry\",\"node\":\"BUPI-01\",\"bot_id\":\"%s\",\"device\":\"%s\",\"role\":\"%s\","
     "\"ts\":%lu,\"mode\":\"%s\",\"path_state\":\"%s\","
-    "\"s1_angle\":%.1f,\"s1_ang\":%.1f,\"u1_cm\":%.1f,\"d1_cm\":%.1f,"
+    "\"distance_cm\":%.1f,\"d_cm\":%.1f,\"s1_angle\":%.1f,\"s1_ang\":%.1f,\"u1_cm\":%.1f,\"d1_cm\":%.1f,"
     "\"s2_angle\":%.1f,\"s2_ang\":%.1f,\"u2_cm\":%.1f,\"d2_cm\":%.1f,"
     "\"delta_cm\":%.1f,\"delta_d\":%.1f,\"valid1\":%d,\"valid2\":%d,"
     "\"target_path_angle\":%.1f,\"turn_delta_deg\":%.1f,\"pir\":%d,"
@@ -897,6 +904,7 @@ String buildTelemetryJson() {
     now_ms,
     (node_mode == MODE_AUTO) ? "AUTO" : "MANUAL",
     st_name,
+    latest_u1_cm, latest_u1_cm,
     cur_s1_ang, cur_s1_ang, latest_u1_cm, latest_u1_cm,
     cur_s2_ang, cur_s2_ang, latest_u2_cm, latest_u2_cm,
     delta_d, delta_d, valid1 ? 1 : 0, valid2 ? 1 : 0,
@@ -1013,7 +1021,15 @@ void processCommandString(String cmd_str) {
     stopMotors();
     return;
   }
-  if (cmd_str.equalsIgnoreCase("scan") || cmd_str.equalsIgnoreCase("scan_room") || cmd_str.equalsIgnoreCase("explore")) {
+  if (cmd_str.equalsIgnoreCase("scan") || cmd_str.equalsIgnoreCase("scan_room") || cmd_str.equalsIgnoreCase("radar_scan") || cmd_str.equalsIgnoreCase("pathfinding")) {
+    stopMotors();
+    stationary_radar_test = true;
+    scan_sector_idx = 0;
+    path_state = STATE_RADAR_PATH_SCAN;
+    Serial.println(F("[CMD] Ultrasonic Radar Pathfinding Scan initiated (stationary chassis, active turret sweep)!"));
+    return;
+  }
+  if (cmd_str.equalsIgnoreCase("explore") || cmd_str.equalsIgnoreCase("auto_explore")) {
     node_mode = MODE_AUTO;
     stationary_radar_test = false;
     path_state = STATE_CRUISE_FORWARD;
@@ -1041,13 +1057,19 @@ void processCommandString(String cmd_str) {
       path_state = STATE_MANUAL_HOLD;
       stopMotors();
       Serial.println(F("[CMD] Emergency Stop executed. Standby mode active."));
-    } else if (cmd_str.indexOf("\"SCAN\"") != -1 || cmd_str.indexOf("\"scan\"") != -1 || cmd_str.indexOf("\"explore\"") != -1) {
+    } else if (cmd_str.indexOf("\"radar_scan\"") != -1 || cmd_str.indexOf("\"RADAR_SCAN\"") != -1 || cmd_str.indexOf("\"SCAN\"") != -1 || cmd_str.indexOf("\"scan\"") != -1 || cmd_str.indexOf("\"pathfinding\"") != -1) {
+      stopMotors();
+      stationary_radar_test = true;
+      scan_sector_idx = 0;
+      path_state = STATE_RADAR_PATH_SCAN;
+      Serial.println(F("[CMD] Ultrasonic Radar Pathfinding Scan initiated (stationary chassis, active turret sweep)!"));
+    } else if (cmd_str.indexOf("\"explore\"") != -1) {
       node_mode = MODE_AUTO;
       stationary_radar_test = false;
       path_state = STATE_CRUISE_FORWARD;
       writeServos(90.0f, 90.0f);
       moveForward(CRUISE_SPEED);
-      Serial.println(F("[CMD] Started CONTINUOUS AUTONOMOUS ROOM SCANNING & EXPLORATION."));
+      Serial.println(F("[CMD] Started CONTINUOUS AUTONOMOUS ROOM EXPLORATION."));
     } else if (cmd_str.indexOf("\"RESET_IMU\"") != -1) {
       yaw_deg = 0.0f;
     } else if (cmd_str.indexOf("\"action\"") != -1 || cmd_str.indexOf("\"cmd\"") != -1) {

@@ -42,16 +42,18 @@ echo [2/2] Creating desktop shortcut...
 set "USE_ICON=%ICO_FILE%"
 if not exist "%ICO_FILE%" set "USE_ICON=%ELECTRON_EXE%,0"
 
+set "VBS_LAUNCHER=%APP_DIR%Run_Bupi_Robot.vbs"
+
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$desktop = [Environment]::GetFolderPath('Desktop'); " ^
   "$shortcutPath = Join-Path $desktop 'Bupi.lnk'; " ^
   "$ws = New-Object -ComObject WScript.Shell; " ^
   "$sc = $ws.CreateShortcut($shortcutPath); " ^
-  "$sc.TargetPath = '%ELECTRON_EXE%'; " ^
-  "$sc.Arguments = [char]34 + '%APP_DIR%' + [char]34; " ^
+  "$sc.TargetPath = 'wscript.exe'; " ^
+  "$sc.Arguments = [char]34 + '%VBS_LAUNCHER%' + [char]34; " ^
   "$sc.WorkingDirectory = '%APP_DIR%'; " ^
   "$sc.IconLocation = '%USE_ICON%'; " ^
-  "$sc.Description = 'Bupi - Desktop AI Companion'; " ^
+  "$sc.Description = 'BUPI Autonomous Robot & Desktop AI Companion'; " ^
   "$sc.Save(); " ^
   "Write-Host ('Shortcut created at: ' + $shortcutPath)"
 
